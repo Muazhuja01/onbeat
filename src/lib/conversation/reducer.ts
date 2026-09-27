@@ -28,7 +28,8 @@ export type ConversationAction =
   | { type: "speakStart"; id: string; text: string; at: number }
   | { type: "speakEnd"; text: string }
   | { type: "notice"; text: string | null }
-  | { type: "reset" };
+  | { type: "reset" }
+  | { type: "cancelled" };
 
 export const PAUSED_NOTICE = "Suggestions are paused. Typing and speaking still work.";
 const MAX_TURNS = 50;
@@ -89,6 +90,11 @@ export function conversationReducer(state: ConversationState, action: Conversati
       return state.speaking === action.text ? { ...state, speaking: null } : state;
     case "notice":
       return { ...state, notice: action.text };
+    case "cancelled":
+      // A request was cancelled (e.g. the typed text was cleared) before it
+      // finished. Only a "thinking" status is stuck waiting on it; leave any
+      // other status (ready, paused, idle) alone.
+      return state.status === "thinking" ? { ...state, status: state.replies.length ? "ready" : "idle" } : state;
     case "reset":
       return { ...initialConversation, placeId: state.placeId, partnerId: state.partnerId };
   }

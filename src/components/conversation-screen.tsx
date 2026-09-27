@@ -8,7 +8,7 @@ import { useStableTargets } from "@/lib/conversation/use-stable-targets";
 import { useSuggestions } from "@/lib/conversation/use-suggestions";
 import { en } from "@/lib/language-packs/en";
 import { getBrowserMemory } from "@/lib/memory/browser";
-import type { MemoryStore } from "@/lib/memory/store";
+import { MemoryStore } from "@/lib/memory/store";
 import { SuggestClient } from "@/lib/suggest/client";
 import { getBrowserVoice } from "@/lib/voice/browser";
 import type { VoiceEngine, VoiceMode } from "@/lib/voice/engine";
@@ -49,11 +49,18 @@ function Screen() {
 
   useEffect(() => {
     let cancelled = false;
-    void getBrowserMemory().then((m) => {
-      if (cancelled) return;
-      setMemory(m);
-      if (!m.isDurable) dispatch({ type: "notice", text: "Notes won't be saved in this window." });
-    });
+    void getBrowserMemory()
+      .catch((err) => {
+        // A failed load (e.g. IndexedDB unavailable or blocked) must not
+        // leave the page blank forever: fall back to a session-only store.
+        console.error("getBrowserMemory failed, falling back to a session-only store", err);
+        return MemoryStore.create();
+      })
+      .then((m) => {
+        if (cancelled) return;
+        setMemory(m);
+        if (!m.isDurable) dispatch({ type: "notice", text: "Notes won't be saved in this window." });
+      });
     return () => {
       cancelled = true;
     };
@@ -99,13 +106,20 @@ function Screen() {
   }, [state.replies, announce]);
 
   const speak = useCallback(
-    (text: string) => {
+    (text: string, opts?: { isReaction?: boolean }) => {
       const t = text.trim();
       if (!t || !voice) return;
       void voice.speak(t);
-      void memory?.addPhrase(t, { now: new Date(), placeId: state.placeId, partnerId: state.partnerId });
+      // A quick reaction (e.g. "Thanks!") isn't a phrase the user composed;
+      // saving it would pollute their saved phrases.
+      if (opts?.isReaction) return;
+      void memory?.addPhrase(t, { now: new Date(), placeId: state.placeId, partnerId: state.partnerId }).then(() => {
+        // A cached result embeds style examples drawn from phrases, so a new
+        // phrase makes the cache stale (mirrors R13's reasoning for choosePersona).
+        client?.clearCache();
+      });
     },
-    [voice, memory, state.placeId, state.partnerId],
+    [voice, memory, client, state.placeId, state.partnerId],
   );
   const stop = useCallback(() => voice?.stop(), [voice]);
 
@@ -137,7 +151,7 @@ function Screen() {
     replyCount: state.replies.length,
     reactionCount: state.reactions.length,
     onReply: (i) => speak(state.replies[i]?.text ?? ""),
-    onReaction: (i) => speak(state.reactions[i]?.text ?? ""),
+    onReaction: (i) => speak(state.reactions[i]?.text ?? "", { isReaction: true }),
     onEscape: () => {
       if (state.speaking) {
         stop();
@@ -161,6 +175,9 @@ function Screen() {
   const choosePersona = useCallback(
     async (p: Persona) => {
       if (!memory) return;
+      // Cancel any request in flight for the old profile first, so its late
+      // result never lands on the new profile's screen.
+      client?.cancel();
       await memory.replaceAll(p.notes, p.phrases);
       // Notes and phrases changed, so cached suggestions are stale (R13).
       client?.clearCache();
@@ -223,7 +240,7 @@ function Screen() {
           </div>
           <div className="flex min-w-0 flex-col gap-6 [grid-area:side]">
             <SpokenCaption speaking={state.speaking} lastSpoken={state.lastSpoken} />
-            <ReactionBar reactions={state.reactions} onReact={speak} />
+            <ReactionBar reactions={state.reactions} onReact={(text) => speak(text, { isReaction: true })} />
             <ReplyList ref={replyListRef} replies={state.replies} speaking={state.speaking} status={state.status} onSpeak={speak} onStop={stop} />
             <Composer
               value={state.typed}

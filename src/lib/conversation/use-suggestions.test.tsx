@@ -126,6 +126,40 @@ describe("useSuggestions", () => {
     expect(result.current.state.replies.some((r) => r.text === "late")).toBe(false);
   });
 
+  it("returns to idle instead of staying stuck thinking when the typed text is cleared mid-request", async () => {
+    const calls: SuggestInput[] = [];
+    let resolveRequest: (() => void) | null = null;
+    const client = {
+      calls,
+      cancel: vi.fn(),
+      request: vi.fn(
+        (input: SuggestInput) =>
+          new Promise<SuggestUpdate | null>((resolve) => {
+            calls.push(input);
+            resolveRequest = () => resolve(null);
+          }),
+      ),
+    } as unknown as SuggestClient & { calls: SuggestInput[] };
+
+    const { result } = await setup(client);
+    // "zz" has no matching phrase, so status goes to "thinking" while the
+    // model request is outstanding, instead of resolving instantly from a
+    // local phrase match.
+    await act(async () => result.current.dispatch({ type: "typed", text: "zz" }));
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(result.current.state.status).toBe("thinking");
+
+    await act(async () => result.current.dispatch({ type: "typed", text: "" }));
+    expect(client.cancel).toHaveBeenCalled();
+    expect(result.current.state.status).toBe("idle");
+
+    await act(async () => {
+      resolveRequest?.();
+    });
+  });
+
   it("does not cancel a just-started partner-turn request when the client becomes available", async () => {
     const memory = await MemoryStore.create();
     const partnerReply: SuggestUpdate = { replies: [{ text: "Sure, here.", noteIds: [], source: "model" }], reactions: [], done: true };

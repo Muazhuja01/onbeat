@@ -65,4 +65,15 @@ describe("conversationReducer", () => {
     expect(s2.turns).toEqual([]);
     expect(s2.placeId).toBe("p");
   });
+
+  it("a cancelled request leaves status alone unless it was stuck thinking", () => {
+    expect(r(s0, { type: "cancelled" })).toBe(s0);
+
+    const thinking = r(s0, { type: "thinking" });
+    expect(thinking.status).toBe("thinking");
+    expect(r(thinking, { type: "cancelled" }).status).toBe("idle");
+
+    const thinkingWithReplies = { ...s0, status: "thinking" as const, replies: [reply("A")] };
+    expect(r(thinkingWithReplies, { type: "cancelled" }).status).toBe("ready");
+  });
 });

@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as browserMemory from "@/lib/memory/browser";
+import { MemoryStore } from "@/lib/memory/store";
 import type { SuggestInput, SuggestUpdate } from "@/lib/suggest/client";
 import type { Reply } from "@/lib/types";
 
@@ -37,10 +39,20 @@ vi.mock("@/lib/memory/browser", async () => {
 vi.mock("@/lib/suggest/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/suggest/client")>();
   class FakeSuggestClient {
-    cancel() {}
+    // Mirrors the real client's generation counter: cancel() bumps it, so an
+    // update for a request issued before the cancel is dropped when it
+    // finally answers instead of applying to whatever is on screen now.
+    private generation = 0;
+    cancel() {
+      this.generation++;
+    }
     clearCache() {}
     async request(input: SuggestInput, onUpdate: (u: SuggestUpdate) => void) {
-      h.requests.push({ input, onUpdate });
+      const generation = this.generation;
+      const guardedUpdate = (u: SuggestUpdate) => {
+        if (generation === this.generation) onUpdate(u);
+      };
+      h.requests.push({ input, onUpdate: guardedUpdate });
       return null;
     }
   }
@@ -54,6 +66,11 @@ const reply = (text: string): Reply => ({ text, noteIds: [], source: "model" });
 /** Answer the latest suggestion request. */
 function answer(...texts: string[]) {
   act(() => h.requests.at(-1)!.onUpdate({ replies: texts.map(reply), reactions: [], done: true }));
+}
+
+/** Answer the latest suggestion request with a reaction on offer. */
+function answerWithReaction(text: string) {
+  act(() => h.requests.at(-1)!.onUpdate({ replies: [], reactions: [{ id: "r1", text }], done: true }));
 }
 
 async function partnerSays(text: string) {
@@ -99,6 +116,21 @@ describe("ConversationScreen", () => {
 
     fireEvent.pointerLeave(list);
     expect(screen.getByRole("button", { name: "No, thank you." })).toBeInTheDocument();
+  });
+
+  it("cancels an in-flight request when switching profiles, so the old profile's late reply never appears", async () => {
+    await startWithMaya();
+    await partnerSays("What size?");
+    expect(h.requests).toHaveLength(1);
+
+    await userEvent.click(screen.getByRole("button", { name: "Example profiles" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^Tom/ }));
+    await screen.findByRole("heading", { name: "Replies" });
+
+    // The late result for Maya's request must never reach the screen now
+    // that Tom is the active profile.
+    answer("Large, please.");
+    expect(screen.queryByRole("button", { name: "Large, please." })).not.toBeInTheDocument();
   });
 
   it("announces new caption lines and each new set of replies", async () => {
@@ -151,6 +183,44 @@ describe("ConversationScreen", () => {
     expect(screen.getByRole("button", { name: "Stop saying: Large, please." })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Example profiles" }));
     expect(h.voice.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to a session-only memory store when loading memory fails, instead of staying blank", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(browserMemory, "getBrowserMemory").mockRejectedValueOnce(new Error("indexeddb boom"));
+
+    render(<ConversationScreen />);
+
+    // The page recovers with a working (session-only) memory store instead
+    // of staying blank forever.
+    await screen.findByRole("heading", { name: "Try it with an example profile" });
+    await screen.findByText("Notes won't be saved in this window.");
+    expect(errorSpy).toHaveBeenCalled();
+
+    errorSpy.mockRestore();
+  });
+
+  it("does not save a reaction as a phrase, but does save a spoken reply and clears the suggestion cache", async () => {
+    const { SuggestClient } = await import("@/lib/suggest/client");
+    const addPhrase = vi.spyOn(MemoryStore.prototype, "addPhrase");
+    const clearCache = vi.spyOn(SuggestClient.prototype, "clearCache");
+
+    await startWithMaya();
+    // Choosing the profile itself clears the cache; that's not what this test covers.
+    clearCache.mockClear();
+    await partnerSays("What size?");
+    answerWithReaction("Thanks!");
+    await userEvent.click(screen.getByRole("button", { name: "Thanks!" }));
+    expect(addPhrase).not.toHaveBeenCalled();
+    expect(clearCache).not.toHaveBeenCalled();
+
+    answer("Large, please.");
+    await userEvent.click(screen.getByRole("button", { name: "Large, please." }));
+    await waitFor(() => expect(addPhrase).toHaveBeenCalledWith("Large, please.", expect.anything()));
+    await waitFor(() => expect(clearCache).toHaveBeenCalled());
+
+    addPhrase.mockRestore();
+    clearCache.mockRestore();
   });
 
   it("closes the example profiles on first run with the header button", async () => {

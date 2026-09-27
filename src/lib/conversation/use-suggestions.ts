@@ -81,7 +81,13 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
     const clearedJustNow = prevTypedRef.current !== "" && !t;
     prevTypedRef.current = t;
     if (!t) {
-      if (clearedJustNow) client?.cancel();
+      if (clearedJustNow) {
+        client?.cancel();
+        // The cancelled request may have left `status` stuck at "thinking"
+        // (Task: stuck "Finding replies..."); resolve it now instead of
+        // waiting for a response that will never come.
+        dispatch({ type: "cancelled" });
+      }
       return;
     }
     if (!memory) return;
