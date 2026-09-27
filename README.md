@@ -24,7 +24,7 @@ Design stage, no application code yet. Decisions and background research are in 
 
 ## Planned stack
 
-Next.js and TypeScript, Orama for in-browser search, Transformers.js, Moonshine for speech recognition, Kokoro for text-to-speech, and the Groq and Cerebras APIs.
+Next.js and TypeScript, Orama for in-browser search, Transformers.js, Moonshine for speech recognition, Kokoro for text-to-speech, and the Groq and Cloudflare Workers AI APIs.
 
 ## License
 

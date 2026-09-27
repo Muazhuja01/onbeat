@@ -16,7 +16,7 @@ Background research and decisions from the design phase (September 2026). The de
 
 **Languages.** Each language is a separate pack. A language can use generated replies only if it passes an evaluation checked by native speakers. Otherwise it's limited to a verified phrase list. Bangla is the likely second language. Indigenous languages would only be added as phrase lists supplied by the communities themselves (see OCAP® below).
 
-**Cost.** Everything runs on free tiers: Groq with Cerebras as a fallback for the language model, and Kokoro and Moonshine running in the browser. The free Gemini tier was ruled out because prompts may be used for training.
+**Cost.** Everything runs on free tiers: Groq with Cloudflare Workers AI as a fallback for the language model, and Kokoro and Moonshine running in the browser. The free Gemini tier was ruled out because prompts may be used for training. Cerebras was the first choice for the fallback, but since July 2026 its trial needs a card, so Cloudflare Workers AI replaced it (free, no card, same Qwen model, and Cloudflare says it doesn't train on content).
 
 **Left out of v1.** Switch-scanning input, the Bangla pack, a split face-to-face screen, and a written report. The deliverable is a two-minute demo video plus a small evaluation.
 

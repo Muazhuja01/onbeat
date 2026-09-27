@@ -59,7 +59,7 @@ BROWSER
   tap -> voice plays cached audio, caption, vibration, phrase saved
 
 SERVER (Vercel, stateless)
-  /api/suggest -> Groq (primary) -> Cerebras (fallback on 429, 5xx, slow first token)
+  /api/suggest -> Groq (primary) -> Cloudflare Workers AI (fallback on 429, 5xx, slow first token)
 ```
 
 ### Units
@@ -158,10 +158,10 @@ If fewer than three replies survive, fewer are shown. Nothing unchecked is used 
 | Typing debounce | 300 ms, minimum 2 characters |
 | Cancellation | a new request aborts the previous one (AbortController) |
 | Cache | last 20 results keyed by (mode, typed, partner text, context) |
-| Provider fallback | Groq, then Cerebras on 429, 5xx, or no first token after 1.5 s |
+| Provider fallback | Groq, then Cloudflare Workers AI on 429, 5xx, or no first token after 1.5 s |
 | Quota guard | client-side token bucket per provider; speculative requests are skipped first when the budget is low |
 
-Model choice between `gpt-oss-20b` (low reasoning effort) and `qwen3-32b` (thinking off) is made by the eval (section 9).
+Default model: Qwen 3.8 27B with reasoning off on both providers (`qwen/qwen3.8-27b` on Groq, `@cf/qwen/qwen3.8-27b` on Cloudflare), so the fallback behaves like the primary. The eval (section 9) compares it with `openai/gpt-oss-20b` on Groq before the choice is final.
 
 ### Phrase learning
 
@@ -288,7 +288,7 @@ onbeat/
   tests/e2e/               Playwright tests
 ```
 
-Versions at time of writing: Next.js 16.3, React 19, Tailwind 4.3, Orama 3.1, Transformers.js 4.3, kokoro-js 1.2, @ricky0123/vad-web 0.0.31, openai SDK 7.23 (used against the Groq and Cerebras OpenAI-compatible endpoints), Zod 4.6. Node 24.
+Versions at time of writing: Next.js 16.3, React 19, Tailwind 4.3, Orama 3.1, Transformers.js 3.8.1 (pinned, because kokoro-js depends on v3), kokoro-js 1.2, @ricky0123/vad-web 0.0.31, Zod 4.6. Provider calls use plain `fetch` against the OpenAI-compatible endpoints of Groq and Cloudflare Workers AI. Node 24.
 
 ## 9. Testing and eval
 

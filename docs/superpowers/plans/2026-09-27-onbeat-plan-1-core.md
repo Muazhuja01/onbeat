@@ -4,7 +4,7 @@
 
 **Goal:** A working web app where a user picks an example profile, enters what the other person said, gets three checked, personal reply suggestions, and speaks one with a natural in-browser voice.
 
-**Architecture:** Next.js 16 app. Notes and past phrases live in the browser (Orama index, IndexedDB persistence, MiniLM embeddings in a web worker). A single server route forwards prompts to Groq with Cerebras as fallback and streams newline-delimited JSON back. The client validates every reply (no invented names, numbers, days or times) before showing it. Kokoro TTS runs in a second worker; the browser's speech engine is the fallback.
+**Architecture:** Next.js 16 app. Notes and past phrases live in the browser (Orama index, IndexedDB persistence, MiniLM embeddings in a web worker). A single server route forwards prompts to Groq with Cloudflare Workers AI as fallback and streams newline-delimited JSON back. The client validates every reply (no invented names, numbers, days or times) before showing it. Kokoro TTS runs in a second worker; the browser's speech engine is the fallback.
 
 **Tech Stack:** Next.js 16.3 (Turbopack), React 19, TypeScript, Tailwind CSS 4, @orama/orama 3.1, @huggingface/transformers 3.8.1 (pinned: kokoro-js depends on v3), kokoro-js 1.2, Zod 4, idb-keyval 6, @phosphor-icons/react 2, Vitest 5 + Testing Library, Playwright + @axe-core/playwright.
 
@@ -24,7 +24,7 @@
 - Never `transition: all`; never remove focus outlines without the global replacement; honour `prefers-reduced-motion`.
 - Icons from `@phosphor-icons/react` only; every icon either `aria-hidden` next to text or inside a control with an `aria-label`.
 - Personal notes never leave the browser except the (at most 8) notes sent with a suggestion request.
-- API keys only in server environment variables `GROQ_API_KEY`, `CEREBRAS_API_KEY`. Never in client code, never committed.
+- API keys only in server environment variables `GROQ_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`. Never in client code, never committed.
 - Every commit message ends with a blank line and `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - The repo owner edits files on GitHub directly: run `git pull --rebase` before every `git push`.
 - `npm run lint`, `npm run typecheck` and `npm test` must pass at the end of every task. If `eslint-config-next` 16's React hooks rules flag a pattern in this plan (for example ref writes during render), fix it the way the rule suggests without changing behaviour.
@@ -147,9 +147,11 @@ describe("test setup", () => {
 `.env.example`:
 
 ```
-# Free keys: https://console.groq.com/keys and https://cloud.cerebras.ai
+# Groq key (free, no card): https://console.groq.com/keys
 GROQ_API_KEY=
-CEREBRAS_API_KEY=
+# Cloudflare Workers AI (free, no card): dash.cloudflare.com > Workers AI > Use REST API
+CLOUDFLARE_ACCOUNT_ID=
+CLOUDFLARE_API_TOKEN=
 ```
 
 Append to `.gitignore`:
@@ -1751,7 +1753,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Produces:
-  - `SuggestRequestSchema` (Zod) and `type SuggestRequestBody` with fields `mode: "replies" | "replies+reactions"`, `typed`, `partnerSaid`, `contextLine`, `notes: { id; text }[]`, `examples: string[]`, `reactions: { id; text }[]`, `maxWords: number`, `preferProvider?: "groq" | "cerebras"`
+  - `SuggestRequestSchema` (Zod) and `type SuggestRequestBody` with fields `mode: "replies" | "replies+reactions"`, `typed`, `partnerSaid`, `contextLine`, `notes: { id; text }[]`, `examples: string[]`, `reactions: { id; text }[]`, `maxWords: number`, `preferProvider?: "groq" | "cloudflare"`
   - `type ParsedLine = { kind: "reply"; text: string; noteIds: string[] } | { kind: "reactions"; ids: string[] } | { kind: "invalid"; raw: string }`
   - `parseLine(raw: string): ParsedLine | null`
   - `createLineSplitter(onLine: (line: string) => void): { push(chunk: string): void; flush(): void }`
@@ -1840,7 +1842,7 @@ export const SuggestRequestSchema = z.object({
   examples: z.array(z.string().max(200)).max(5),
   reactions: z.array(z.object({ id: z.string().max(32), text: z.string().max(60) })).max(30),
   maxWords: z.number().int().min(5).max(25),
-  preferProvider: z.enum(["groq", "cerebras"]).optional(),
+  preferProvider: z.enum(["groq", "cloudflare"]).optional(),
 });
 
 export type SuggestRequestBody = z.infer<typeof SuggestRequestSchema>;
@@ -2018,11 +2020,11 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Consumes: `SuggestRequestSchema`, `buildMessages`, `ChatMessage` (Task 7).
 - Produces:
   - `readSSEData(body: ReadableStream<Uint8Array>): AsyncGenerator<string>`, `contentDelta(data: string): string`
-  - `type ProviderId = "groq" | "cerebras"`, `providerConfigs(env?): Record<ProviderId, ProviderConfig>`, `streamCompletion(messages, opts): Promise<{ provider: ProviderId; deltas: AsyncGenerator<string> }>`, `class AllProvidersFailedError`
+  - `type ProviderId = "groq" | "cloudflare"`, `providerConfigs(env?): Record<ProviderId, ProviderConfig>`, `streamCompletion(messages, opts): Promise<{ provider: ProviderId; deltas: AsyncGenerator<string> }>`, `class AllProvidersFailedError`
   - `createRateLimiter({ limit, windowMs, now? }): { check(key: string): boolean }`
   - `POST /api/suggest`: 200 `text/plain` stream of model text with header `x-onbeat-provider`; 400 invalid, 403 cross-origin, 413 too large, 429 rate limited, 503 all providers failed.
 
-Provider settings (checked 2026-09-27): Groq `https://api.groq.com/openai/v1/chat/completions` model `qwen/qwen3.8-27b`; Cerebras `https://api.cerebras.ai/v1/chat/completions` model `qwen-3.8-27b`. Both accept `reasoning_effort: "none"` to switch thinking off. Models can be overridden with `GROQ_MODEL` and `CEREBRAS_MODEL`.
+Provider settings (checked 2026-09-27): Groq `https://api.groq.com/openai/v1/chat/completions` model `qwen/qwen3.8-27b`; Cloudflare Workers AI `https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/v1/chat/completions` model `@cf/qwen/qwen3.8-27b` (free: 10,000 neurons a day, about 130 requests at this prompt size; no card). Cerebras was dropped: since July 2026 it needs a card. Groq documents `reasoning_effort: "none"` for this model; Cloudflare's docs don't say, so the Cloudflare config sends it too and the live smoke test in Step 9 confirms it. If Cloudflare answers 400 because of it, set its `extraBody` to `{}`. Models can be overridden with `GROQ_MODEL` and `CLOUDFLARE_MODEL`.
 
 - [ ] **Step 1: Write failing SSE tests**
 
@@ -2111,7 +2113,7 @@ Run: `npx vitest run src/lib/server/sse.test.ts` and expect PASS.
 import { describe, expect, it, vi } from "vitest";
 import { AllProvidersFailedError, providerConfigs, streamCompletion } from "./providers";
 
-const configs = providerConfigs({ GROQ_API_KEY: "g", CEREBRAS_API_KEY: "c" } as NodeJS.ProcessEnv);
+const configs = providerConfigs({ GROQ_API_KEY: "g", CLOUDFLARE_API_TOKEN: "c", CLOUDFLARE_ACCOUNT_ID: "acc" } as NodeJS.ProcessEnv);
 const messages = [{ role: "user" as const, content: "hi" }];
 
 function sse(parts: string[], delayMs = 0): Response {
@@ -2136,7 +2138,7 @@ async function collect(gen: AsyncGenerator<string>) {
 describe("streamCompletion", () => {
   it("streams from the first provider", async () => {
     const fetchImpl = vi.fn(async () => sse(["Hel", "lo"]));
-    const r = await streamCompletion(messages, { order: ["groq", "cerebras"], configs, fetchImpl });
+    const r = await streamCompletion(messages, { order: ["groq", "cloudflare"], configs, fetchImpl });
     expect(r.provider).toBe("groq");
     expect(await collect(r.deltas)).toBe("Hello");
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
@@ -2146,28 +2148,28 @@ describe("streamCompletion", () => {
 
   it("falls back on HTTP 429", async () => {
     const fetchImpl = vi.fn(async (url: string) => (url.includes("groq") ? new Response("busy", { status: 429 }) : sse(["ok"])));
-    const r = await streamCompletion(messages, { order: ["groq", "cerebras"], configs, fetchImpl: fetchImpl as unknown as typeof fetch });
-    expect(r.provider).toBe("cerebras");
+    const r = await streamCompletion(messages, { order: ["groq", "cloudflare"], configs, fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(r.provider).toBe("cloudflare");
     expect(await collect(r.deltas)).toBe("ok");
   });
 
   it("falls back when the first token is too slow", async () => {
     const fetchImpl = vi.fn(async (url: string) => (url.includes("groq") ? sse(["late"], 200) : sse(["fast"])));
-    const r = await streamCompletion(messages, { order: ["groq", "cerebras"], configs, fetchImpl: fetchImpl as unknown as typeof fetch, firstTokenTimeoutMs: 50 });
-    expect(r.provider).toBe("cerebras");
+    const r = await streamCompletion(messages, { order: ["groq", "cloudflare"], configs, fetchImpl: fetchImpl as unknown as typeof fetch, firstTokenTimeoutMs: 50 });
+    expect(r.provider).toBe("cloudflare");
   });
 
   it("skips providers without a key", async () => {
-    const onlyCerebras = providerConfigs({ CEREBRAS_API_KEY: "c" } as NodeJS.ProcessEnv);
+    const onlyCloudflare = providerConfigs({ CLOUDFLARE_API_TOKEN: "c", CLOUDFLARE_ACCOUNT_ID: "acc" } as NodeJS.ProcessEnv);
     const fetchImpl = vi.fn(async () => sse(["x"]));
-    const r = await streamCompletion(messages, { order: ["groq", "cerebras"], configs: onlyCerebras, fetchImpl });
-    expect(r.provider).toBe("cerebras");
+    const r = await streamCompletion(messages, { order: ["groq", "cloudflare"], configs: onlyCloudflare, fetchImpl });
+    expect(r.provider).toBe("cloudflare");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("throws when every provider fails", async () => {
     const fetchImpl = vi.fn(async () => new Response("down", { status: 503 }));
-    await expect(streamCompletion(messages, { order: ["groq", "cerebras"], configs, fetchImpl })).rejects.toBeInstanceOf(AllProvidersFailedError);
+    await expect(streamCompletion(messages, { order: ["groq", "cloudflare"], configs, fetchImpl })).rejects.toBeInstanceOf(AllProvidersFailedError);
   });
 });
 ```
@@ -2180,13 +2182,15 @@ describe("streamCompletion", () => {
 import type { ChatMessage } from "@/lib/suggest/prompt";
 import { contentDelta, readSSEData } from "./sse";
 
-export type ProviderId = "groq" | "cerebras";
+export type ProviderId = "groq" | "cloudflare";
 
 export interface ProviderConfig {
   id: ProviderId;
   url: string;
   model: string;
   apiKey: string | undefined;
+  /** Provider-specific request fields. */
+  extraBody: Record<string, unknown>;
 }
 
 export function providerConfigs(env: NodeJS.ProcessEnv = process.env): Record<ProviderId, ProviderConfig> {
@@ -2196,12 +2200,15 @@ export function providerConfigs(env: NodeJS.ProcessEnv = process.env): Record<Pr
       url: "https://api.groq.com/openai/v1/chat/completions",
       model: env.GROQ_MODEL ?? "qwen/qwen3.8-27b",
       apiKey: env.GROQ_API_KEY,
+      extraBody: { reasoning_effort: "none" },
     },
-    cerebras: {
-      id: "cerebras",
-      url: "https://api.cerebras.ai/v1/chat/completions",
-      model: env.CEREBRAS_MODEL ?? "qwen-3.8-27b",
-      apiKey: env.CEREBRAS_API_KEY,
+    cloudflare: {
+      id: "cloudflare",
+      url: `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID ?? ""}/ai/v1/chat/completions`,
+      model: env.CLOUDFLARE_MODEL ?? "@cf/qwen/qwen3.8-27b",
+      // Without an account id the URL is unusable, so treat the provider as unconfigured.
+      apiKey: env.CLOUDFLARE_ACCOUNT_ID ? env.CLOUDFLARE_API_TOKEN : undefined,
+      extraBody: { reasoning_effort: "none" },
     },
   };
 }
@@ -2278,7 +2285,7 @@ export async function streamCompletion(
           stream: true,
           temperature: 0.6,
           max_tokens: 400,
-          reasoning_effort: "none",
+          ...cfg.extraBody,
         }),
         signal: controller.signal,
       });
@@ -2405,7 +2412,8 @@ function sseResponse(text: string): Response {
 
 beforeEach(() => {
   vi.stubEnv("GROQ_API_KEY", "test-groq");
-  vi.stubEnv("CEREBRAS_API_KEY", "test-cerebras");
+  vi.stubEnv("CLOUDFLARE_API_TOKEN", "test-cloudflare");
+  vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "acc");
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -2421,11 +2429,11 @@ describe("POST /api/suggest", () => {
     expect(await res.text()).toBe('{"reply":"Large, please.","notes":[]}\n');
   });
 
-  it("prefers cerebras when asked", async () => {
+  it("prefers cloudflare when asked", async () => {
     const fetchMock = vi.fn(async () => sseResponse("x"));
     vi.stubGlobal("fetch", fetchMock);
-    await POST(req({ ...body, preferProvider: "cerebras" }));
-    expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toContain("cerebras");
+    await POST(req({ ...body, preferProvider: "cloudflare" }));
+    expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toContain("cloudflare");
   });
 
   it("rejects invalid bodies and bad JSON", async () => {
@@ -2495,7 +2503,7 @@ export async function POST(request: Request): Promise<Response> {
   const parsed = SuggestRequestSchema.safeParse(data);
   if (!parsed.success) return json({ error: "invalid_request" }, 400);
 
-  const order: ProviderId[] = parsed.data.preferProvider === "cerebras" ? ["cerebras", "groq"] : ["groq", "cerebras"];
+  const order: ProviderId[] = parsed.data.preferProvider === "cloudflare" ? ["cloudflare", "groq"] : ["groq", "cloudflare"];
 
   try {
     const { provider, deltas } = await streamCompletion(buildMessages(parsed.data), {
@@ -2540,7 +2548,7 @@ Expected: all pass.
 
 ```bash
 git add -A
-git commit -m "Add /api/suggest with Groq and Cerebras fallback, limits and validation
+git commit -m "Add /api/suggest with Groq and Cloudflare fallback, limits and validation
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -2553,7 +2561,7 @@ If `.env.local` contains real keys (the user adds them; never commit this file),
 curl -s -N -X POST http://localhost:3000/api/suggest -H "content-type: application/json" -d '{"mode":"replies+reactions","typed":"","partnerSaid":"What size would you like?","contextLine":"It is Tuesday morning. Place: Blue Door Café.","notes":[{"id":"usual","text":"My usual order is a large oat milk latte."}],"examples":[],"reactions":[{"id":"ha","text":"Ha!"},{"id":"thanks","text":"Thank you"}],"maxWords":15}'
 ```
 
-Expected: three `{"reply": ...}` lines and one `{"reactions": ...}` line. If the model adds reasoning text or fences, record the exact output in the task report; the client tolerates junk lines, but the prompt may need tightening in plan 2's eval.
+Expected: three `{"reply": ...}` lines and one `{"reactions": ...}` line. Then check the backup: comment out `GROQ_API_KEY` in `.env.local`, restart `npm run dev`, run the same command, and confirm the response header `x-onbeat-provider: cloudflare` (add `-i` to curl). If Cloudflare returns HTTP 400, set its `extraBody` to `{}` in `providers.ts`, re-run, and note it in the task report. Restore the Groq key afterwards. If the model adds reasoning text or fences, record the exact output in the task report; the client tolerates junk lines, but the prompt may need tightening in plan 2's eval.
 
 ---
 
@@ -2665,12 +2673,12 @@ describe("SuggestClient", () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(streamResponse(["I cannot help with that."], { provider: "groq" }))
-      .mockResolvedValueOnce(streamResponse(['{"reply": "Large, please."}'], { provider: "cerebras" }));
+      .mockResolvedValueOnce(streamResponse(['{"reply": "Large, please."}'], { provider: "cloudflare" }));
     const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl });
     const final = await client.request(input, () => {});
     expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(JSON.parse((fetchImpl.mock.calls[1] as [string, RequestInit])[1].body as string).preferProvider).toBe("cerebras");
-    expect(final?.provider).toBe("cerebras");
+    expect(JSON.parse((fetchImpl.mock.calls[1] as [string, RequestInit])[1].body as string).preferProvider).toBe("cloudflare");
+    expect(final?.provider).toBe("cloudflare");
   });
 
   it("keeps partial results on mid-stream failure", async () => {
@@ -2839,7 +2847,7 @@ export class SuggestClient {
 
     let outcome = await this.stream(body, sources, controller, isCurrent, onUpdate);
     if (outcome && outcome.replies.length === 0 && outcome.invalid > 0 && isCurrent()) {
-      const other = outcome.provider === "cerebras" ? "groq" : "cerebras";
+      const other = outcome.provider === "cloudflare" ? "groq" : "cloudflare";
       outcome = await this.stream({ ...body, preferProvider: other }, sources, controller, isCurrent, onUpdate);
     }
     if (!outcome || !isCurrent()) return null;
@@ -5231,7 +5239,7 @@ Add to `README.md` before the "License" section:
 You need Node 24.
 
 1. `npm install`
-2. Copy `.env.example` to `.env.local` and add free API keys from [Groq](https://console.groq.com/keys) and [Cerebras](https://cloud.cerebras.ai). The app still runs without them, but only past phrases are suggested.
+2. Copy `.env.example` to `.env.local` and add free API keys from [Groq](https://console.groq.com/keys) and [Cloudflare Workers AI](https://dash.cloudflare.com) (open Workers AI, then "Use REST API" for the account ID and a token). The app still runs without them, but only past phrases are suggested.
 3. `npm run dev` and open http://localhost:3000
 
 The first visit downloads the voice (about 90 MB) and the search model (about 23 MB). Both are cached by the browser afterwards.
