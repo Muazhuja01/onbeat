@@ -27,7 +27,11 @@ export function providerConfigs(env: NodeJS.ProcessEnv = process.env): Record<Pr
       model: env.CLOUDFLARE_MODEL ?? "@cf/qwen/qwen3.8-27b",
       // Without an account id the URL is unusable, so treat the provider as unconfigured.
       apiKey: env.CLOUDFLARE_ACCOUNT_ID ? env.CLOUDFLARE_API_TOKEN : undefined,
-      extraBody: { reasoning_effort: "none" },
+      // Cloudflare's Workers AI endpoint returns HTTP 400 for `reasoning_effort: "none"`
+      // (it only accepts xhigh/medium/low; "none" isn't Groq-compatible here), so it gets
+      // no extra body per the brief's fallback. See the task report for the live-smoke-test
+      // finding that this still leaves Cloudflare very slow for this model.
+      extraBody: {},
     },
   };
 }
