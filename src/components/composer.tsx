@@ -7,10 +7,9 @@ interface Props {
   onChange: (value: string) => void;
   onSpeak: (text: string) => void;
   onFocusReplies: () => void;
-  onEscape: () => void;
 }
 
-export function Composer({ value, onChange, onSpeak, onFocusReplies, onEscape }: Props) {
+export function Composer({ value, onChange, onSpeak, onFocusReplies }: Props) {
   return (
     <form
       className="flex flex-col gap-2"
@@ -33,11 +32,10 @@ export function Composer({ value, onChange, onSpeak, onFocusReplies, onEscape }:
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
+            // Escape is handled once, by the screen's global shortcut handler.
             if (e.key === "ArrowUp") {
               e.preventDefault();
               onFocusReplies();
-            } else if (e.key === "Escape") {
-              onEscape();
             }
           }}
           className="min-h-14 min-w-0 flex-1 rounded-control border-2 border-ink/30 bg-surface px-4 text-body text-ink placeholder:text-muted"

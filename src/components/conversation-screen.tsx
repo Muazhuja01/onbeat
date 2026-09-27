@@ -26,6 +26,11 @@ import { VoiceStatus } from "./voice-status";
 const subscribeNever = () => () => {};
 const noVoice = (): VoiceEngine | null => null;
 
+function isTextField(el: Element | null): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  return el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName);
+}
+
 export function ConversationScreen() {
   return (
     <AnnouncerProvider>
@@ -77,7 +82,7 @@ function Screen() {
 
   const client = useMemo(() => (memory ? new SuggestClient({ memory, pack: en }) : null), [memory]);
 
-  const replyListRef = useRef<HTMLDivElement>(null);
+  const replyListRef = useRef<HTMLElement>(null);
   const releaseHeld = useCallback(() => dispatch({ type: "releaseHeld" }), []);
   const isHolding = useStableTargets(replyListRef, releaseHeld);
   useSuggestions({ client, memory, state, dispatch, isHolding });
@@ -87,9 +92,11 @@ function Screen() {
     for (const r of state.replies) voice.prepare(r.text);
   }, [voice, state.replies]);
 
+  // Every new set of replies on screen is announced; queued updates collapse to the latest.
   useEffect(() => {
-    if (state.status === "ready") announce("Replies ready");
-  }, [state.status, announce]);
+    const n = state.replies.length;
+    if (n) announce(n === 1 ? "1 reply ready" : `${n} replies ready`, "replies");
+  }, [state.replies, announce]);
 
   const speak = useCallback(
     (text: string) => {
@@ -106,14 +113,39 @@ function Screen() {
     replyListRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
   }, []);
 
+  const [skippedProfiles, setSkippedProfiles] = useState(false);
+  const notes = useMemo(() => (memory ? memory.notes() : []), [memory, notesVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+  const places = notes.filter((n) => n.kind === "place");
+  const people = notes.filter((n) => n.kind === "person");
+  const partnerName = (state.partnerId && memory?.getNote(state.partnerId)?.entities[0]) || "Them";
+  const needsProfile = memory !== null && (showProfiles || (notes.length === 0 && !skippedProfiles));
+  // The conversation view stays mounted (useStableTargets attaches to the reply
+  // list once, on mount); it is only hidden while loading or picking a profile.
+  const conversationHidden = memory === null || needsProfile;
+
+  // Each new line from the partner is announced.
+  const lastPartnerTurn = state.turns.findLast((t) => t.speaker === "partner");
+  const announcedTurnId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!lastPartnerTurn || announcedTurnId.current === lastPartnerTurn.id) return;
+    announcedTurnId.current = lastPartnerTurn.id;
+    announce(`${partnerName} said: ${lastPartnerTurn.text}`);
+  }, [lastPartnerTurn, partnerName, announce]);
+
   useReplyShortcuts({
+    enabled: !conversationHidden,
     replyCount: state.replies.length,
     reactionCount: state.reactions.length,
     onReply: (i) => speak(state.replies[i]?.text ?? ""),
     onReaction: (i) => speak(state.reactions[i]?.text ?? ""),
     onEscape: () => {
-      if (state.speaking) stop();
-      else dispatch({ type: "typed", text: "" });
+      if (state.speaking) {
+        stop();
+        return;
+      }
+      // Clear the reply box only when Escape wasn't meant for another field.
+      const focused = document.activeElement;
+      if (focused?.id === "composer" || !isTextField(focused)) dispatch({ type: "typed", text: "" });
     },
   });
 
@@ -131,12 +163,10 @@ function Screen() {
     [memory, client],
   );
 
-  const [skippedProfiles, setSkippedProfiles] = useState(false);
-  const notes = useMemo(() => (memory ? memory.notes() : []), [memory, notesVersion]); // eslint-disable-line react-hooks/exhaustive-deps
-  const places = notes.filter((n) => n.kind === "place");
-  const people = notes.filter((n) => n.kind === "person");
-  const partnerName = (state.partnerId && memory?.getNote(state.partnerId)?.entities[0]) || "Them";
-  const needsProfile = memory !== null && (showProfiles || (notes.length === 0 && !skippedProfiles));
+  const closeProfiles = () => {
+    setSkippedProfiles(true);
+    setShowProfiles(false);
+  };
 
   return (
     <>
@@ -146,7 +176,7 @@ function Screen() {
         </p>
         <button
           type="button"
-          onClick={() => setShowProfiles((s) => !s)}
+          onClick={() => (needsProfile ? closeProfiles() : setShowProfiles(true))}
           aria-expanded={needsProfile}
           className="min-h-12 rounded-control border-2 border-ink/30 px-4 text-label font-bold whitespace-nowrap transition-[border-color] duration-150 hover:border-ink sm:text-body"
         >
@@ -155,50 +185,38 @@ function Screen() {
       </header>
       <main id="main" className="mx-auto w-full max-w-[90rem] px-4 pb-[calc(env(safe-area-inset-bottom)+2rem)] lg:px-8">
         <h1 className="sr-only">Conversation</h1>
-        {state.notice && (
-          <p role="status" className="mb-4 rounded-control border-2 border-ink/30 px-4 py-3 text-body">
-            {state.notice}
-          </p>
-        )}
-        {needsProfile ? (
-          <ProfilePicker
-            personas={personas}
-            onChoose={(p) => void choosePersona(p)}
-            onSkip={() => {
-              setSkippedProfiles(true);
-              setShowProfiles(false);
-            }}
-          />
-        ) : (
-          <div className="conv-grid">
-            <div className="[grid-area:context]">
-              <ContextBar
-                places={places}
-                people={people}
-                placeId={state.placeId}
-                partnerId={state.partnerId}
-                onChange={(placeId, partnerId) => dispatch({ type: "setContext", placeId, partnerId })}
-              />
-            </div>
-            <div className="flex min-w-0 flex-col gap-6 [grid-area:log]">
-              <CaptionLog turns={state.turns} partnerName={partnerName} />
-              <PartnerInput onSubmit={(text) => dispatch({ type: "partnerSaid", id: crypto.randomUUID(), text, at: Date.now() })} />
-            </div>
-            <div className="flex min-w-0 flex-col gap-6 [grid-area:side]">
-              <SpokenCaption speaking={state.speaking} lastSpoken={state.lastSpoken} />
-              <ReactionBar reactions={state.reactions} onReact={speak} />
-              <ReplyList ref={replyListRef} replies={state.replies} speaking={state.speaking} status={state.status} onSpeak={speak} onStop={stop} />
-              <Composer
-                value={state.typed}
-                onChange={(text) => dispatch({ type: "typed", text })}
-                onSpeak={speak}
-                onFocusReplies={focusReplies}
-                onEscape={() => (state.speaking ? stop() : dispatch({ type: "typed", text: "" }))}
-              />
-              <VoiceStatus mode={voiceMode} progress={voiceProgress} />
-            </div>
+        {/* Always mounted, so screen readers hear the notice when its text changes. */}
+        <div role="status">
+          {state.notice && <p className="mb-4 rounded-control border-2 border-ink/30 px-4 py-3 text-body">{state.notice}</p>}
+        </div>
+        {needsProfile && <ProfilePicker personas={personas} onChoose={(p) => void choosePersona(p)} onSkip={closeProfiles} />}
+        <div className="conv-grid" hidden={conversationHidden}>
+          <div className="[grid-area:context]">
+            <ContextBar
+              places={places}
+              people={people}
+              placeId={state.placeId}
+              partnerId={state.partnerId}
+              onChange={(placeId, partnerId) => dispatch({ type: "setContext", placeId, partnerId })}
+            />
           </div>
-        )}
+          <div className="flex min-w-0 flex-col gap-6 [grid-area:log]">
+            <CaptionLog turns={state.turns} partnerName={partnerName} />
+            <PartnerInput onSubmit={(text) => dispatch({ type: "partnerSaid", id: crypto.randomUUID(), text, at: Date.now() })} />
+          </div>
+          <div className="flex min-w-0 flex-col gap-6 [grid-area:side]">
+            <SpokenCaption speaking={state.speaking} lastSpoken={state.lastSpoken} />
+            <ReactionBar reactions={state.reactions} onReact={speak} />
+            <ReplyList ref={replyListRef} replies={state.replies} speaking={state.speaking} status={state.status} onSpeak={speak} onStop={stop} />
+            <Composer
+              value={state.typed}
+              onChange={(text) => dispatch({ type: "typed", text })}
+              onSpeak={speak}
+              onFocusReplies={focusReplies}
+            />
+            <VoiceStatus mode={voiceMode} progress={voiceProgress} />
+          </div>
+        </div>
       </main>
     </>
   );
