@@ -135,6 +135,16 @@ describe("ConversationScreen", () => {
     expect(composer).toHaveValue("");
   });
 
+  it("stops speech when the example profiles are opened while speaking", async () => {
+    await startWithMaya();
+    await partnerSays("What size?");
+    answer("Large, please.");
+    await userEvent.click(screen.getByRole("button", { name: "Large, please." }));
+    expect(screen.getByRole("button", { name: "Stop saying: Large, please." })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Example profiles" }));
+    expect(h.voice.stop).toHaveBeenCalledTimes(1);
+  });
+
   it("closes the example profiles on first run with the header button", async () => {
     render(<ConversationScreen />);
     await screen.findByRole("heading", { name: "Try it with an example profile" });

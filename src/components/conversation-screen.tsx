@@ -167,6 +167,12 @@ function Screen() {
     setSkippedProfiles(true);
     setShowProfiles(false);
   };
+  const openOrCloseProfiles = () => {
+    if (needsProfile) return closeProfiles();
+    // The Stop button is about to be hidden, so stop any speech now.
+    if (state.speaking) stop();
+    setShowProfiles(true);
+  };
 
   return (
     <>
@@ -176,7 +182,7 @@ function Screen() {
         </p>
         <button
           type="button"
-          onClick={() => (needsProfile ? closeProfiles() : setShowProfiles(true))}
+          onClick={openOrCloseProfiles}
           aria-expanded={needsProfile}
           className="min-h-12 rounded-control border-2 border-ink/30 px-4 text-label font-bold whitespace-nowrap transition-[border-color] duration-150 hover:border-ink sm:text-body"
         >

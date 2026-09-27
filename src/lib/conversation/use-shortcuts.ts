@@ -23,11 +23,12 @@ export function useReplyShortcuts(args: Args): void {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const a = ref.current;
-      if (a.enabled === false) return;
+      // Escape always works (it stops speech), even when shortcuts are disabled.
       if (e.key === "Escape") {
         a.onEscape();
         return;
       }
+      if (a.enabled === false) return;
       // A held key auto-repeats (e.g. speaking "1" over and over) and Shift
       // changes the character on many layouts; ignore both.
       if (e.repeat || e.shiftKey || e.ctrlKey || e.metaKey) return;

@@ -57,4 +57,15 @@ describe("useReplyShortcuts", () => {
     fireEvent.keyDown(getByLabelText("Type a reply"), { key: "Escape" });
     expect(onEscape).toHaveBeenCalled();
   });
+
+  it("keeps Escape working when disabled, but ignores digits and Alt shortcuts", () => {
+    const handlers = { onReply: vi.fn(), onReaction: vi.fn(), onEscape: vi.fn() };
+    render(<Harness replyCount={3} reactionCount={2} enabled={false} {...handlers} />);
+    fireEvent.keyDown(document.body, { key: "1", code: "Digit1" });
+    fireEvent.keyDown(document.body, { key: "1", code: "Digit1", altKey: true });
+    expect(handlers.onReply).not.toHaveBeenCalled();
+    expect(handlers.onReaction).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(handlers.onEscape).toHaveBeenCalledTimes(1);
+  });
 });
