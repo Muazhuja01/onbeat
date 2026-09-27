@@ -125,4 +125,32 @@ describe("useSuggestions", () => {
     });
     expect(result.current.state.replies.some((r) => r.text === "late")).toBe(false);
   });
+
+  it("does not cancel a just-started partner-turn request when the client becomes available", async () => {
+    const memory = await MemoryStore.create();
+    const partnerReply: SuggestUpdate = { replies: [{ text: "Sure, here.", noteIds: [], source: "model" }], reactions: [], done: true };
+    const client = fakeClient(partnerReply);
+
+    const { result, rerender } = renderHook(
+      ({ client: c }: { client: SuggestClient | null }) => {
+        const [state, dispatch] = useReducer(conversationReducer, initialConversation);
+        useSuggestions({ client: c, memory, state, dispatch, isHolding: () => false, debounceMs: 300 });
+        return { state, dispatch };
+      },
+      { initialProps: { client: null as SuggestClient | null } },
+    );
+
+    // The partner speaks while there is no client yet (e.g. still loading).
+    await act(async () => result.current.dispatch({ type: "partnerSaid", id: "1", text: "What size?", at: 1 }));
+    expect(client.calls).toHaveLength(0);
+
+    // The client becomes available with typed text still empty. This also
+    // changes `run`'s identity, which used to make the typing effect cancel
+    // the partner-turn request the partner effect starts in the same commit.
+    await act(async () => rerender({ client }));
+
+    expect(client.calls.length).toBeGreaterThanOrEqual(1);
+    expect(client.cancel).not.toHaveBeenCalled();
+    expect(result.current.state.replies[0]?.text).toBe("Sure, here.");
+  });
 });

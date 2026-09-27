@@ -26,6 +26,12 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
     holdingRef.current = isHolding;
   });
 
+  // R15: the trimmed typed text as of the last time the typing effect ran,
+  // so a rerun caused only by `client`/`run` changing identity (e.g. the
+  // client going from null to an instance) is not mistaken for the user
+  // clearing the field.
+  const prevTypedRef = useRef("");
+
   const lastPartner = state.turns.findLast((t) => t.speaker === "partner");
   const partnerTurnId = lastPartner?.id ?? "";
 
@@ -67,10 +73,15 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
   const typed = state.typed;
   useEffect(() => {
     const t = typed.trim();
+    // Only a real non-empty -> empty transition means the user cleared (or
+    // spoke) what they typed. The effect also reruns when `client` or `run`
+    // change identity alone (e.g. the client becomes available after being
+    // null); that must not cancel a request another effect, such as the
+    // partner-turn effect, just started on the same client.
+    const clearedJustNow = prevTypedRef.current !== "" && !t;
+    prevTypedRef.current = t;
     if (!t) {
-      // The user cleared what they typed (or spoke it): a request already in
-      // flight for the old text must not land its replies late.
-      client?.cancel();
+      if (clearedJustNow) client?.cancel();
       return;
     }
     if (!memory) return;
