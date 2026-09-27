@@ -13,7 +13,14 @@ function json(data: unknown, status: number): Response {
 export async function POST(request: Request): Promise<Response> {
   const origin = request.headers.get("origin");
   const host = request.headers.get("host");
-  if (origin && host && new URL(origin).host !== host) return json({ error: "forbidden" }, 403);
+  if (origin && host) {
+    try {
+      if (new URL(origin).host !== host) return json({ error: "forbidden" }, 403);
+    } catch {
+      // A malformed Origin (e.g. "null") can't be same-origin; reject rather than 500.
+      return json({ error: "forbidden" }, 403);
+    }
+  }
 
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
   if (!limiter.check(ip)) return json({ error: "rate_limited" }, 429);
@@ -45,8 +52,10 @@ export async function POST(request: Request): Promise<Response> {
           const { value, done } = await deltas.next();
           if (done) controller.close();
           else controller.enqueue(encoder.encode(value));
-        } catch {
-          controller.close();
+        } catch (err) {
+          // Surface a mid-stream provider failure as a stream error rather than a clean
+          // end, so the client can tell a truncated reply from a complete one.
+          controller.error(err);
         }
       },
       async cancel() {

@@ -34,6 +34,21 @@ function sseResponse(text: string): Response {
   );
 }
 
+function erroringSseResponse(text: string): Response {
+  const enc = new TextEncoder();
+  return new Response(
+    new ReadableStream({
+      start(c) {
+        c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`));
+        // Simulate the upstream connection dropping mid-stream: no [DONE], just an error.
+        // Delayed so the first chunk is actually read before the stream errors (erroring
+        // resets the stream's internal queue, discarding any not-yet-read chunk).
+        setTimeout(() => c.error(new Error("upstream dropped")), 20);
+      },
+    }),
+  );
+}
+
 beforeEach(() => {
   vi.stubEnv("GROQ_API_KEY", "test-groq");
   vi.stubEnv("CLOUDFLARE_API_TOKEN", "test-cloudflare");
@@ -86,5 +101,22 @@ describe("POST /api/suggest", () => {
     const res = await POST(req(body));
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: "unavailable" });
+  });
+
+  it("surfaces a mid-stream provider error instead of silently ending the reply", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => erroringSseResponse("Large, please.")));
+    const res = await POST(req(body));
+    expect(res.status).toBe(200);
+    await expect(res.text()).rejects.toThrow();
+  });
+
+  it("rejects a malformed Origin header instead of crashing", async () => {
+    expect((await POST(req(body, { origin: "null" }))).status).toBe(403);
+  });
+
+  it("allows a same-origin Origin header", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse("x")));
+    const res = await POST(req(body, { origin: "http://localhost:3000" }));
+    expect(res.status).not.toBe(403);
   });
 });

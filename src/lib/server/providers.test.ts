@@ -60,4 +60,33 @@ describe("streamCompletion", () => {
     const fetchImpl = vi.fn(async () => new Response("down", { status: 503 }));
     await expect(streamCompletion(messages, { order: ["groq", "cloudflare"], configs, fetchImpl })).rejects.toBeInstanceOf(AllProvidersFailedError);
   });
+
+  it("stops calling further providers once the client disconnects", async () => {
+    const clientController = new AbortController();
+    const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.includes("groq")) {
+        const body = new ReadableStream<Uint8Array>({
+          start(c) {
+            const onAbort = () => c.error(new DOMException("aborted", "AbortError"));
+            if (init.signal?.aborted) onAbort();
+            else init.signal?.addEventListener("abort", onAbort, { once: true });
+            // Never enqueues content: the client disconnects before any token arrives.
+          },
+        });
+        return new Response(body, { status: 200 });
+      }
+      return sse(["fast"]);
+    });
+    const resultPromise = streamCompletion(messages, {
+      order: ["groq", "cloudflare"],
+      configs,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      signal: clientController.signal,
+    });
+    // Let the groq fetch start before the client goes away.
+    await new Promise((r) => setTimeout(r, 10));
+    clientController.abort();
+    await expect(resultPromise).rejects.toBeInstanceOf(AllProvidersFailedError);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
 });

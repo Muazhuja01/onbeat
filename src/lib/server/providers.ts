@@ -92,6 +92,7 @@ export async function streamCompletion(
   const failures: string[] = [];
 
   for (const id of opts.order) {
+    if (opts.signal?.aborted) throw new AllProvidersFailedError("client aborted");
     const cfg = opts.configs[id];
     if (!cfg.apiKey) {
       failures.push(`${id}: no key`);
@@ -117,6 +118,7 @@ export async function streamCompletion(
         signal: controller.signal,
       });
       if (!res.ok || !res.body) {
+        opts.signal?.removeEventListener("abort", onAbort);
         failures.push(`${id}: HTTP ${res.status}`);
         controller.abort();
         continue;
@@ -124,6 +126,7 @@ export async function streamCompletion(
       const stream = readSSEData(res.body);
       const first = await firstContent(stream, deadline);
       if (first === null) {
+        opts.signal?.removeEventListener("abort", onAbort);
         failures.push(`${id}: no first token in ${timeoutMs} ms`);
         // Abort first so the pending read fails; never await return() on a stalled stream.
         controller.abort();
@@ -133,8 +136,13 @@ export async function streamCompletion(
       clearTimeout(timer);
       return { provider: id, deltas: contentOnly(first, stream) };
     } catch (err) {
-      failures.push(`${id}: ${err instanceof Error ? err.message : String(err)}`);
+      opts.signal?.removeEventListener("abort", onAbort);
       controller.abort();
+      // A client disconnect aborts the in-flight provider request too, which surfaces here
+      // as an AbortError. Stop instead of moving on to the next provider for a client that
+      // has already left.
+      if (opts.signal?.aborted) throw new AllProvidersFailedError("client aborted");
+      failures.push(`${id}: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       clearTimeout(timer);
     }
