@@ -40,8 +40,16 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
           (u) => dispatch({ type: "suggestions", replies: u.replies, reactions: u.reactions, done: u.done, hold: holdingRef.current() }),
         );
       } catch (err) {
-        if (err instanceof SuggestUnavailableError) dispatch({ type: "unavailable" });
-        else throw err;
+        if (err instanceof SuggestUnavailableError) {
+          dispatch({ type: "unavailable" });
+        } else {
+          // Any other error (e.g. memory.searchNotes rejecting, a parser
+          // throw) must not become an unhandled rejection here, since every
+          // call site uses `void run(...)`. Treat it the same as the
+          // service being unavailable so `status` doesn't stay "thinking".
+          console.error("useSuggestions: unexpected error", err);
+          dispatch({ type: "unavailable" });
+        }
       }
     },
     [client, dispatch],
@@ -59,7 +67,13 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
   const typed = state.typed;
   useEffect(() => {
     const t = typed.trim();
-    if (!t || !memory) return;
+    if (!t) {
+      // The user cleared what they typed (or spoke it): a request already in
+      // flight for the old text must not land its replies late.
+      client?.cancel();
+      return;
+    }
+    if (!memory) return;
     const local = memory.matchPhrases(t, 3).map((p) => ({ text: p.text, noteIds: [], source: "phrase" as const }));
     if (local.length) {
       dispatch({ type: "suggestions", replies: local, reactions: stateRef.current.reactions, done: false, hold: holdingRef.current() });
@@ -70,7 +84,7 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
       void run("replies", typed, said);
     }, debounceMs);
     return () => clearTimeout(handle);
-  }, [typed, memory, run, dispatch, debounceMs]);
+  }, [typed, memory, client, run, dispatch, debounceMs]);
 
   // The place or partner changed: refresh if there is something to reply to.
   const contextKey = `${state.placeId ?? ""}|${state.partnerId ?? ""}`;

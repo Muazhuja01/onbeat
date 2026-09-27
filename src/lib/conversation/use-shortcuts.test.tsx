@@ -34,6 +34,24 @@ describe("useReplyShortcuts", () => {
     expect(onReaction).toHaveBeenCalledWith(0);
   });
 
+  it("ignores a repeated key event from holding a digit down", () => {
+    const { onReply } = setup();
+    fireEvent.keyDown(document.body, { key: "1", repeat: true });
+    expect(onReply).not.toHaveBeenCalled();
+  });
+
+  it("ignores Shift+digit", () => {
+    const { onReply } = setup();
+    fireEvent.keyDown(document.body, { key: "1", shiftKey: true });
+    expect(onReply).not.toHaveBeenCalled();
+  });
+
+  it("lets Alt+1 trigger a reaction even while a text field has focus", () => {
+    const { onReaction, getByLabelText } = setup();
+    fireEvent.keyDown(getByLabelText("Type a reply"), { key: "1", code: "Digit1", altKey: true });
+    expect(onReaction).toHaveBeenCalledWith(0);
+  });
+
   it("calls onEscape anywhere", () => {
     const { onEscape, getByLabelText } = setup();
     fireEvent.keyDown(getByLabelText("Type a reply"), { key: "Escape" });

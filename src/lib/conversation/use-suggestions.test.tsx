@@ -73,4 +73,56 @@ describe("useSuggestions", () => {
     await act(async () => result.current.dispatch({ type: "partnerSaid", id: "1", text: "Hi", at: 1 }));
     expect(result.current.state.status).toBe("paused");
   });
+
+  it("recovers by pausing instead of leaving an unhandled rejection on an unexpected error", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const client = fakeClient(new Error("boom"));
+    const { result } = await setup(client);
+    await act(async () => result.current.dispatch({ type: "partnerSaid", id: "1", text: "Hi", at: 1 }));
+    expect(result.current.state.status).toBe("paused");
+    spy.mockRestore();
+  });
+
+  it("cancels an in-flight typed request when the typed text is cleared", async () => {
+    const calls: SuggestInput[] = [];
+    let respond: (() => void) | null = null;
+    let cancelled = false;
+    const client = {
+      calls,
+      cancel: vi.fn(() => {
+        cancelled = true;
+      }),
+      request: vi.fn(
+        (input: SuggestInput, onUpdate: (u: SuggestUpdate) => void) =>
+          new Promise<SuggestUpdate | null>((resolve) => {
+            calls.push(input);
+            cancelled = false;
+            respond = () => {
+              if (cancelled) {
+                resolve(null);
+                return;
+              }
+              const result: SuggestUpdate = { replies: [{ text: "late", noteIds: [], source: "model" }], reactions: [], done: true };
+              onUpdate(result);
+              resolve(result);
+            };
+          }),
+      ),
+    } as unknown as SuggestClient & { calls: SuggestInput[] };
+
+    const { result } = await setup(client);
+    await act(async () => result.current.dispatch({ type: "typed", text: "my us" }));
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(client.calls).toHaveLength(1);
+
+    await act(async () => result.current.dispatch({ type: "typed", text: "" }));
+    expect(client.cancel).toHaveBeenCalled();
+
+    await act(async () => {
+      respond?.();
+    });
+    expect(result.current.state.replies.some((r) => r.text === "late")).toBe(false);
+  });
 });
