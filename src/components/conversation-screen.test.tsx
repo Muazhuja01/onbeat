@@ -75,6 +75,14 @@ beforeEach(() => {
 });
 
 describe("ConversationScreen", () => {
+  it("resets focus to the top of the page after choosing a profile", async () => {
+    await startWithMaya();
+    // The picker's own (now removed) button must not leave the browser's next
+    // Tab landing somewhere in the middle of the page.
+    expect(document.activeElement).toBe(document.body);
+    expect(document.body).not.toHaveAttribute("tabindex");
+  });
+
   it("holds new replies while the pointer is over the list after choosing a profile", async () => {
     await startWithMaya();
     await partnerSays("What size?");

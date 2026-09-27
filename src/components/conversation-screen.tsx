@@ -149,6 +149,15 @@ function Screen() {
     },
   });
 
+  // Dismissing the picker removes its focused button from the page. Left alone,
+  // the browser's next Tab lands wherever that button used to be in the tree
+  // instead of the page's actual start, so focus is reset to the top here.
+  const resetFocusToTop = () => {
+    document.body.setAttribute("tabindex", "-1");
+    document.body.focus();
+    document.body.removeAttribute("tabindex");
+  };
+
   const choosePersona = useCallback(
     async (p: Persona) => {
       if (!memory) return;
@@ -159,6 +168,7 @@ function Screen() {
       dispatch({ type: "setContext", placeId: p.defaultPlaceId, partnerId: p.defaultPartnerId });
       setNotesVersion((v) => v + 1);
       setShowProfiles(false);
+      resetFocusToTop();
     },
     [memory, client],
   );
@@ -166,6 +176,7 @@ function Screen() {
   const closeProfiles = () => {
     setSkippedProfiles(true);
     setShowProfiles(false);
+    resetFocusToTop();
   };
   const openOrCloseProfiles = () => {
     if (needsProfile) return closeProfiles();
