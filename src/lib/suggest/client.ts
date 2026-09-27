@@ -40,6 +40,8 @@ interface StreamOutcome {
   reactions: Reaction[];
   invalid: number;
   provider?: string;
+  /** True when the stream ended normally (not cut off by a mid-stream failure). */
+  complete: boolean;
 }
 
 const CACHE_SIZE = 20;
@@ -57,15 +59,25 @@ export class SuggestClient {
     this.controller = null;
   }
 
+  /** Call when notes or phrases change, so stale suggestions aren't served from cache. */
+  clearCache(): void {
+    this.cache.clear();
+  }
+
   async request(input: SuggestInput, onUpdate: (u: SuggestUpdate) => void): Promise<SuggestUpdate | null> {
     const typed = input.typed.slice(0, 500);
     const partnerSaid = input.partnerSaid.slice(-1000);
+    const { memory, pack } = this.deps;
+    const simple = this.deps.simpleLanguage?.() ?? false;
+    const line = contextLine(input.context, (id) => memory.getNote(id));
     const key = JSON.stringify([
       input.mode,
       normalize(typed.trim()),
       normalize(partnerSaid.trim()),
       input.context.placeId ?? "",
       input.context.partnerId ?? "",
+      simple,
+      line,
     ]);
 
     this.cancel();
@@ -80,17 +92,15 @@ export class SuggestClient {
     const generation = this.generation;
     const isCurrent = () => generation === this.generation && !controller.signal.aborted;
 
-    const { memory, pack } = this.deps;
     const query = `${typed} ${partnerSaid}`.trim();
     const notes = await memory.searchNotes(query, input.context, 8);
     if (!isCurrent()) return null;
 
-    const simple = this.deps.simpleLanguage?.() ?? false;
     const body: SuggestRequestBody = {
       mode: input.mode,
       typed,
       partnerSaid,
-      contextLine: contextLine(input.context, (id) => memory.getNote(id)),
+      contextLine: line,
       notes: notes.map((n) => ({ id: n.id, text: n.text.slice(0, 300) })),
       examples: memory.styleExamples(query, 5).map((e) => e.slice(0, 200)),
       reactions: pack.reactions,
@@ -107,8 +117,10 @@ export class SuggestClient {
 
     const final: SuggestUpdate = { replies: outcome.replies, reactions: outcome.reactions, done: true, provider: outcome.provider };
     onUpdate(final);
-    this.cache.set(key, final);
-    if (this.cache.size > CACHE_SIZE) this.cache.delete(this.cache.keys().next().value as string);
+    if (outcome.complete && outcome.replies.length > 0) {
+      this.cache.set(key, final);
+      if (this.cache.size > CACHE_SIZE) this.cache.delete(this.cache.keys().next().value as string);
+    }
     if (this.controller === controller) this.controller = null;
     return final;
   }
@@ -133,7 +145,10 @@ export class SuggestClient {
       throw new SuggestUnavailableError(err instanceof Error ? err.message : "network error");
     }
     if (!isCurrent()) return null;
-    if (!res.ok || !res.body) throw new SuggestUnavailableError(`HTTP ${res.status}`);
+    if (!res.ok || !res.body) {
+      await res.body?.cancel().catch(() => {});
+      throw new SuggestUnavailableError(`HTTP ${res.status}`);
+    }
 
     const reactionsById = new Map(this.deps.pack.reactions.map((r) => [r.id, r]));
     const replies: Reply[] = [];
@@ -160,21 +175,32 @@ export class SuggestClient {
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        if (!isCurrent()) {
-          await reader.cancel().catch(() => {});
-          return null;
-        }
-        splitter.push(decoder.decode(value, { stream: true }));
+    let complete = false;
+    while (true) {
+      let result: ReadableStreamReadResult<Uint8Array>;
+      try {
+        result = await reader.read();
+      } catch {
+        if (!isCurrent()) return null;
+        // Mid-stream failure (Task 8 R12: the reader rejects). Keep what already arrived.
+        break;
       }
-      splitter.flush();
-    } catch {
-      if (!isCurrent()) return null;
-      // Mid-stream failure: keep what already arrived.
+      if (result.done) {
+        complete = true;
+        break;
+      }
+      if (!isCurrent()) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      try {
+        splitter.push(decoder.decode(result.value, { stream: true }));
+      } catch (err) {
+        await reader.cancel().catch(() => {});
+        throw err;
+      }
     }
-    return { replies, reactions, invalid, provider: res.headers.get("x-onbeat-provider") ?? undefined };
+    if (complete) splitter.flush();
+    return { replies, reactions, invalid, provider: res.headers.get("x-onbeat-provider") ?? undefined, complete };
   }
 }

@@ -145,4 +145,73 @@ describe("SuggestClient", () => {
     expect(body.typed).toHaveLength(500);
     expect(body.partnerSaid).toHaveLength(1000);
   });
+
+  it("misses the cache when the context (partner) differs", async () => {
+    const fetchImpl = vi.fn(async () => streamResponse(['{"reply": "Large, please."}']));
+    const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl });
+    await client.request(input, () => {});
+    await client.request({ ...input, context: { ...ctx, partnerId: undefined } }, () => {});
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("misses the cache when simpleLanguage toggles", async () => {
+    const fetchImpl = vi.fn(async () => streamResponse(['{"reply": "Large, please."}']));
+    let simple = false;
+    const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl, simpleLanguage: () => simple });
+    await client.request(input, () => {});
+    simple = true;
+    await client.request(input, () => {});
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("clearCache forces a new fetch for a request that was cached", async () => {
+    const fetchImpl = vi.fn(async () => streamResponse(['{"reply": "Large, please."}']));
+    const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl });
+    await client.request(input, () => {});
+    client.clearCache();
+    await client.request(input, () => {});
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not cache a mid-stream failure", async () => {
+    const fetchImpl = vi.fn(async () => streamResponse(['{"reply": "Large, please."}', '{"reply": "Medium."}'], { failAfter: 1 }));
+    const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl });
+    await client.request(input, () => {});
+    await client.request(input, () => {});
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("never emits a stale reply when fetch ignores the abort signal", async () => {
+    let releaseFirst: (() => void) | undefined;
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      const { typed } = JSON.parse(init.body as string) as { typed: string };
+      if (typed === "old") {
+        await new Promise<void>((r) => (releaseFirst = r));
+        // Deliberately ignores init.signal, unlike a well-behaved fetch.
+        return streamResponse(['{"reply": "Old."}']);
+      }
+      return streamResponse(['{"reply": "New."}']);
+    });
+    const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl: fetchImpl as unknown as typeof fetch });
+    const seen: string[] = [];
+    const first = client.request({ ...input, typed: "old" }, (u) => u.replies.forEach((r) => seen.push(r.text)));
+    await vi.waitFor(() => expect(releaseFirst).toBeDefined());
+    const second = client.request({ ...input, typed: "new" }, (u) => u.replies.forEach((r) => seen.push(r.text)));
+    releaseFirst?.();
+    expect(await first).toBeNull();
+    expect((await second)?.replies[0].text).toBe("New.");
+    expect(seen).not.toContain("Old.");
+  });
+
+  it("propagates an error thrown while processing a stream line instead of swallowing it", async () => {
+    const fetchImpl = vi.fn(async () => streamResponse(['{"reply": "Large, please."}', '{"reply": "Medium."}']));
+    const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl });
+    let calls = 0;
+    await expect(
+      client.request(input, () => {
+        calls++;
+        if (calls === 1) throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
+  });
 });
