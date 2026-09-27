@@ -24,13 +24,17 @@ export function providerConfigs(env: NodeJS.ProcessEnv = process.env): Record<Pr
     cloudflare: {
       id: "cloudflare",
       url: `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID ?? ""}/ai/v1/chat/completions`,
-      model: env.CLOUDFLARE_MODEL ?? "@cf/qwen/qwen3.8-27b",
+      model: env.CLOUDFLARE_MODEL ?? "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
       // Without an account id the URL is unusable, so treat the provider as unconfigured.
       apiKey: env.CLOUDFLARE_ACCOUNT_ID ? env.CLOUDFLARE_API_TOKEN : undefined,
-      // Cloudflare's Workers AI endpoint returns HTTP 400 for `reasoning_effort: "none"`
-      // (it only accepts xhigh/medium/low; "none" isn't Groq-compatible here), so it gets
-      // no extra body per the brief's fallback. See the task report for the live-smoke-test
-      // finding that this still leaves Cloudflare very slow for this model.
+      // Qwen 3.8 on Workers AI can't switch its thinking off (reasoning_effort only accepts
+      // xhigh/medium/low, never "none") and consistently misses the 1500 ms first-token
+      // budget. Llama 3.3 70B (fast) answers in about 0.4-0.8 s with no extra body needed,
+      // so it is the backup model. It occasionally truncates one of the 3 reply lines with
+      // a dangling `"notes":` field (also happens with max_tokens raised to 600, confirmed
+      // in the task report's live smoke test), so the backup can return fewer than 3 valid
+      // replies; the client already drops invalid lines (Task 7/9) and the spec allows
+      // showing fewer replies rather than filling the gap.
       extraBody: {},
     },
   };
