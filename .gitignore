@@ -37,3 +37,6 @@ Thumbs.db
 !.vscode/extensions.json
 .idea/
 .vercel
+
+# local tool output
+.playwright-mcp/
