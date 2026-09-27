@@ -3,7 +3,7 @@ export function normalize(s: string): string {
   return s
     .normalize("NFD")
     .replace(/\p{M}/gu, "")
-    .replace(/['']/g, "'")
+    .replace(/[‘’]/g, "'")
     .toLowerCase();
 }
 

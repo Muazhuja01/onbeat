@@ -5,7 +5,7 @@ describe("normalize", () => {
   it("lowercases, strips accents and unifies apostrophes", () => {
     expect(normalize("Café")).toBe("cafe");
     expect(normalize("Zoë")).toBe("zoe");
-    expect(normalize("O'Brien")).toBe("o'brien");
+    expect(normalize("O’Brien")).toBe("o'brien");
   });
 });
 
@@ -18,5 +18,8 @@ describe("tokenize", () => {
   });
   it("returns an empty list for blank input", () => {
     expect(tokenize("   ")).toEqual([]);
+  });
+  it("normalizes curly apostrophes in tokenization", () => {
+    expect(tokenize("Don’t worry")).toEqual(["don't", "worry"]);
   });
 });
