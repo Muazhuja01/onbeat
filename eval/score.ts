@@ -28,7 +28,7 @@ export interface ScenarioResult {
   totalMs: number | null;
   /** The model's output, cut to 2000 characters, kept only when no reply was shown. */
   raw?: string;
-  /** Who answered the judge call: "groq" or "cloudflare", or "cache" when a stored answer was reused. Absent when nothing was judged or the judge failed. */
+  /** Who answered the judge call: "groq" or "cloudflare", or "cache:<endpoint>" when a stored answer from that endpoint was reused. Absent when nothing was judged or the judge failed. */
   judgedBy?: string;
 }
 
@@ -119,13 +119,21 @@ export function summarize(model: string, results: ScenarioResult[]): ModelSummar
   };
 }
 
-/** "groq (95), cloudflare (20), cache (5)": who answered the judge calls across these results. */
+/** "groq (40, 12 cached), cloudflare (8)": who answered the judge calls across these results, cache hits counted under the endpoint that first answered. */
 export function judgedByPhrase(results: ScenarioResult[]): string {
-  const counts = new Map<string, number>();
-  for (const r of results) if (r.judgedBy) counts.set(r.judgedBy, (counts.get(r.judgedBy) ?? 0) + 1);
-  const order = ["groq", "cloudflare", "cache"];
+  const counts = new Map<string, { total: number; cached: number }>();
+  for (const r of results) {
+    if (!r.judgedBy) continue;
+    const cached = r.judgedBy.startsWith("cache:");
+    const name = cached ? r.judgedBy.slice("cache:".length) : r.judgedBy;
+    const c = counts.get(name) ?? { total: 0, cached: 0 };
+    c.total++;
+    if (cached) c.cached++;
+    counts.set(name, c);
+  }
+  const order = ["groq", "cloudflare"];
   const names = [...order.filter((n) => counts.has(n)), ...[...counts.keys()].filter((n) => !order.includes(n)).sort()];
-  return names.length ? names.map((n) => `${n} (${counts.get(n)})`).join(", ") : "no judge";
+  return names.length ? names.map((n) => { const c = counts.get(n)!; return `${n} (${c.total}${c.cached ? `, ${c.cached} cached` : ""})`; }).join(", ") : "no judge";
 }
 
 export function toMarkdown(summaries: ModelSummary[]): string {

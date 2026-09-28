@@ -8,7 +8,7 @@ import { createLineSplitter, parseLines } from "@/lib/suggest/protocol";
 import { buildSuggestRequest } from "@/lib/suggest/request";
 import { isNearDuplicate, validateReply } from "@/lib/suggest/validate";
 import { judge, judgeEndpoints, JUDGE_PROMPT_VERSION, type JudgeEndpoint } from "./judge";
-import { JudgeCache } from "./judge-cache";
+import { JudgeCache, judgeWithCache } from "./judge-cache";
 import { withRetry } from "./retry";
 import { scenarios, type Scenario } from "./scenarios";
 import { testScenarios } from "./test-scenarios";
@@ -104,26 +104,12 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
   let judgement: Judgement | null = { match: 0, invented: [], unbacked: [] };
   let judgedBy: string | undefined;
   if (shown.length) {
-    const key = JudgeCache.key({ scenarioId: sc.id, candidates: shown, model: endpoints[0].model, version: JUDGE_PROMPT_VERSION });
+    const input = { intended: sc.intended, partnerSaid: sc.partnerSaid, typed, contextLine: body.contextLine, notes: body.notes.map((n) => n.text), phrases: body.examples, candidates: shown };
     try {
-      let text = cache.get(key);
-      if (text !== undefined) {
-        judgedBy = "cache";
-      } else {
-        const answer = await judge(
-          { intended: sc.intended, partnerSaid: sc.partnerSaid, typed, contextLine: body.contextLine, notes: body.notes.map((n) => n.text), phrases: body.examples, candidates: shown },
-          { endpoints },
-        );
-        text = answer.text;
-        judgedBy = answer.endpoint;
-        // Only cache answers that parse, so a garbled one is asked again next run.
-        if (parseJudgement(text, shown.length)) cache.set(key, text);
-      }
-      judgement = parseJudgement(text, shown.length);
+      ({ judgement, judgedBy } = await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, () => judge(input, { endpoints }), (text) => parseJudgement(text, shown.length)));
     } catch (err) {
       console.warn(`  judge failed for ${sc.id}: ${err instanceof Error ? err.message : String(err)}`);
       judgement = null;
-      judgedBy = undefined;
     }
   }
   const sentIds = new Set(body.notes.map((n) => n.id));

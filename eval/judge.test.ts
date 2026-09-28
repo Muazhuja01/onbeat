@@ -42,7 +42,7 @@ describe("judge", () => {
   it("returns the first endpoint's answer", async () => {
     const fetchImpl = vi.fn(async () => ok('{"match": 1, "replies": []}'));
     const out = await judge(input, { endpoints: [groq, cf], fetchImpl, sleep: noSleep });
-    expect(out).toEqual({ text: '{"match": 1, "replies": []}', endpoint: "groq" });
+    expect(out).toEqual({ text: '{"match": 1, "replies": []}', endpoint: "groq", model: "openai/gpt-oss-120b" });
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://groq.test");
     const body = JSON.parse(init.body as string);

@@ -131,9 +131,10 @@ describe("judgedByPhrase", () => {
     ...(judgedBy ? { judgedBy } : {}),
   });
 
-  it("counts each source in a fixed order and skips scenarios nobody judged", () => {
-    const results = [r("cache"), r("groq"), r("groq"), r(), r("cloudflare"), r("groq")];
-    expect(judgedByPhrase(results)).toBe("groq (3), cloudflare (1), cache (1)");
+  it("counts cache hits under the endpoint that answered and shows how many were cached", () => {
+    const results = [r("cache:groq"), r("groq"), r("groq"), r(), r("cloudflare"), r("cache:cloudflare"), r("groq")];
+    expect(judgedByPhrase(results)).toBe("groq (4, 1 cached), cloudflare (2, 1 cached)");
+    expect(judgedByPhrase([r("groq"), r("cloudflare")])).toBe("groq (1), cloudflare (1)");
   });
 
   it("says so when nothing was judged", () => {
