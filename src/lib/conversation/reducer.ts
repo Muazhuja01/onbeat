@@ -24,7 +24,7 @@ export type ConversationAction =
   | { type: "partnerSaid"; id: string; text: string; at: number }
   | { type: "partnerPartial"; text: string }
   | { type: "typed"; text: string }
-  | { type: "thinking" }
+  | { type: "thinking"; speculative?: boolean }
   | { type: "suggestions"; replies: Reply[]; reactions: Reaction[]; done: boolean; hold: boolean }
   | { type: "releaseHeld" }
   | { type: "unavailable" }
@@ -68,6 +68,9 @@ export function conversationReducer(state: ConversationState, action: Conversati
     case "typed":
       return { ...state, typed: action.text };
     case "thinking":
+      // While suggestions are paused, a speculative attempt changes nothing on
+      // screen, so the notice isn't cleared and read out again every 2.5 s.
+      if (action.speculative && state.status === "paused") return state;
       return {
         ...state,
         status: state.replies.length ? (state.status === "paused" ? "ready" : state.status) : "thinking",
@@ -75,10 +78,12 @@ export function conversationReducer(state: ConversationState, action: Conversati
       };
     case "suggestions": {
       const status = action.replies.length ? "ready" : action.done ? "idle" : state.status;
+      // Replies from the model mean suggestions work again.
+      const notice = state.notice === PAUSED_NOTICE && action.replies.some((r) => r.source === "model") ? null : state.notice;
       if (action.hold && state.replies.length) {
-        return { ...state, heldReplies: action.replies, reactions: action.reactions, status };
+        return { ...state, heldReplies: action.replies, reactions: action.reactions, status, notice };
       }
-      return { ...state, replies: action.replies, heldReplies: null, reactions: action.reactions, status };
+      return { ...state, replies: action.replies, heldReplies: null, reactions: action.reactions, status, notice };
     }
     case "releaseHeld":
       return state.heldReplies ? { ...state, replies: state.heldReplies, heldReplies: null } : state;

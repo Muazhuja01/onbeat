@@ -41,6 +41,16 @@ describe("conversationReducer", () => {
     expect(s2.status).toBe("thinking");
   });
 
+  it("keeps the paused notice through a speculative attempt and clears it when model replies arrive", () => {
+    const s1 = r(s0, { type: "unavailable" });
+    expect(r(s1, { type: "thinking", speculative: true })).toBe(s1);
+    const phrase = r(s1, { type: "suggestions", replies: [{ text: "Hi", noteIds: [], source: "phrase" }], reactions: [], done: false, hold: false });
+    expect(phrase.notice).toBe(PAUSED_NOTICE);
+    const model = r(s1, { type: "suggestions", replies: [reply("A")], reactions: [], done: true, hold: false });
+    expect(model.notice).toBeNull();
+    expect(model.status).toBe("ready");
+  });
+
   it("records spoken lines and clears matching typed text", () => {
     const s1 = r({ ...s0, typed: "Large please " }, { type: "speakStart", id: "u1", text: "Large please", at: 5 });
     expect(s1.speaking).toBe("Large please");

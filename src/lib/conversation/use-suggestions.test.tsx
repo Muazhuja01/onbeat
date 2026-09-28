@@ -3,7 +3,7 @@ import { useReducer } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "@/lib/memory/store";
 import { SuggestSkippedError, SuggestUnavailableError, type SuggestClient, type SuggestInput, type SuggestUpdate } from "@/lib/suggest/client";
-import { conversationReducer, initialConversation } from "./reducer";
+import { conversationReducer, initialConversation, PAUSED_NOTICE, type ConversationAction, type ConversationState } from "./reducer";
 import { useSuggestions } from "./use-suggestions";
 
 function fakeClient(result: SuggestUpdate | Error) {
@@ -288,6 +288,33 @@ describe("useSuggestions", () => {
     });
     expect(calls.map((c) => c.priority)).toEqual(["typed", "speculative", "typed"]);
     expect(calls[2]).toMatchObject({ mode: "replies", typed: "zz" });
+  });
+
+  it("does not clear and re-announce the paused notice for each speculative attempt", async () => {
+    const client = fakeClient(new SuggestUnavailableError("HTTP 503"));
+    const memory = await MemoryStore.create();
+    const notices: (string | null)[] = [];
+    const { result } = renderHook(() => {
+      const [state, dispatch] = useReducer((s: ConversationState, a: ConversationAction) => {
+        const next = conversationReducer(s, a);
+        notices.push(next.notice);
+        return next;
+      }, initialConversation);
+      useSuggestions({ client, memory, state, dispatch, isHolding: () => false, debounceMs: 300 });
+      return { state, dispatch };
+    });
+    await act(async () => result.current.dispatch({ type: "partnerSaid", id: "1", text: "Hi", at: 1 }));
+    expect(result.current.state.notice).toBe(PAUSED_NOTICE);
+    notices.length = 0;
+
+    vi.setSystemTime(10_000);
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would" }));
+    vi.setSystemTime(12_600);
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would you like today" }));
+    expect(client.calls.filter((c) => c.priority === "speculative")).toHaveLength(2);
+    expect(notices.length).toBeGreaterThan(0);
+    expect(notices.every((n) => n === PAUSED_NOTICE)).toBe(true);
+    expect(result.current.state.status).toBe("paused");
   });
 
   it("drops a skipped speculative request without retrying", async () => {

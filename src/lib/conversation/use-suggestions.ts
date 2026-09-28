@@ -53,7 +53,7 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
       // already carries the typed text; if the retry fires later, it wins.
       if (priority !== "speculative") clearTimeout(retryTimer.current);
       const s = stateRef.current;
-      dispatch({ type: "thinking" });
+      dispatch({ type: "thinking", speculative: priority === "speculative" });
       try {
         const final = await client.request(
           { mode, typed, partnerSaid, priority, context: { now: new Date(), placeId: s.placeId, partnerId: s.partnerId } },
