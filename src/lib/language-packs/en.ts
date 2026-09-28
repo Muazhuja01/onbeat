@@ -5,6 +5,7 @@ export const en: LanguagePack = {
   name: "English",
   tier: "generative",
   bcp47: "en-US",
+  asrModel: "onnx-community/moonshine-tiny-ONNX",
   maxWords: 15,
   simpleMaxWords: 10,
   reactions: [
