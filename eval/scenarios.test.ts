@@ -25,7 +25,7 @@ describe.each(sets)("%s scenarios", (_name, list) => {
   });
 
   it("uses no en or em dashes", () => {
-    expect(JSON.stringify(list)).not.toMatch(/[–—]/);
+    expect(JSON.stringify(list)).not.toMatch(/[\u2013\u2014]/);
   });
 
   it("has typed letters in about a fifth of the scenarios", () => {
