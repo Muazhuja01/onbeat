@@ -3,20 +3,20 @@
 import { useEffect, useRef } from "react";
 import type { Turn } from "@/lib/types";
 
-export function CaptionLog({ turns, partnerName }: { turns: Turn[]; partnerName: string }) {
+export function CaptionLog({ turns, partnerName, partial = "" }: { turns: Turn[]; partnerName: string; partial?: string }) {
   const end = useRef<HTMLLIElement>(null);
   useEffect(() => {
     // Instant scroll (never smooth) so reduced motion is respected.
     // Optional call: jsdom has no scrollIntoView.
     end.current?.scrollIntoView?.({ block: "end" });
-  }, [turns.length]);
+  }, [turns.length, partial]);
 
   return (
     <section aria-labelledby="conversation-heading" className="flex min-h-0 flex-col gap-3">
       <h2 id="conversation-heading" className="text-body font-bold">
         Conversation
       </h2>
-      {turns.length === 0 ? (
+      {turns.length === 0 && !partial ? (
         <p className="text-body text-muted">What the other person says will appear here in large text.</p>
       ) : (
         <ol className="flex max-h-[45dvh] flex-col gap-4 overflow-y-auto pr-1 lg:max-h-[70dvh]">
@@ -32,6 +32,14 @@ export function CaptionLog({ turns, partnerName }: { turns: Turn[]; partnerName:
                 <span className="block text-reply break-words">{t.text}</span>
               </li>
             ),
+          )}
+          {partial && (
+            <li className="border-l-4 border-dashed border-partner pl-4">
+              <span className="block text-label font-bold text-partner">
+                {partnerName} <span className="font-medium text-muted">(still talking)</span>
+              </span>
+              <span className="block text-caption font-medium break-words">{partial}…</span>
+            </li>
           )}
           <li ref={end} aria-hidden="true" />
         </ol>

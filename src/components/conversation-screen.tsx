@@ -3,9 +3,12 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { personas, type Persona } from "@/data/personas";
 import { conversationReducer, initialConversation } from "@/lib/conversation/reducer";
+import { GapTimer, loadGaps, saveGap } from "@/lib/conversation/response-gap";
 import { useReplyShortcuts } from "@/lib/conversation/use-shortcuts";
 import { useStableTargets } from "@/lib/conversation/use-stable-targets";
 import { useSuggestions } from "@/lib/conversation/use-suggestions";
+import { getBrowserHearing } from "@/lib/hearing/browser";
+import type { Hearing, HearingStatus } from "@/lib/hearing/engine";
 import { en } from "@/lib/language-packs/en";
 import { getBrowserMemory } from "@/lib/memory/browser";
 import { MemoryStore } from "@/lib/memory/store";
@@ -16,15 +19,19 @@ import { AnnouncerProvider, useAnnounce } from "./announcer";
 import { CaptionLog } from "./caption-log";
 import { Composer } from "./composer";
 import { ContextBar } from "./context-bar";
+import { ListenControl } from "./listen-control";
 import { PartnerInput } from "./partner-input";
 import { ProfilePicker } from "./profile-picker";
 import { ReactionBar } from "./reaction-bar";
 import { ReplyList } from "./reply-list";
+import { ResponseGap } from "./response-gap";
 import { SpokenCaption } from "./spoken-caption";
 import { VoiceStatus } from "./voice-status";
 
 const subscribeNever = () => () => {};
 const noVoice = (): VoiceEngine | null => null;
+const noHearing = (): Hearing | null => null;
+const hasTimerFlag = () => new URLSearchParams(window.location.search).has("timer");
 
 function isTextField(el: Element | null): boolean {
   if (!(el instanceof HTMLElement)) return false;
@@ -72,6 +79,14 @@ function Screen() {
   const voice = useSyncExternalStore(subscribeNever, getBrowserVoice, noVoice);
   const subscribeMode = useCallback((cb: () => void) => (voice ? voice.on("mode", cb) : () => {}), [voice]);
   const voiceMode = useSyncExternalStore<VoiceMode>(subscribeMode, () => voice?.mode ?? "loading", () => "loading");
+  // Hearing is an external store like the voice (spec 4, hearing unit).
+  const hearing = useSyncExternalStore(subscribeNever, getBrowserHearing, noHearing);
+  const subscribeHearing = useCallback((cb: () => void) => (hearing ? hearing.on("status", cb) : () => {}), [hearing]);
+  const hearingStatus = useSyncExternalStore<HearingStatus>(subscribeHearing, () => hearing?.status ?? "off", () => "off");
+  const [hearingProgress, setHearingProgress] = useState(0);
+  const showTimer = useSyncExternalStore(subscribeNever, hasTimerFlag, () => false);
+  const [gaps, setGaps] = useState<number[]>(() => (typeof window === "undefined" ? [] : loadGaps()));
+  const [gapTimer] = useState(() => new GapTimer((ms) => setGaps(saveGap(ms))));
 
   useEffect(() => {
     if (!voice) return;
@@ -87,6 +102,30 @@ function Screen() {
     return () => offs.forEach((off) => off());
   }, [voice]);
 
+  // The microphone would hear the app's own voice: pause while it speaks and a moment after.
+  useEffect(() => {
+    if (!voice || !hearing) return;
+    const offs = [voice.on("start", () => hearing.pause()), voice.on("end", () => hearing.resume(400))];
+    return () => offs.forEach((off) => off());
+  }, [voice, hearing]);
+
+  useEffect(() => {
+    if (!hearing) return;
+    const offs = [
+      hearing.on("progress", setHearingProgress),
+      hearing.on("speechStart", (at) => gapTimer.speechStarted(at)),
+      hearing.on("partial", (text) => dispatch({ type: "partnerPartial", text })),
+      hearing.on("turnEnd", ({ text, endedAt }) => {
+        dispatch({ type: "partnerSaid", id: crypto.randomUUID(), text, at: Date.now() });
+        gapTimer.turnEnded(endedAt);
+      }),
+    ];
+    return () => {
+      offs.forEach((off) => off());
+      hearing.stop();
+    };
+  }, [hearing, gapTimer]);
+
   const client = useMemo(() => (memory ? new SuggestClient({ memory, pack: en }) : null), [memory]);
 
   const replyListRef = useRef<HTMLElement>(null);
@@ -98,6 +137,16 @@ function Screen() {
     if (!voice) return;
     for (const r of state.replies) voice.prepare(r.text);
   }, [voice, state.replies]);
+
+  useEffect(() => {
+    if (state.replies.length) gapTimer.repliesShown(Date.now());
+  }, [state.replies, gapTimer]);
+
+  const toggleListening = () => {
+    if (!hearing) return;
+    if (hearingStatus === "listening" || hearingStatus === "loading") hearing.stop();
+    else void hearing.start();
+  };
 
   // Every new set of replies on screen is announced; queued updates collapse to the latest.
   useEffect(() => {
@@ -225,7 +274,7 @@ function Screen() {
         </div>
         {needsProfile && <ProfilePicker personas={personas} onChoose={(p) => void choosePersona(p)} onSkip={closeProfiles} />}
         <div className="conv-grid" hidden={conversationHidden}>
-          <div className="[grid-area:context]">
+          <div className="flex flex-col gap-4 [grid-area:context]">
             <ContextBar
               places={places}
               people={people}
@@ -233,9 +282,10 @@ function Screen() {
               partnerId={state.partnerId}
               onChange={(placeId, partnerId) => dispatch({ type: "setContext", placeId, partnerId })}
             />
+            <ListenControl hearing={hearing} status={hearingStatus} progress={hearingProgress} onToggle={toggleListening} />
           </div>
           <div className="flex min-w-0 flex-col gap-6 [grid-area:log]">
-            <CaptionLog turns={state.turns} partnerName={partnerName} />
+            <CaptionLog turns={state.turns} partnerName={partnerName} partial={state.partnerPartial} />
             <PartnerInput onSubmit={(text) => dispatch({ type: "partnerSaid", id: crypto.randomUUID(), text, at: Date.now() })} />
           </div>
           <div className="flex min-w-0 flex-col gap-6 [grid-area:side]">
@@ -249,6 +299,7 @@ function Screen() {
               onFocusReplies={focusReplies}
             />
             <VoiceStatus mode={voiceMode} progress={voiceProgress} />
+            {showTimer && <ResponseGap gaps={gaps} />}
           </div>
         </div>
       </main>

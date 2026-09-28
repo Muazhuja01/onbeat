@@ -6,6 +6,8 @@ import { CueLight } from "./cue-light";
 import { ReplyList } from "./reply-list";
 import { CaptionLog } from "./caption-log";
 import { AnnouncerProvider, useAnnounce } from "./announcer";
+import { ListenControl } from "./listen-control";
+import { ResponseGap } from "./response-gap";
 import type { Reply } from "@/lib/types";
 
 const replies: Reply[] = [
@@ -78,6 +80,13 @@ describe("CaptionLog", () => {
     expect(screen.getByText("You")).toBeInTheDocument();
     expect(screen.getByText("What size?")).toBeInTheDocument();
   });
+
+  it("shows a live line while the partner is talking", () => {
+    render(<CaptionLog turns={[]} partnerName="Sam" partial="What size" />);
+    expect(screen.getByText("What size…")).toBeInTheDocument();
+    expect(screen.getByText("(still talking)")).toBeInTheDocument();
+    expect(screen.queryByText(/will appear here/)).not.toBeInTheDocument();
+  });
 });
 
 describe("AnnouncerProvider", () => {
@@ -116,5 +125,59 @@ describe("AnnouncerProvider", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("keeps only the newest five messages when captions pile up", () => {
+    vi.useFakeTimers();
+    try {
+      const calls: [string, string?][] = Array.from({ length: 8 }, (_, i) => [`Line ${i + 1}`]);
+      render(
+        <AnnouncerProvider>
+          <Announce calls={calls} />
+        </AnnouncerProvider>,
+      );
+      const region = screen.getByRole("status");
+      act(() => screen.getByRole("button", { name: "Go" }).click());
+      const seen: string[] = [];
+      for (let i = 0; i < 300; i++) {
+        act(() => vi.advanceTimersByTime(25));
+        const text = region.textContent ?? "";
+        if (text && text !== seen.at(-1)) seen.push(text);
+      }
+      expect(seen).toEqual(["Line 4", "Line 5", "Line 6", "Line 7", "Line 8"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("ListenControl", () => {
+  it("offers to listen and says what happens the first time", () => {
+    render(<ListenControl hearing={null} status="off" progress={0} onToggle={() => {}} />);
+    expect(screen.getByRole("button", { name: "Listen" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText(/downloads speech recognition to this device/)).toBeInTheDocument();
+  });
+
+  it("shows progress while getting ready, then says it is listening", () => {
+    const { rerender } = render(<ListenControl hearing={null} status="loading" progress={42} onToggle={() => {}} />);
+    expect(screen.getByText("Getting speech recognition ready…")).toBeInTheDocument();
+    expect(screen.getByText("42%")).toBeInTheDocument();
+    rerender(<ListenControl hearing={null} status="listening" progress={100} onToggle={() => {}} />);
+    expect(screen.getByRole("button", { name: "Listen" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Listening. Their words appear in the conversation.")).toBeInTheDocument();
+  });
+
+  it("explains a blocked microphone", () => {
+    render(<ListenControl hearing={null} status="denied" progress={0} onToggle={() => {}} />);
+    expect(
+      screen.getByText("Microphone is off. You can still type replies. Turn it on in your browser's site settings."),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("ResponseGap", () => {
+  it("shows the last and the median gap", () => {
+    render(<ResponseGap gaps={[400, 1200, 800]} />);
+    expect(screen.getByText("Replies were ready 0.8 s after they stopped. Median 0.8 s over 3 turns.")).toBeInTheDocument();
   });
 });
