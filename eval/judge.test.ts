@@ -8,6 +8,7 @@ const input: JudgeInput = {
   typed: "",
   contextLine: "It is Tuesday morning.",
   notes: ["Sam is the barista."],
+  phrases: [],
   candidates: ["Large, please.", "Small."],
 };
 
@@ -16,6 +17,18 @@ describe("judge", () => {
     const [, user] = judgeMessages(input);
     expect(user.content).toContain("1. Large, please.\n2. Small.");
     expect(user.content).toContain("- Sam is the barista.");
+  });
+
+  it("lists the saved phrases the model saw as the person's own words", () => {
+    const [, user] = judgeMessages({ ...input, phrases: ["My usual, please.", "Thanks Sam, have a good day."] });
+    expect(user.content).toContain(
+      "Things the person has said before (their own words, so restating one is not an invented detail):\n- My usual, please.\n- Thanks Sam, have a good day.",
+    );
+  });
+
+  it("adds nothing about saved phrases when there are none", () => {
+    const [, user] = judgeMessages(input);
+    expect(user.content).not.toContain("said before");
   });
 
   it("asks again without JSON mode when the model rejects it", async () => {

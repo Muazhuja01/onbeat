@@ -99,7 +99,7 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, ju
   if (shown.length) {
     try {
       const text = await judge(
-        { intended: sc.intended, partnerSaid: sc.partnerSaid, typed, contextLine: body.contextLine, notes: body.notes.map((n) => n.text), candidates: shown },
+        { intended: sc.intended, partnerSaid: sc.partnerSaid, typed, contextLine: body.contextLine, notes: body.notes.map((n) => n.text), phrases: body.examples, candidates: shown },
         { apiKey: process.env.GROQ_API_KEY ?? "", model: judgeModel },
       );
       judgement = parseJudgement(text, shown.length);

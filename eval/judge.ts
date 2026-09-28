@@ -10,6 +10,8 @@ export interface JudgeInput {
   contextLine: string;
   /** Texts of the notes that were sent with the request: the only facts replies may use. */
   notes: string[];
+  /** Saved phrases sent to the model as style examples: the person's own words. */
+  phrases: string[];
   candidates: string[];
 }
 
@@ -21,6 +23,12 @@ export function judgeMessages(j: JudgeInput): ChatMessage[] {
     `The person had typed: "${j.typed}"`,
     "Facts the replies may use:",
     j.notes.length ? j.notes.map((n) => `- ${n}`).join("\n") : "(none)",
+    ...(j.phrases.length
+      ? [
+          "Things the person has said before (their own words, so restating one is not an invented detail):",
+          j.phrases.map((p) => `- ${p}`).join("\n"),
+        ]
+      : []),
     "",
     `What the person meant to say: "${j.intended}"`,
     "",
