@@ -26,6 +26,10 @@ export interface ScenarioResult {
   noteRecall: boolean;
   firstReplyMs: number | null;
   totalMs: number | null;
+  /** The model's output, cut to 2000 characters, kept only when no reply was shown. */
+  raw?: string;
+  /** Who answered the judge call: "groq" or "cloudflare", or "cache" when a stored answer was reused. Absent when nothing was judged or the judge failed. */
+  judgedBy?: string;
 }
 
 export interface ModelSummary {
@@ -36,6 +40,10 @@ export interface ModelSummary {
   hitRate: number;
   inventedShown: number;
   shownReplies: number;
+  /** Answered scenarios that showed no reply at all. */
+  empty: number;
+  /** Replies shown in judged scenarios: the base for the invented rate. */
+  judgedReplies: number;
   blockedRate: number;
   keystrokesSaved: number;
   noteRecall: number;
@@ -98,8 +106,10 @@ export function summarize(model: string, results: ScenarioResult[]): ModelSummar
     hitRate: ratio(judged.filter((r) => r.judgement!.match > 0).length, judged.length),
     inventedShown: sum(judged.map((r) => r.judgement!.invented.length)),
     shownReplies,
+    empty: ok.filter((r) => r.shown.length === 0).length,
+    judgedReplies: sum(judged.map((r) => r.shown.length)),
     blockedRate: ratio(sum(ok.map((r) => r.blocked)), sum(ok.map((r) => r.rawReplies))),
-    keystrokesSaved: ratio(sum(ok.map((r) => r.keystrokesSaved)), ok.length),
+    keystrokesSaved: ratio(sum(judged.map((r) => r.keystrokesSaved)), judged.length),
     noteRecall: ratio(ok.filter((r) => r.noteRecall).length, ok.length),
     avgShown: ratio(shownReplies, ok.length),
     firstReplyP50: percentile(firsts, 50),
@@ -109,15 +119,24 @@ export function summarize(model: string, results: ScenarioResult[]): ModelSummar
   };
 }
 
+/** "groq (95), cloudflare (20), cache (5)": who answered the judge calls across these results. */
+export function judgedByPhrase(results: ScenarioResult[]): string {
+  const counts = new Map<string, number>();
+  for (const r of results) if (r.judgedBy) counts.set(r.judgedBy, (counts.get(r.judgedBy) ?? 0) + 1);
+  const order = ["groq", "cloudflare", "cache"];
+  const names = [...order.filter((n) => counts.has(n)), ...[...counts.keys()].filter((n) => !order.includes(n)).sort()];
+  return names.length ? names.map((n) => `${n} (${counts.get(n)})`).join(", ") : "no judge";
+}
+
 export function toMarkdown(summaries: ModelSummary[]): string {
   const pct = (x: number) => `${Math.round(x * 100)}%`;
   const ms = (x: number | null) => (x === null ? "n/a" : `${Math.round(x)} ms`);
   return [
-    "| Model | Top-3 hit rate | Invented details shown | Replies blocked by the check | Keystrokes saved | Right notes sent | First reply p50 / p95 | Full answer p50 / p95 | Failed |",
-    "|---|---|---|---|---|---|---|---|---|",
+    "| Model | Top-3 hit rate | Invented details | Empty | Replies blocked by the check | Keystrokes saved | Right notes sent | First reply p50 / p95 | Full answer p50 / p95 | Failed | Not judged |",
+    "|---|---|---|---|---|---|---|---|---|---|---|",
     ...summaries.map(
       (s) =>
-        `| ${s.model} | ${pct(s.hitRate)} | ${s.inventedShown} of ${s.shownReplies} | ${pct(s.blockedRate)} | ${pct(s.keystrokesSaved)} | ${pct(s.noteRecall)} | ${ms(s.firstReplyP50)} / ${ms(s.firstReplyP95)} | ${ms(s.totalP50)} / ${ms(s.totalP95)} | ${s.failed} |`,
+        `| ${s.model} | ${pct(s.hitRate)} | ${s.inventedShown} of ${s.judgedReplies} (${pct(ratio(s.inventedShown, s.judgedReplies))}) | ${s.empty} | ${pct(s.blockedRate)} | ${pct(s.keystrokesSaved)} | ${pct(s.noteRecall)} | ${ms(s.firstReplyP50)} / ${ms(s.firstReplyP95)} | ${ms(s.totalP50)} / ${ms(s.totalP95)} | ${s.failed} | ${s.judgeErrors} |`,
     ),
   ].join("\n");
 }

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { keystrokesSaved, parseJudgement, summarize, toMarkdown, type ScenarioResult } from "./score";
+import { judgedByPhrase, keystrokesSaved, parseJudgement, summarize, toMarkdown, type ScenarioResult } from "./score";
 
 describe("parseJudgement", () => {
   it("reads match and marks replies with an unbacked fact as invented", () => {
@@ -59,6 +59,8 @@ describe("summarize", () => {
       hitRate: 0.5,
       inventedShown: 1,
       shownReplies: 4,
+      empty: 0,
+      judgedReplies: 4,
       blockedRate: 2 / 6,
       keystrokesSaved: 0.25,
       noteRecall: 0.5,
@@ -73,5 +75,68 @@ describe("toMarkdown", () => {
     const md = toMarkdown([summarize("groq:m", [])]);
     expect(md.split("\n")).toHaveLength(3);
     expect(md).toContain("| groq:m | 0% |");
+  });
+});
+
+describe("summarize: empty answers and judged replies", () => {
+  const r = (over: Partial<ScenarioResult>): ScenarioResult => ({
+    id: "x",
+    ok: true,
+    shown: ["a", "b"],
+    rawReplies: 2,
+    blocked: 0,
+    judgement: { match: 1, invented: [], unbacked: [] },
+    keystrokesSaved: 0.5,
+    noteRecall: true,
+    firstReplyMs: 100,
+    totalMs: 200,
+    ...over,
+  });
+
+  it("counts empty answers and divides invented details by judged replies only", () => {
+    const s = summarize("m", [
+      r({ judgement: { match: 1, invented: [2], unbacked: [{ n: 2, fact: "x" }] } }),
+      r({ shown: [], rawReplies: 0, judgement: { match: 0, invented: [], unbacked: [] }, keystrokesSaved: 0 }),
+      r({ shown: ["a", "b", "c"], judgement: null, keystrokesSaved: 0 }),
+    ]);
+    expect(s.empty).toBe(1);
+    expect(s.judgedReplies).toBe(2);
+    expect(s.inventedShown).toBe(1);
+    expect(s.shownReplies).toBe(5);
+    expect(s.judgeErrors).toBe(1);
+    expect(s.keystrokesSaved).toBeCloseTo(0.25);
+  });
+
+  it("shows the invented rate, empty answers and unjudged scenarios in the table", () => {
+    const s = summarize("m", [r({ judgement: { match: 1, invented: [2], unbacked: [] } }), r({ judgement: null })]);
+    const md = toMarkdown([s]);
+    expect(md).toContain("| Empty |");
+    expect(md).toContain("| Not judged |");
+    expect(md).toContain("1 of 2 (50%)");
+  });
+});
+
+describe("judgedByPhrase", () => {
+  const r = (judgedBy?: string): ScenarioResult => ({
+    id: "x",
+    ok: true,
+    shown: [],
+    rawReplies: 0,
+    blocked: 0,
+    judgement: null,
+    keystrokesSaved: 0,
+    noteRecall: true,
+    firstReplyMs: null,
+    totalMs: null,
+    ...(judgedBy ? { judgedBy } : {}),
+  });
+
+  it("counts each source in a fixed order and skips scenarios nobody judged", () => {
+    const results = [r("cache"), r("groq"), r("groq"), r(), r("cloudflare"), r("groq")];
+    expect(judgedByPhrase(results)).toBe("groq (3), cloudflare (1), cache (1)");
+  });
+
+  it("says so when nothing was judged", () => {
+    expect(judgedByPhrase([r(), r()])).toBe("no judge");
   });
 });

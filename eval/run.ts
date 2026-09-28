@@ -7,11 +7,12 @@ import { buildMessages } from "@/lib/suggest/prompt";
 import { createLineSplitter, parseLines } from "@/lib/suggest/protocol";
 import { buildSuggestRequest } from "@/lib/suggest/request";
 import { isNearDuplicate, validateReply } from "@/lib/suggest/validate";
-import { judge, judgeEndpoints, type JudgeEndpoint } from "./judge";
+import { judge, judgeEndpoints, JUDGE_PROMPT_VERSION, type JudgeEndpoint } from "./judge";
+import { JudgeCache } from "./judge-cache";
 import { withRetry } from "./retry";
 import { scenarios, type Scenario } from "./scenarios";
 import { testScenarios } from "./test-scenarios";
-import { keystrokesSaved, parseJudgement, summarize, toMarkdown, type Judgement, type ScenarioResult } from "./score";
+import { judgedByPhrase, keystrokesSaved, parseJudgement, summarize, toMarkdown, type Judgement, type ScenarioResult } from "./score";
 
 try {
   process.loadEnvFile(".env.local");
@@ -30,7 +31,7 @@ function arg(name: string): string | undefined {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-async function runScenario(sc: Scenario, provider: ProviderId, model: string, endpoints: JudgeEndpoint[]): Promise<ScenarioResult> {
+async function runScenario(sc: Scenario, provider: ProviderId, model: string, endpoints: JudgeEndpoint[], cache: JudgeCache): Promise<ScenarioResult> {
   const persona = personas.find((p) => p.id === sc.persona)!;
   const memory = await MemoryStore.create();
   await memory.replaceAll(persona.notes, persona.phrases);
@@ -53,6 +54,7 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
     [provider]: { ...base[provider], model, extraBody: provider === "groq" ? groqExtraBody(model) : base[provider].extraBody },
   };
   const shown: string[] = [];
+  let raw = "";
   let rawReplies = 0;
   let blocked = 0;
   let firstReplyMs = null as number | null;
@@ -77,7 +79,10 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
         firstReplyMs ??= performance.now() - started;
       }
     });
-    for await (const d of deltas) splitter.push(d);
+    for await (const d of deltas) {
+      raw += d;
+      splitter.push(d);
+    }
     splitter.flush();
   } catch (err) {
     return {
@@ -97,16 +102,28 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
   const totalMs = performance.now() - started;
 
   let judgement: Judgement | null = { match: 0, invented: [], unbacked: [] };
+  let judgedBy: string | undefined;
   if (shown.length) {
+    const key = JudgeCache.key({ scenarioId: sc.id, candidates: shown, model: endpoints[0].model, version: JUDGE_PROMPT_VERSION });
     try {
-      const { text } = await judge(
-        { intended: sc.intended, partnerSaid: sc.partnerSaid, typed, contextLine: body.contextLine, notes: body.notes.map((n) => n.text), phrases: body.examples, candidates: shown },
-        { endpoints },
-      );
+      let text = cache.get(key);
+      if (text !== undefined) {
+        judgedBy = "cache";
+      } else {
+        const answer = await judge(
+          { intended: sc.intended, partnerSaid: sc.partnerSaid, typed, contextLine: body.contextLine, notes: body.notes.map((n) => n.text), phrases: body.examples, candidates: shown },
+          { endpoints },
+        );
+        text = answer.text;
+        judgedBy = answer.endpoint;
+        // Only cache answers that parse, so a garbled one is asked again next run.
+        if (parseJudgement(text, shown.length)) cache.set(key, text);
+      }
       judgement = parseJudgement(text, shown.length);
     } catch (err) {
       console.warn(`  judge failed for ${sc.id}: ${err instanceof Error ? err.message : String(err)}`);
       judgement = null;
+      judgedBy = undefined;
     }
   }
   const sentIds = new Set(body.notes.map((n) => n.id));
@@ -121,6 +138,8 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
     noteRecall: sc.noteIds.every((id) => sentIds.has(id)),
     firstReplyMs,
     totalMs,
+    ...(shown.length === 0 ? { raw: raw.slice(0, 2000) } : {}),
+    ...(judgedBy ? { judgedBy } : {}),
   };
 }
 
@@ -142,6 +161,7 @@ async function main() {
   const pool = set === "test" ? testScenarios : scenarios;
   const chosen = pool.filter((s) => !persona || s.persona === persona).slice(0, limit);
 
+  const cache = new JudgeCache("eval/results/judge-cache.json");
   const summaries = [];
   const results: Record<string, ScenarioResult[]> = {};
   for (const { provider, model } of models) {
@@ -149,9 +169,9 @@ async function main() {
     console.log(`\n${name} (${chosen.length} scenarios)`);
     const list: ScenarioResult[] = [];
     for (const sc of chosen) {
-      const r = await runScenario(sc, provider, model, endpoints);
+      const r = await runScenario(sc, provider, model, endpoints, cache);
       list.push(r);
-      console.log(`  ${sc.id}: ${r.ok ? `${r.shown.length} shown, match ${r.judgement?.match ?? "?"}` : `failed (${r.error})`}`);
+      console.log(`  ${sc.id}: ${r.ok ? `${r.shown.length} shown, match ${r.judgement?.match ?? "?"}${r.shown.length === 0 ? " (empty)" : ""}` : `failed (${r.error})`}`);
       await sleep(delay);
     }
     results[name] = list;
@@ -165,7 +185,7 @@ async function main() {
   writeFileSync(`eval/results/latest-${set}.json`, `${JSON.stringify({ ranAt, set, judgeModel, summaries, results }, null, 2)}\n`);
   writeFileSync(
     `eval/results/latest-${set}.md`,
-    `# Eval results\n\nRun ${ranAt.slice(0, 10)}, ${set} set, ${chosen.length} scenarios per model, judged by ${judgeModel}. Generated by \`npm run eval -- --set ${set}\`.\n\n${table}\n`,
+    `# Eval results\n\nRun ${ranAt.slice(0, 10)}, ${set} set, ${chosen.length} scenarios per model, judged by ${judgedByPhrase(Object.values(results).flat())}. Generated by \`npm run eval -- --set ${set}\`.\n\n${table}\n`,
   );
 }
 
