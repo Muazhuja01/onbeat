@@ -8,6 +8,7 @@ import { createLineSplitter, parseLines } from "@/lib/suggest/protocol";
 import { buildSuggestRequest } from "@/lib/suggest/request";
 import { isNearDuplicate, validateReply } from "@/lib/suggest/validate";
 import { judge } from "./judge";
+import { withRetry } from "./retry";
 import { scenarios, type Scenario } from "./scenarios";
 import { keystrokesSaved, parseJudgement, summarize, toMarkdown, type Judgement, type ScenarioResult } from "./score";
 
@@ -54,10 +55,14 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, ju
   let rawReplies = 0;
   let blocked = 0;
   let firstReplyMs = null as number | null;
-  const started = performance.now();
+  let started = performance.now();
   try {
-    // Generous timeouts: the eval measures latency instead of falling back.
-    const { deltas } = await streamCompletion(buildMessages(body), { order: [provider], configs, firstTokenTimeoutMs: 10_000, idleTimeoutMs: 10_000 });
+    // Generous timeouts: the eval measures latency instead of falling back. started is
+    // reset on every attempt so a rate-limit wait between retries never counts as latency.
+    const { deltas } = await withRetry(sc.id, async (cooldown) => {
+      started = performance.now();
+      return streamCompletion(buildMessages(body), { order: [provider], configs, firstTokenTimeoutMs: 10_000, idleTimeoutMs: 10_000, cooldown });
+    });
     const splitter = createLineSplitter((line) => {
       for (const parsed of parseLines(line)) {
         if (parsed.kind !== "reply") continue;

@@ -59,7 +59,7 @@ export async function judge(
       }),
     });
   let res = await call(true);
-  if (res.status === 429) {
+  for (let attempt = 1; attempt < 4 && res.status === 429; attempt++) {
     await sleep(Math.min(60_000, retryAfterMs(res.headers.get("retry-after"))));
     res = await call(true);
   }

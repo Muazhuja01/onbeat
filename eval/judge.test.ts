@@ -41,4 +41,27 @@ describe("judge", () => {
     expect(sleep).toHaveBeenCalledWith(2000);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
+
+  it("retries a 429 up to three times and returns the content once it gets a 200", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("busy", { status: 429, headers: { "retry-after": "1" } }))
+      .mockResolvedValueOnce(new Response("busy", { status: 429, headers: { "retry-after": "1" } }))
+      .mockResolvedValueOnce(new Response("busy", { status: 429, headers: { "retry-after": "1" } }))
+      .mockResolvedValueOnce(Response.json({ choices: [{ message: { content: '{"match": 1, "invented": []}' } }] }));
+    const sleep = vi.fn(async () => {});
+    const text = await judge(input, { apiKey: "k", model: "openai/gpt-oss-120b", fetchImpl: fetchImpl as unknown as typeof fetch, sleep });
+    expect(text).toContain('"match": 1');
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    expect(sleep).toHaveBeenCalledTimes(3);
+  });
+
+  it("throws after four 429s in a row", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("busy", { status: 429, headers: { "retry-after": "1" } }));
+    const sleep = vi.fn(async () => {});
+    await expect(
+      judge(input, { apiKey: "k", model: "openai/gpt-oss-120b", fetchImpl: fetchImpl as unknown as typeof fetch, sleep }),
+    ).rejects.toThrow("judge HTTP 429");
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
 });
