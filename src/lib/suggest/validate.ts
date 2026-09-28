@@ -6,6 +6,12 @@ const DAYS_AND_MONTHS = new Set([
   "september", "october", "november", "december",
 ]);
 
+/**
+ * Days named relative to now. "today" is left out: it is always true and
+ * shows up in everyday replies ("Not today, thanks").
+ */
+const RELATIVE_DAYS = new Set(["tomorrow", "yesterday", "tonight"]);
+
 const NEVER_NAMES = new Set(["i", "i'm", "i'll", "i've", "i'd", "ok", "okay"]);
 
 /**
@@ -28,7 +34,7 @@ function canonicalNumber(n: string): string {
 
 /**
  * Details that must be backed by a source: numbers and times, day and month
- * names anywhere, and capitalised words after the first word of a sentence.
+ * names and relative days (tomorrow, yesterday, tonight) anywhere, and capitalised words after the first word of a sentence.
  * Limitation: a name as the very first word of a sentence is not detected,
  * because it can't be told apart from an ordinary capitalised word
  * ("Large, please.") without a dictionary.
@@ -45,7 +51,7 @@ export function extractClaims(text: string): string[] {
         claims.push(n);
         return;
       }
-      if (DAYS_AND_MONTHS.has(n)) {
+      if (DAYS_AND_MONTHS.has(n) || RELATIVE_DAYS.has(n)) {
         claims.push(word.replace(/['\u2019]s$/, ""));
         return;
       }

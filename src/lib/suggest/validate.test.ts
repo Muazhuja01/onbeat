@@ -104,6 +104,26 @@ describe("number words", () => {
   });
 });
 
+describe("relative days", () => {
+  // From the eval (tom-16): nothing in the notes or the conversation mentions tomorrow.
+  it("drops an invented tomorrow", () => {
+    const s = sources({
+      notes: new Map([["t-meds", "I pick up my blood pressure medication at Riverside Pharmacy every month."]]),
+      partnerSaid: "Is there anything else you need?",
+      context: "It is Tuesday morning. Place: Riverside Pharmacy. Talking with: Priya.",
+    });
+    expect(validateReply({ text: "Could you confirm the pickup time for tomorrow?", noteIds: ["t-meds"] }, s)).toMatchObject({
+      ok: false,
+      detail: "tomorrow",
+    });
+    expect(extractClaims("Yesterday was fine. See you tonight.")).toEqual(["Yesterday", "tonight"]);
+  });
+  it("accepts a relative day the partner mentioned, and never checks today", () => {
+    expect(validateReply({ text: "Sure, tomorrow works for me.", noteIds: [] }, sources({ partnerSaid: "Can we move our meeting to tomorrow?" })).ok).toBe(true);
+    expect(extractClaims("Not today, thanks.")).toEqual([]);
+  });
+});
+
 describe("context line as a source", () => {
   it("accepts the current partner, place and weekday without a cited note", () => {
     const s = sources({ notes: new Map(), context: "It is Tuesday morning. Place: Blue Door Café. Talking with: Sam." });
