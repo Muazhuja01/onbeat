@@ -1,4 +1,5 @@
 import { normalize, tokenize } from "@/lib/text";
+import { COMMON_WORDS } from "./common-words";
 
 const DAYS_AND_MONTHS = new Set([
   "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
@@ -11,6 +12,12 @@ const DAYS_AND_MONTHS = new Set([
  * shows up in everyday replies ("Not today, thanks").
  */
 const RELATIVE_DAYS = new Set(["tomorrow", "yesterday", "tonight"]);
+
+/** Relative time phrases that state when something happens, so they need a source. */
+const RELATIVE_TIMES = /\b(?:(?:this|next|last) (?:week|weekend|month)|later today)\b/gi;
+
+/** A full stop after these doesn't end a sentence, so the name after them is still checked. */
+const SENTENCE_END = /(?<=[.!?])(?<!\b(?:Dr|Mr|Mrs|Ms)\.)\s+/;
 
 const NEVER_NAMES = new Set(["i", "i'm", "i'll", "i've", "i'd", "ok", "okay"]);
 
@@ -33,16 +40,16 @@ function canonicalNumber(n: string): string {
 }
 
 /**
- * Details that must be backed by a source: numbers and times, day and month
- * names and relative days (tomorrow, yesterday, tonight) anywhere, and capitalised words after the first word of a sentence.
- * Limitation: a name as the very first word of a sentence is not detected,
- * because it can't be told apart from an ordinary capitalised word
- * ("Large, please.") without a dictionary.
+ * Details that must be backed by a source: numbers and times, day and month names,
+ * relative days and time phrases (tomorrow, this week, later today) anywhere, and
+ * capitalised words that could be names: any capitalised word after the first word
+ * of a sentence, and a capitalised first word that is not an everyday word.
  */
 export function extractClaims(text: string): string[] {
   const claims: string[] = [];
   for (const m of text.matchAll(NUMBER)) claims.push(canonicalNumber(m[0]));
-  for (const sentence of text.split(/(?<=[.!?])\s+/)) {
+  for (const m of text.matchAll(RELATIVE_TIMES)) claims.push(m[0].toLowerCase());
+  for (const sentence of text.split(SENTENCE_END)) {
     const words = sentence.match(WORD) ?? [];
     words.forEach((word, i) => {
       const n = normalize(word).replace(/'s$/, "");
@@ -55,13 +62,15 @@ export function extractClaims(text: string): string[] {
         claims.push(word.replace(/['\u2019]s$/, ""));
         return;
       }
-      if (i > 0 && /^\p{Lu}/u.test(word)) claims.push(word.replace(/['\u2019]s$/, ""));
+      if (!/^\p{Lu}/u.test(word)) return;
+      if (i > 0 || !COMMON_WORDS.has(normalize(word))) claims.push(word.replace(/['\u2019]s$/, ""));
     });
   }
   return claims;
 }
 
 export function claimSupported(claim: string, sourceText: string): boolean {
+  if (/\s/.test(claim)) return normalize(sourceText).includes(normalize(claim));
   const sourceNumbers = [...sourceText.matchAll(NUMBER)].map((m) => canonicalNumber(m[0]));
   const words = (normalize(sourceText).match(WORD) ?? []).flatMap((w) => [w, w.replace(/'s$/, "")]);
   if (/^\d/.test(claim)) {

@@ -16,9 +16,15 @@ describe("extractClaims", () => {
   it("finds names after the first word, numbers, times and days", () => {
     expect(extractClaims("Thanks Sam, see you Friday at 9:30.")).toEqual(["9:30", "Sam", "Friday"]);
   });
-  it("ignores sentence-initial capitals that aren't days or months", () => {
+  it("ignores everyday words at the start of a sentence", () => {
     expect(extractClaims("Large, please.")).toEqual([]);
     expect(extractClaims("Coffee sounds good. Thanks!")).toEqual([]);
+    expect(extractClaims("Much better, thanks.")).toEqual([]);
+    expect(extractClaims("Here it is.")).toEqual([]);
+  });
+  it("checks an unusual word at the start of a sentence as a possible name", () => {
+    expect(extractClaims("Jen helped me set it up.")).toEqual(["Jen"]);
+    expect(extractClaims("Sure. Priya said so.")).toEqual(["Priya"]);
   });
   it("always checks days and months, even first in a sentence", () => {
     expect(extractClaims("Monday works.")).toEqual(["Monday"]);
@@ -128,5 +134,24 @@ describe("context line as a source", () => {
   it("accepts the current partner, place and weekday without a cited note", () => {
     const s = sources({ notes: new Map(), context: "It is Tuesday morning. Place: Blue Door Café. Talking with: Sam." });
     expect(validateReply({ text: "Morning Sam, happy Tuesday.", noteIds: [] }, s).ok).toBe(true);
+  });
+});
+
+describe("titles and relative times", () => {
+  it("checks the name after a title", () => {
+    expect(extractClaims("Ask Dr. Patel about it.")).toContain("Patel");
+    expect(validateReply({ text: "Ask Dr. Patel about it.", noteIds: [] }, sources()).ok).toBe(false);
+  });
+
+  it("checks relative time phrases and backs them from the conversation", () => {
+    expect(extractClaims("Maybe I'll skip it this week.")).toContain("this week");
+    expect(validateReply({ text: "Maybe I'll skip it this week.", noteIds: [] }, sources()).ok).toBe(false);
+    expect(validateReply({ text: "Yes, this week works.", noteIds: [] }, sources({ partnerSaid: "Are you free this week?" })).ok).toBe(true);
+    expect(validateReply({ text: "Later today works.", noteIds: [] }, sources({ partnerSaid: "Can we talk later today?" })).ok).toBe(true);
+  });
+
+  it("drops an invented name at the start of a sentence and keeps a backed one", () => {
+    expect(validateReply({ text: "Jen helped me set it up.", noteIds: [] }, sources()).ok).toBe(false);
+    expect(validateReply({ text: "Sam knows my order.", noteIds: ["sam"] }, sources()).ok).toBe(true);
   });
 });

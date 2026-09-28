@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { personas } from "@/data/personas";
+import { claimSupported, extractClaims } from "@/lib/suggest/validate";
 import { scenarios, type Scenario } from "./scenarios";
 import { testScenarios } from "./test-scenarios";
 
@@ -47,5 +48,23 @@ describe("test set", () => {
 
   it("marks its ids with t", () => {
     for (const s of testScenarios) expect(s.id).toMatch(/^(maya|tom|aisha)-t\d{2}$/);
+  });
+});
+
+describe("validator guard", () => {
+  // Every reply a user really meant, and every saved phrase, must survive the claim
+  // check when the profile's notes and the conversation are the sources. A failure
+  // here means the check would hide a good reply: add the everyday word to
+  // COMMON_WORDS (never a name).
+  it("accepts every intended reply and saved phrase", () => {
+    for (const s of [...scenarios, ...testScenarios]) {
+      const p = personas.find((x) => x.id === s.persona)!;
+      const source = [...p.notes.map((n) => n.text), s.partnerSaid, s.typed ?? "", "It is Tuesday morning."].join("\n");
+      for (const claim of extractClaims(s.intended)) expect(claimSupported(claim, source), `${s.id}: ${claim}`).toBe(true);
+    }
+    for (const p of personas) {
+      const source = p.notes.map((n) => n.text).join("\n");
+      for (const ph of p.phrases) for (const claim of extractClaims(ph.text)) expect(claimSupported(claim, source), `${ph.id}: ${claim}`).toBe(true);
+    }
   });
 });
