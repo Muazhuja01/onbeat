@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createLineSplitter, parseLine, parseLines, SuggestRequestSchema } from "./protocol";
+import { createObjectSplitter, parseLine, SuggestRequestSchema } from "./protocol";
 
 describe("parseLine", () => {
   it("parses reply lines", () => {
@@ -16,19 +16,6 @@ describe("parseLine", () => {
     expect(parseLine("```json")).toEqual({ kind: "invalid", raw: "```json" });
     expect(parseLine('{"reply": ')).toEqual({ kind: "invalid", raw: '{"reply":' });
     expect(parseLine('{"other": 1}')).toEqual({ kind: "invalid", raw: '{"other": 1}' });
-  });
-});
-
-describe("createLineSplitter", () => {
-  it("emits complete lines across chunk boundaries and flushes the rest", () => {
-    const lines: string[] = [];
-    const s = createLineSplitter((l) => lines.push(l));
-    s.push('{"reply": "A"}\n{"re');
-    s.push('ply": "B"}\n{"reply"');
-    expect(lines).toEqual(['{"reply": "A"}', '{"reply": "B"}']);
-    s.push(': "C"}');
-    s.flush();
-    expect(lines).toEqual(['{"reply": "A"}', '{"reply": "B"}', '{"reply": "C"}']);
   });
 });
 
@@ -52,34 +39,71 @@ describe("SuggestRequestSchema", () => {
   });
 });
 
-describe("parseLines", () => {
-  it("splits several JSON objects on one line", () => {
-    expect(parseLines('{"reply": "Yes.", "notes": []}{"reply": "No.", "notes": []} {"reactions": ["ha"]}')).toEqual([
-      { kind: "reply", text: "Yes.", noteIds: [] },
-      { kind: "reply", text: "No.", noteIds: [] },
-      { kind: "reactions", ids: ["ha"] },
+describe("createObjectSplitter", () => {
+  const run = (chunks: string[]) => {
+    const objects: string[] = [];
+    const stray: string[] = [];
+    const s = createObjectSplitter((o) => objects.push(o), (t) => stray.push(t));
+    for (const c of chunks) s.push(c);
+    s.flush();
+    return { objects, stray, parsed: objects.map(parseLine) };
+  };
+
+  it("emits one object per line", () => {
+    const { parsed } = run(['{"reply": "A", "notes": []}\n{"reply": "B", "notes": []}\n']);
+    expect(parsed).toEqual([
+      { kind: "reply", text: "A", noteIds: [] },
+      { kind: "reply", text: "B", noteIds: [] },
     ]);
   });
 
-  it("keeps braces inside strings", () => {
-    const out = parseLines('{"reply": "Use {this} one.", "notes": []}{"reply": "Ok.", "notes": []}');
-    expect(out.map((p) => p.kind)).toEqual(["reply", "reply"]);
-    expect(out[0]).toEqual({ kind: "reply", text: "Use {this} one.", noteIds: [] });
+  it("reads objects pretty-printed over several lines", () => {
+    const text = '{\n  "reply": "Yes, my usual please.",\n  "notes": [\n    "m-usual"\n  ]\n}\n{\n  "reactions": [\n    "yes"\n  ]\n}';
+    expect(run([text]).parsed).toEqual([
+      { kind: "reply", text: "Yes, my usual please.", noteIds: ["m-usual"] },
+      { kind: "reactions", ids: ["yes"] },
+    ]);
   });
 
-  it("drops text around the objects", () => {
-    expect(parseLines('Here you go: {"reply": "Sure.", "notes": []}')).toEqual([{ kind: "reply", text: "Sure.", noteIds: [] }]);
+  it("ignores a markdown fence without calling it stray text", () => {
+    const { parsed, stray } = run(['```json\n{"reply": "No, thank you.", "notes": []}\n```']);
+    expect(parsed).toEqual([{ kind: "reply", text: "No, thank you.", noteIds: [] }]);
+    expect(stray).toEqual([]);
   });
 
-  it("reports a cut-off last object as invalid", () => {
-    const out = parseLines('{"reply": "Yes.", "notes": []}{"reply": "No');
-    expect(out[0]).toEqual({ kind: "reply", text: "Yes.", noteIds: [] });
-    expect(out[1].kind).toBe("invalid");
+  it("splits several objects on one line", () => {
+    const { parsed } = run(['{"reply": "Yes.", "notes": []}{"reply": "No.", "notes": []} {"reactions": ["ha"]}']);
+    expect(parsed.map((p) => p?.kind)).toEqual(["reply", "reply", "reactions"]);
   });
 
-  it("behaves like parseLine for ordinary lines", () => {
-    expect(parseLines("   ")).toEqual([]);
-    expect(parseLines("```json")).toEqual([{ kind: "invalid", raw: "```json" }]);
-    expect(parseLines('{"reply": "Hi.", "notes": []}')).toEqual([{ kind: "reply", text: "Hi.", noteIds: [] }]);
+  it("keeps braces and escaped quotes inside strings", () => {
+    const { parsed } = run(['{"reply": "Use {this} \\"one\\".", "notes": []}{"reply": "Ok.", "notes": []}']);
+    expect(parsed[0]).toEqual({ kind: "reply", text: 'Use {this} "one".', noteIds: [] });
+    expect(parsed).toHaveLength(2);
+  });
+
+  it("gives the same result however the stream is cut", () => {
+    const text = '```json\n{\n  "reply": "Say {hi} \\"now\\".",\n  "notes": ["a"]\n}\n{"reply": "B"}\n```';
+    const whole = run([text]).objects;
+    for (let i = 1; i < text.length; i++) {
+      expect(run([text.slice(0, i), text.slice(i)]).objects, `cut at ${i}`).toEqual(whole);
+    }
+    expect(whole).toHaveLength(2);
+  });
+
+  it("reports text outside objects as stray, line by line", () => {
+    const { parsed, stray } = run(['Here you go: {"reply": "Sure.", "notes": []}\nI cannot help with that.']);
+    expect(parsed).toEqual([{ kind: "reply", text: "Sure.", noteIds: [] }]);
+    expect(stray).toEqual(["Here you go:", "I cannot help with that."]);
+  });
+
+  it("emits a cut-off last object on flush so it counts as invalid", () => {
+    const { parsed } = run(['{"reply": "Yes.", "notes": []}{"reply": "No']);
+    expect(parsed[0]).toEqual({ kind: "reply", text: "Yes.", noteIds: [] });
+    expect(parsed[1]?.kind).toBe("invalid");
+  });
+
+  it("emits nothing for blank input", () => {
+    expect(run(["  \n\n"])).toEqual({ objects: [], stray: [], parsed: [] });
   });
 });

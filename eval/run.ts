@@ -4,7 +4,7 @@ import { en } from "@/lib/language-packs/en";
 import { MemoryStore } from "@/lib/memory/store";
 import { groqExtraBody, providerConfigs, streamCompletion, type ProviderId } from "@/lib/server/providers";
 import { buildMessages } from "@/lib/suggest/prompt";
-import { createLineSplitter, parseLines } from "@/lib/suggest/protocol";
+import { createObjectSplitter, parseLine } from "@/lib/suggest/protocol";
 import { buildSuggestRequest } from "@/lib/suggest/request";
 import { isNearDuplicate, validateReply } from "@/lib/suggest/validate";
 import { judge, judgeEndpoints, JUDGE_PROMPT_VERSION, type JudgeEndpoint } from "./judge";
@@ -66,18 +66,17 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
       started = performance.now();
       return streamCompletion(buildMessages(body), { order: [provider], configs, firstTokenTimeoutMs: 10_000, idleTimeoutMs: 10_000, cooldown });
     });
-    const splitter = createLineSplitter((line) => {
-      for (const parsed of parseLines(line)) {
-        if (parsed.kind !== "reply") continue;
-        rawReplies++;
-        if (!validateReply({ text: parsed.text, noteIds: parsed.noteIds }, sources).ok) {
-          blocked++;
-          continue;
-        }
-        if (shown.length >= 3 || shown.some((t) => isNearDuplicate(t, parsed.text))) continue;
-        shown.push(parsed.text);
-        firstReplyMs ??= performance.now() - started;
+    const splitter = createObjectSplitter((obj) => {
+      const parsed = parseLine(obj);
+      if (parsed?.kind !== "reply") return;
+      rawReplies++;
+      if (!validateReply({ text: parsed.text, noteIds: parsed.noteIds }, sources).ok) {
+        blocked++;
+        return;
       }
+      if (shown.length >= 3 || shown.some((t) => isNearDuplicate(t, parsed.text))) return;
+      shown.push(parsed.text);
+      firstReplyMs ??= performance.now() - started;
     });
     for await (const d of deltas) {
       raw += d;

@@ -39,62 +39,69 @@ export function parseLine(raw: string): ParsedLine | null {
   return { kind: "invalid", raw: line };
 }
 
+const FENCE = /^`{3}[\w-]*$/;
+
 /**
- * Split a line holding several JSON objects ("{...}{...}" or "{...} {...}")
- * into one string per object. Text outside the objects is dropped; a cut-off
- * last object is kept so it is reported as invalid. A line without any
- * complete object is returned unchanged.
+ * Reads model output as a stream of JSON objects, whatever the line breaks: models
+ * sometimes pretty-print an object over several lines or wrap the output in a
+ * markdown fence. Each top-level object is emitted as soon as its closing brace
+ * arrives. Text between objects is reported line by line through onStray, except
+ * blank lines and fences. flush() emits a cut-off last object, so it can be counted
+ * as invalid.
  */
-export function splitObjects(line: string): string[] {
-  const objects: string[] = [];
+export function createObjectSplitter(onObject: (json: string) => void, onStray: (text: string) => void = () => {}) {
+  let current = "";
+  let stray = "";
   let depth = 0;
-  let start = -1;
   let inString = false;
   let escaped = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (c === "\\") escaped = true;
-      else if (c === '"') inString = false;
-    } else if (c === '"') {
-      if (depth > 0) inString = true;
-    } else if (c === "{") {
-      if (depth === 0) start = i;
-      depth++;
-    } else if (c === "}" && depth > 0) {
-      depth--;
-      if (depth === 0) objects.push(line.slice(start, i + 1));
-    }
-  }
-  if (objects.length === 0) return [line];
-  if (depth > 0) objects.push(line.slice(start));
-  return objects;
-}
 
-/** Parse one line of model output, which may hold several JSON objects. */
-export function parseLines(raw: string): ParsedLine[] {
-  const line = raw.trim();
-  if (!line) return [];
-  return splitObjects(line)
-    .map(parseLine)
-    .filter((p): p is ParsedLine => p !== null);
-}
+  const endStray = () => {
+    const t = stray.trim();
+    stray = "";
+    if (t && !FENCE.test(t)) onStray(t);
+  };
 
-export function createLineSplitter(onLine: (line: string) => void) {
-  let buffer = "";
   return {
     push(chunk: string) {
-      buffer += chunk;
-      let i: number;
-      while ((i = buffer.indexOf("\n")) >= 0) {
-        onLine(buffer.slice(0, i));
-        buffer = buffer.slice(i + 1);
+      for (const c of chunk) {
+        if (depth === 0) {
+          if (c === "{") {
+            endStray();
+            current = "{";
+            depth = 1;
+          } else if (c === "\n") {
+            endStray();
+          } else {
+            stray += c;
+          }
+          continue;
+        }
+        current += c;
+        if (inString) {
+          if (escaped) escaped = false;
+          else if (c === "\\") escaped = true;
+          else if (c === '"') inString = false;
+        } else if (c === '"') {
+          inString = true;
+        } else if (c === "{") {
+          depth++;
+        } else if (c === "}") {
+          depth--;
+          if (depth === 0) {
+            onObject(current);
+            current = "";
+          }
+        }
       }
     },
     flush() {
-      if (buffer.trim()) onLine(buffer);
-      buffer = "";
+      if (depth > 0 && current.trim()) onObject(current);
+      endStray();
+      current = "";
+      depth = 0;
+      inString = false;
+      escaped = false;
     },
   };
 }

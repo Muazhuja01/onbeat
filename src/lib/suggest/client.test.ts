@@ -83,6 +83,12 @@ describe("SuggestClient", () => {
     expect((await client.request(input, () => {}))?.replies).toHaveLength(1);
   });
 
+  it("shows replies the model pretty-printed over several lines", async () => {
+    const fetchImpl = vi.fn(async () => streamResponse(["```json", "{", '  "reply": "Large, please.",', '  "notes": []', "}", "```"]));
+    const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl });
+    expect((await client.request(input, () => {}))?.replies.map((r) => r.text)).toEqual(["Large, please."]);
+  });
+
   it("retries once on the other provider when output is all junk", async () => {
     const fetchImpl = vi
       .fn()
