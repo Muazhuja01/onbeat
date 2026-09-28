@@ -31,7 +31,7 @@ function arg(name: string): string | undefined {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-async function runScenario(sc: Scenario, provider: ProviderId, model: string, endpoints: JudgeEndpoint[], cache: JudgeCache): Promise<ScenarioResult> {
+async function runScenario(sc: Scenario, provider: ProviderId, model: string, endpoints: JudgeEndpoint[], cache: JudgeCache, spent: Set<string>): Promise<ScenarioResult> {
   const persona = personas.find((p) => p.id === sc.persona)!;
   const memory = await MemoryStore.create();
   await memory.replaceAll(persona.notes, persona.phrases);
@@ -105,7 +105,7 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
   if (shown.length) {
     const input = { intended: sc.intended, partnerSaid: sc.partnerSaid, typed, contextLine: body.contextLine, notes: body.notes.map((n) => n.text), phrases: body.examples, candidates: shown };
     try {
-      ({ judgement, judgedBy } = await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, () => judge(input, { endpoints }), (text) => parseJudgement(text, shown.length)));
+      ({ judgement, judgedBy } = await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, () => judge(input, { endpoints, spent }), (text) => parseJudgement(text, shown.length)));
     } catch (err) {
       console.warn(`  judge failed for ${sc.id}: ${err instanceof Error ? err.message : String(err)}`);
       judgement = null;
@@ -147,6 +147,7 @@ async function main() {
   const chosen = pool.filter((s) => !persona || s.persona === persona).slice(0, limit);
 
   const cache = new JudgeCache("eval/results/judge-cache.json");
+  const spent = new Set<string>();
   const summaries = [];
   const results: Record<string, ScenarioResult[]> = {};
   for (const { provider, model } of models) {
@@ -154,8 +155,12 @@ async function main() {
     console.log(`\n${name} (${chosen.length} scenarios)`);
     const list: ScenarioResult[] = [];
     for (const sc of chosen) {
-      const r = await runScenario(sc, provider, model, endpoints, cache);
+      const spentBefore = new Set(spent);
+      const r = await runScenario(sc, provider, model, endpoints, cache, spent);
       list.push(r);
+      for (const ep of spent) {
+        if (!spentBefore.has(ep)) console.log(`  judge: ${ep} is out of quota, using the next judge for the rest of the run`);
+      }
       console.log(`  ${sc.id}: ${r.ok ? `${r.shown.length} shown, match ${r.judgement?.match ?? "?"}${r.shown.length === 0 ? " (empty)" : ""}` : `failed (${r.error})`}`);
       await sleep(delay);
     }

@@ -59,11 +59,40 @@ describe("judge", () => {
       .mockResolvedValueOnce(status(429))
       .mockResolvedValueOnce(ok('{"match": 2, "replies": []}'));
     const sleep = vi.fn(noSleep);
-    const out = await judge(input, { endpoints: [groq, cf], fetchImpl, sleep });
+    const spent = new Set<string>();
+    const out = await judge(input, { endpoints: [groq, cf], fetchImpl, sleep, spent });
     expect(out.endpoint).toBe("cloudflare");
     expect(fetchImpl).toHaveBeenCalledTimes(5);
     expect(sleep).toHaveBeenCalledTimes(3);
     expect(sleep).toHaveBeenNthCalledWith(1, 2000);
+    expect([...spent]).toEqual(["groq"]);
+  });
+
+  it("marks an endpoint spent on a long Retry-After and moves on without sleeping", async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(status(429, { "retry-after": "3600" })).mockResolvedValueOnce(ok('{"match": 1, "replies": []}'));
+    const sleep = vi.fn(noSleep);
+    const spent = new Set<string>();
+    const out = await judge(input, { endpoints: [groq, cf], fetchImpl, sleep, spent });
+    expect(out.endpoint).toBe("cloudflare");
+    expect(sleep).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect([...spent]).toEqual(["groq"]);
+  });
+
+  it("does not call an endpoint that is already spent", async () => {
+    const fetchImpl = vi.fn(async () => ok('{"match": 1, "replies": []}'));
+    const spent = new Set<string>(["groq"]);
+    const out = await judge(input, { endpoints: [groq, cf], fetchImpl, sleep: noSleep, spent });
+    expect(out.endpoint).toBe("cloudflare");
+    const urls = fetchImpl.mock.calls.map((c) => (c as unknown as [string])[0]);
+    expect(urls).toEqual(["https://cf.test"]);
+  });
+
+  it("names every endpoint as out of quota when all are spent", async () => {
+    const fetchImpl = vi.fn(async () => ok("{}"));
+    const spent = new Set<string>(["groq", "cloudflare"]);
+    await expect(judge(input, { endpoints: [groq, cf], fetchImpl, sleep: noSleep, spent })).rejects.toThrow("judge failed: groq out of quota; cloudflare out of quota");
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("asks again without JSON mode when an endpoint rejects it", async () => {

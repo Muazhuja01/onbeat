@@ -82,16 +82,23 @@ const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
  * Asks the judge, trying each endpoint in order. On one endpoint a 429 is retried
  * three times after its Retry-After (at most 60 s each); a 400 is retried once
  * without JSON mode. Any other failure moves on to the next endpoint.
+ * An endpoint that is out of quota (a Retry-After over 60 s, or still 429 after the
+ * retries) is added to opts.spent and skipped on later calls that share the set.
  */
 export async function judge(
   input: JudgeInput,
-  opts: { endpoints: JudgeEndpoint[]; fetchImpl?: typeof fetch; sleep?: (ms: number) => Promise<void> },
+  opts: { endpoints: JudgeEndpoint[]; fetchImpl?: typeof fetch; sleep?: (ms: number) => Promise<void>; spent?: Set<string> },
 ): Promise<{ text: string; endpoint: string; model: string }> {
   if (opts.endpoints.length === 0) throw new Error("judge failed: no judge endpoint is configured");
   const fetchImpl = opts.fetchImpl ?? fetch;
   const sleep = opts.sleep ?? defaultSleep;
   const failures: string[] = [];
+  const spent = opts.spent ?? new Set<string>();
   for (const ep of opts.endpoints) {
+    if (spent.has(ep.name)) {
+      failures.push(`${ep.name} out of quota`);
+      continue;
+    }
     const call = (jsonMode: boolean) =>
       fetchImpl(ep.url, {
         method: "POST",
@@ -108,8 +115,15 @@ export async function judge(
     try {
       let res = await call(true);
       for (let attempt = 1; attempt < 4 && res.status === 429; attempt++) {
-        await sleep(Math.min(60_000, retryAfterMs(res.headers.get("retry-after"))));
+        const wait = retryAfterMs(res.headers.get("retry-after"));
+        if (wait > 60_000) break;
+        await sleep(wait);
         res = await call(true);
+      }
+      if (res.status === 429) {
+        spent.add(ep.name);
+        failures.push(`${ep.name} out of quota`);
+        continue;
       }
       // Some models reject JSON mode; ask again without it.
       if (res.status === 400) res = await call(false);
