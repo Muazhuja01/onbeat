@@ -152,4 +152,23 @@ describe("summarize: claim check", () => {
     expect(s.checkBlocked).toBe(3);
     expect(toMarkdown([s])).toContain("| Dropped by the claim check |");
   });
+
+  it("adds up replies the claim check could not decide on and shows them in the table", () => {
+    const base: ScenarioResult = {
+      id: "x", ok: true, shown: ["a"], rawReplies: 3, blocked: 0, judgement: { match: 1, invented: [], unbacked: [] },
+      keystrokesSaved: 0, noteRecall: true, firstReplyMs: 1, totalMs: 1, checkUnknown: 2,
+    };
+    const s = summarize("m", [base, { ...base, checkUnknown: 1 }]);
+    expect(s.checkUnknown).toBe(3);
+    expect(toMarkdown([s])).toContain("| Claim check unsure |");
+  });
+
+  it("treats missing checkUnknown as 0 when summing", () => {
+    const base: ScenarioResult = {
+      id: "x", ok: true, shown: ["a"], rawReplies: 3, blocked: 0, judgement: { match: 1, invented: [], unbacked: [] },
+      keystrokesSaved: 0, noteRecall: true, firstReplyMs: 1, totalMs: 1,
+    };
+    const s = summarize("m", [base, { ...base, checkUnknown: 1 }]);
+    expect(s.checkUnknown).toBe(1);
+  });
 });

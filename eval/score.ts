@@ -32,6 +32,8 @@ export interface ScenarioResult {
   judgedBy?: string;
   /** Replies the claim check dropped. Only set with --claim-check. */
   checkBlocked?: number;
+  /** Replies the claim check could not decide on. Only set with --claim-check. */
+  checkUnknown?: number;
 }
 
 export interface ModelSummary {
@@ -56,6 +58,8 @@ export interface ModelSummary {
   totalP95: number | null;
   /** Replies the claim check dropped (only with --claim-check). */
   checkBlocked: number;
+  /** Replies the claim check could not decide on (only with --claim-check). */
+  checkUnknown: number;
 }
 
 /** Reads the judge's JSON answer. Null when it can't be read. */
@@ -121,6 +125,7 @@ export function summarize(model: string, results: ScenarioResult[]): ModelSummar
     totalP50: percentile(totals, 50),
     totalP95: percentile(totals, 95),
     checkBlocked: sum(ok.map((r) => r.checkBlocked ?? 0)),
+    checkUnknown: sum(ok.map((r) => r.checkUnknown ?? 0)),
   };
 }
 
@@ -145,11 +150,11 @@ export function toMarkdown(summaries: ModelSummary[]): string {
   const pct = (x: number) => `${Math.round(x * 100)}%`;
   const ms = (x: number | null) => (x === null ? "n/a" : `${Math.round(x)} ms`);
   return [
-    "| Model | Top-3 hit rate | Invented details | Empty | Replies blocked by the check | Keystrokes saved | Right notes sent | First reply p50 / p95 | Full answer p50 / p95 | Failed | Not judged | Dropped by the claim check |",
-    "|---|---|---|---|---|---|---|---|---|---|---|---|",
+    "| Model | Top-3 hit rate | Invented details | Empty | Replies blocked by the check | Keystrokes saved | Right notes sent | First reply p50 / p95 | Full answer p50 / p95 | Failed | Not judged | Dropped by the claim check | Claim check unsure |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ...summaries.map(
       (s) =>
-        `| ${s.model} | ${pct(s.hitRate)} | ${s.inventedShown} of ${s.judgedReplies} (${pct(ratio(s.inventedShown, s.judgedReplies))}) | ${s.empty} | ${pct(s.blockedRate)} | ${pct(s.keystrokesSaved)} | ${pct(s.noteRecall)} | ${ms(s.firstReplyP50)} / ${ms(s.firstReplyP95)} | ${ms(s.totalP50)} / ${ms(s.totalP95)} | ${s.failed} | ${s.judgeErrors} | ${s.checkBlocked} |`,
+        `| ${s.model} | ${pct(s.hitRate)} | ${s.inventedShown} of ${s.judgedReplies} (${pct(ratio(s.inventedShown, s.judgedReplies))}) | ${s.empty} | ${pct(s.blockedRate)} | ${pct(s.keystrokesSaved)} | ${pct(s.noteRecall)} | ${ms(s.firstReplyP50)} / ${ms(s.firstReplyP95)} | ${ms(s.totalP50)} / ${ms(s.totalP95)} | ${s.failed} | ${s.judgeErrors} | ${s.checkBlocked} | ${s.checkUnknown} |`,
     ),
   ].join("\n");
 }

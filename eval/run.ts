@@ -59,6 +59,7 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
   let rawReplies = 0;
   let blocked = 0;
   let checkBlocked = 0;
+  let checkUnknown = 0;
   let firstReplyMs = null as number | null;
   let started = performance.now();
   try {
@@ -92,6 +93,9 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
             checkBlocked++;
             continue;
           }
+          if (verdict === "unknown") {
+            checkUnknown++;
+          }
         }
         shown.push(reply.text);
         firstReplyMs ??= performance.now() - started;
@@ -113,6 +117,7 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
       rawReplies,
       blocked,
       checkBlocked,
+      checkUnknown,
       judgement: null,
       keystrokesSaved: 0,
       noteRecall: false,
@@ -141,6 +146,7 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
     rawReplies,
     blocked,
     checkBlocked,
+    checkUnknown,
     judgement,
     keystrokesSaved: keystrokesSaved(sc.intended, typed, (judgement?.match ?? 0) > 0),
     noteRecall: sc.noteIds.every((id) => sentIds.has(id)),
@@ -174,6 +180,7 @@ async function main() {
   const spent = new Set<string>();
   const summaries = [];
   const results: Record<string, ScenarioResult[]> = {};
+  let checkUnknownWarningPrinted = false;
   for (const { provider, model } of models) {
     const name = `${provider}:${model}`;
     console.log(`\n${name} (${chosen.length} scenarios)`);
@@ -184,6 +191,10 @@ async function main() {
       list.push(r);
       for (const ep of spent) {
         if (!spentBefore.has(ep)) console.log(`  judge: ${ep} is out of quota, using the next judge for the rest of the run`);
+      }
+      if (!checkUnknownWarningPrinted && (r.checkUnknown ?? 0) > 0) {
+        console.log(`  claim check: could not decide a reply (error, timeout or missing model); those replies are shown`);
+        checkUnknownWarningPrinted = true;
       }
       console.log(`  ${sc.id}: ${r.ok ? `${r.shown.length} shown, match ${r.judgement?.match ?? "?"}${r.shown.length === 0 ? " (empty)" : ""}` : `failed (${r.error})`}`);
       await sleep(delay);
