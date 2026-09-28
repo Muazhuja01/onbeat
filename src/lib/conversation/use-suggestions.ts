@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, type Dispatch } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch } from "react";
 import type { MemoryStore } from "@/lib/memory/store";
 import type { RequestPriority } from "@/lib/suggest/budget";
 import { SuggestSkippedError, SuggestUnavailableError, type SuggestClient, type SuggestInput } from "@/lib/suggest/client";
 import type { ConversationAction, ConversationState } from "./reducer";
+import { Speculation } from "./speculation";
 
 type Run = (mode: SuggestInput["mode"], typed: string, partnerSaid: string, priority: RequestPriority) => Promise<boolean>;
 
@@ -39,6 +40,7 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
   const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(retryTimer.current), []);
   const runRef = useRef<Run>(async () => false);
+  const [speculation] = useState(() => new Speculation());
 
   const lastPartner = state.turns.findLast((t) => t.speaker === "partner");
   const partnerTurnId = lastPartner?.id ?? "";
@@ -88,13 +90,34 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
     runRef.current = run;
   });
 
-  // The partner finished a turn: ask right away, with reactions.
+  // The partner finished a turn: ask with the full sentence, unless a request
+  // made while they were talking already covers the same words.
   useEffect(() => {
     if (!partnerTurnId) return;
     const s = stateRef.current;
     const said = s.turns.findLast((t) => t.speaker === "partner")?.text ?? "";
-    void run("replies+reactions", s.typed, said, "final");
-  }, [partnerTurnId, run]);
+    const needed = speculation.needsFinal(said);
+    speculation.turnDone();
+    if (needed) void run("replies+reactions", s.typed, said, "final");
+  }, [partnerTurnId, run, speculation]);
+
+  // The partner is still talking: prepare replies from what they've said so far.
+  const partial = state.partnerPartial;
+  const hadPartial = useRef(false);
+  useEffect(() => {
+    if (!partial) {
+      hadPartial.current = false;
+      return;
+    }
+    if (!hadPartial.current) {
+      hadPartial.current = true;
+      speculation.newTurn();
+    }
+    const now = Date.now();
+    if (!speculation.shouldSend(partial, now)) return;
+    speculation.sent(partial, now);
+    void run("replies+reactions", stateRef.current.typed, partial, "speculative").then((ok) => speculation.finished(partial, ok));
+  }, [partial, run, speculation]);
 
   // Typing: instant matches from the user's phrases, model after a pause.
   const typed = state.typed;

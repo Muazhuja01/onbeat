@@ -219,4 +219,53 @@ describe("useSuggestions", () => {
     expect(calls[1]).toMatchObject({ mode: "replies", typed: "zz", priority: "typed" });
     expect(result.current.state.replies[0].text).toBe("Large, please.");
   });
+
+  it("asks while the partner is still talking, at most every 2.5 s after 3 new words", async () => {
+    const client = fakeClient(done);
+    const { result } = await setup(client);
+    vi.setSystemTime(10_000);
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What" }));
+    expect(client.calls).toHaveLength(0);
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would" }));
+    expect(client.calls[0]).toMatchObject({ mode: "replies+reactions", partnerSaid: "What size would", priority: "speculative" });
+    vi.setSystemTime(11_000);
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would you like today" }));
+    expect(client.calls).toHaveLength(1);
+    vi.setSystemTime(12_600);
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would you like today then" }));
+    expect(client.calls).toHaveLength(2);
+  });
+
+  it("skips the final request when the speculative one already answered the same words", async () => {
+    const client = fakeClient(done);
+    const { result } = await setup(client);
+    vi.setSystemTime(10_000);
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would you like" }));
+    expect(client.calls).toHaveLength(1);
+    await act(async () => result.current.dispatch({ type: "partnerSaid", id: "1", text: "What size would you like?", at: 1 }));
+    expect(client.calls).toHaveLength(1);
+    expect(result.current.state.partnerPartial).toBe("");
+  });
+
+  it("sends a final request when the turn ended with new words", async () => {
+    const client = fakeClient(done);
+    const { result } = await setup(client);
+    vi.setSystemTime(10_000);
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would" }));
+    await act(async () => result.current.dispatch({ type: "partnerSaid", id: "1", text: "What size would you like?", at: 1 }));
+    expect(client.calls).toHaveLength(2);
+    expect(client.calls[1]).toMatchObject({ partnerSaid: "What size would you like?", priority: "final" });
+  });
+
+  it("drops a skipped speculative request without retrying", async () => {
+    const client = fakeClient(new SuggestSkippedError(1000));
+    const { result } = await setup(client);
+    vi.setSystemTime(10_000);
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would" }));
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(client.calls).toHaveLength(1);
+    expect(result.current.state.status).not.toBe("paused");
+  });
 });

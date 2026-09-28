@@ -76,4 +76,14 @@ describe("conversationReducer", () => {
     const thinkingWithReplies = { ...s0, status: "thinking" as const, replies: [reply("A")] };
     expect(r(thinkingWithReplies, { type: "cancelled" }).status).toBe("ready");
   });
+
+  it("shows the partner's words while they talk and clears them when the turn ends", () => {
+    let s = r(s0, { type: "partnerPartial", text: " What size " });
+    expect(s.partnerPartial).toBe("What size");
+    s = r(s, { type: "partnerSaid", id: "1", text: "What size would you like?", at: 1 });
+    expect(s.partnerPartial).toBe("");
+    expect(s.turns.at(-1)?.text).toBe("What size would you like?");
+    s = r({ ...s, partnerPartial: "Hello" }, { type: "reset" });
+    expect(s.partnerPartial).toBe("");
+  });
 });

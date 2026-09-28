@@ -5,6 +5,8 @@ export type SuggestStatus = "idle" | "thinking" | "ready" | "paused";
 
 export interface ConversationState {
   turns: Turn[];
+  /** What the partner has said so far in the turn they are still speaking; "" when nobody is talking. */
+  partnerPartial: string;
   placeId?: string;
   partnerId?: string;
   typed: string;
@@ -20,6 +22,7 @@ export interface ConversationState {
 export type ConversationAction =
   | { type: "setContext"; placeId?: string; partnerId?: string }
   | { type: "partnerSaid"; id: string; text: string; at: number }
+  | { type: "partnerPartial"; text: string }
   | { type: "typed"; text: string }
   | { type: "thinking" }
   | { type: "suggestions"; replies: Reply[]; reactions: Reaction[]; done: boolean; hold: boolean }
@@ -36,6 +39,7 @@ const MAX_TURNS = 50;
 
 export const initialConversation: ConversationState = {
   turns: [],
+  partnerPartial: "",
   typed: "",
   replies: [],
   heldReplies: null,
@@ -57,8 +61,10 @@ export function conversationReducer(state: ConversationState, action: Conversati
     case "partnerSaid": {
       const text = action.text.trim();
       if (!text) return state;
-      return { ...state, turns: addTurn(state.turns, { id: action.id, speaker: "partner", text, at: action.at }) };
+      return { ...state, partnerPartial: "", turns: addTurn(state.turns, { id: action.id, speaker: "partner", text, at: action.at }) };
     }
+    case "partnerPartial":
+      return { ...state, partnerPartial: action.text.trim() };
     case "typed":
       return { ...state, typed: action.text };
     case "thinking":
