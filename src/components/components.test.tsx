@@ -87,6 +87,35 @@ describe("CaptionLog", () => {
     expect(screen.getByText("(still talking)")).toBeInTheDocument();
     expect(screen.queryByText(/will appear here/)).not.toBeInTheDocument();
   });
+
+  it("keeps the newest line in view only while you haven't scrolled back, and never scrolls the page", () => {
+    const pageScroll = vi.fn();
+    Element.prototype.scrollIntoView = pageScroll;
+    const turns = [{ id: "1", speaker: "partner" as const, text: "Hi", at: 1 }];
+    const { rerender } = render(<CaptionLog turns={turns} partnerName="Sam" partial="What" />);
+    const list = screen.getByRole("list");
+    let top = 0;
+    Object.defineProperty(list, "scrollHeight", { configurable: true, get: () => 1000 });
+    Object.defineProperty(list, "clientHeight", { configurable: true, get: () => 200 });
+    Object.defineProperty(list, "scrollTop", { configurable: true, get: () => top, set: (v: number) => (top = v) });
+
+    rerender(<CaptionLog turns={turns} partnerName="Sam" partial="What size" />);
+    expect(top).toBe(1000);
+
+    // You scroll back to read an earlier line: new captions leave you there.
+    top = 300;
+    act(() => list.dispatchEvent(new Event("scroll")));
+    rerender(<CaptionLog turns={turns} partnerName="Sam" partial="What size would" />);
+    expect(top).toBe(300);
+
+    // Back near the bottom: it follows the captions again.
+    top = 790;
+    act(() => list.dispatchEvent(new Event("scroll")));
+    rerender(<CaptionLog turns={turns} partnerName="Sam" partial="What size would you" />);
+    expect(top).toBe(1000);
+    expect(pageScroll).not.toHaveBeenCalled();
+    Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+  });
 });
 
 describe("AnnouncerProvider", () => {

@@ -80,6 +80,43 @@ test("asks for replies while the other person is still talking", async ({ page }
   expect(calls).toBe(1);
 });
 
+test("live captions don't scroll the page away from the replies on a phone", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await prepare(page);
+  await installFakeHearing(page);
+  await startWithMaya(page);
+  await page.getByRole("button", { name: "Listen" }).click();
+  // Enough lines that the log is at its full height and scrolls inside itself,
+  // so a new caption line can't change the page's layout.
+  const lines = ["Good morning!", "How are you today?", "What size would you like?", "Anything to eat?", "Oat milk again?"];
+  for (const line of [...lines, "For here or to go?", "Is that everything?"]) {
+    await hear(page, "turnEnd", line);
+  }
+  const log = page.getByRole("region", { name: "Conversation" }).getByRole("list");
+  expect(await log.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  const reply = page.getByRole("button", { name: "Large, please." });
+  await expect(reply).toBeVisible();
+  await reply.scrollIntoViewIfNeeded();
+  await expect(reply).toBeInViewport();
+  const before = await page.evaluate(() => window.scrollY);
+  const replyTop = (await reply.boundingBox())?.y;
+  expect(before).toBeGreaterThan(0);
+
+  // Only captions change from here: requests made while they talk never answer,
+  // so a reply list re-streaming can't move the page either.
+  await page.route("**/api/suggest", () => {});
+
+  for (const words of ["Would", "Would you like", "Would you like a pastry", "Would you like a pastry with that"]) {
+    await hear(page, "partial", words);
+    await expect(page.getByText(`${words}…`)).toBeAttached();
+  }
+  // Give any scroll effect time to run after the last caption.
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.scrollY)).toBe(before);
+  expect((await reply.boundingBox())?.y).toBe(replyTop);
+  await expect(reply).toBeInViewport();
+});
+
 test("a blocked microphone explains what still works", async ({ page }) => {
   await prepare(page);
   await installFakeHearing(page, "denied");

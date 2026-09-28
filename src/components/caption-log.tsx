@@ -3,12 +3,23 @@
 import { useEffect, useRef } from "react";
 import type { Turn } from "@/lib/types";
 
+/** How close to the end of the list still counts as following the newest line. */
+const NEAR_END_PX = 64;
+
 export function CaptionLog({ turns, partnerName, partial = "" }: { turns: Turn[]; partnerName: string; partial?: string }) {
-  const end = useRef<HTMLLIElement>(null);
+  const list = useRef<HTMLOListElement>(null);
+  // False once you scroll back to read an earlier line; true again near the end.
+  const following = useRef(true);
+  const onScroll = () => {
+    const el = list.current;
+    if (el) following.current = el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_END_PX;
+  };
   useEffect(() => {
-    // Instant scroll (never smooth) so reduced motion is respected.
-    // Optional call: jsdom has no scrollIntoView.
-    end.current?.scrollIntoView?.({ block: "end" });
+    // Scroll only the list, never the page, so the replies and reactions below
+    // stay under your finger while captions update (spec 6.3). Instant, never
+    // smooth, so reduced motion is respected.
+    const el = list.current;
+    if (el && following.current) el.scrollTop = el.scrollHeight;
   }, [turns.length, partial]);
 
   return (
@@ -19,7 +30,7 @@ export function CaptionLog({ turns, partnerName, partial = "" }: { turns: Turn[]
       {turns.length === 0 && !partial ? (
         <p className="text-body text-muted">What the other person says will appear here in large text.</p>
       ) : (
-        <ol className="flex max-h-[45dvh] flex-col gap-4 overflow-y-auto pr-1 lg:max-h-[70dvh]">
+        <ol ref={list} onScroll={onScroll} className="flex max-h-[45dvh] flex-col gap-4 overflow-y-auto pr-1 lg:max-h-[70dvh]">
           {turns.map((t) =>
             t.speaker === "partner" ? (
               <li key={t.id} className="border-l-4 border-partner pl-4">
@@ -41,7 +52,6 @@ export function CaptionLog({ turns, partnerName, partial = "" }: { turns: Turn[]
               <span className="block text-caption font-medium break-words">{partial}…</span>
             </li>
           )}
-          <li ref={end} aria-hidden="true" />
         </ol>
       )}
     </section>
