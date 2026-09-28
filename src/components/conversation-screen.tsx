@@ -139,7 +139,7 @@ function Screen() {
   }, [voice, state.replies]);
 
   useEffect(() => {
-    if (state.replies.length) gapTimer.repliesShown(Date.now());
+    gapTimer.repliesShown(Date.now(), state.replies);
   }, [state.replies, gapTimer]);
 
   const toggleListening = () => {
