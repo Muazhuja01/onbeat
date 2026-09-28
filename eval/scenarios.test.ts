@@ -19,6 +19,6 @@ describe("eval scenarios", () => {
   });
 
   it("uses no en or em dashes", () => {
-    expect(JSON.stringify(scenarios)).not.toMatch(/[–—]/);
+    expect(JSON.stringify(scenarios)).not.toMatch(/[\u2013\u2014]/);
   });
 });
