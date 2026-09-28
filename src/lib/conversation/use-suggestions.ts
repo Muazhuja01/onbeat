@@ -54,10 +54,12 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
       if (priority !== "speculative") clearTimeout(retryTimer.current);
       const s = stateRef.current;
       dispatch({ type: "thinking", speculative: priority === "speculative" });
+      // Lets the reply timer tell answers prepared for this turn from late ones.
+      const askedAt = Date.now();
       try {
         const final = await client.request(
           { mode, typed, partnerSaid, priority, context: { now: new Date(), placeId: s.placeId, partnerId: s.partnerId } },
-          (u) => dispatch({ type: "suggestions", replies: u.replies, reactions: u.reactions, done: u.done, hold: holdingRef.current() }),
+          (u) => dispatch({ type: "suggestions", replies: u.replies, reactions: u.reactions, done: u.done, hold: holdingRef.current(), askedAt }),
         );
         return final !== null;
       } catch (err) {

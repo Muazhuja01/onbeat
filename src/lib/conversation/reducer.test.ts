@@ -27,6 +27,16 @@ describe("conversationReducer", () => {
     expect(s3.heldReplies).toBeNull();
   });
 
+  it("remembers when the replies on screen were asked for, through a hold and release", () => {
+    const s1 = r(s0, { type: "suggestions", replies: [reply("A")], reactions: [], done: true, hold: false, askedAt: 100 });
+    expect(s1.repliesAskedAt).toBe(100);
+    const s2 = r(s1, { type: "suggestions", replies: [reply("B")], reactions: [], done: true, hold: true, askedAt: 200 });
+    expect(s2.repliesAskedAt).toBe(100);
+    expect(r(s2, { type: "releaseHeld" }).repliesAskedAt).toBe(200);
+    const local = r(s1, { type: "suggestions", replies: [{ text: "Hi", noteIds: [], source: "phrase" }], reactions: [], done: false, hold: false });
+    expect(local.repliesAskedAt).toBeNull();
+  });
+
   it("does not hold when nothing is on screen yet", () => {
     const s1 = r(s0, { type: "suggestions", replies: [reply("A")], reactions: [], done: false, hold: true });
     expect(s1.replies).toEqual([reply("A")]);

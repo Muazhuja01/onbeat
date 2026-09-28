@@ -45,6 +45,14 @@ describe("useSuggestions", () => {
     expect(result.current.state.replies[0].text).toBe("Large, please.");
   });
 
+  it("records when the replies on screen were asked for", async () => {
+    const client = fakeClient(done);
+    const { result } = await setup(client);
+    vi.setSystemTime(42_000);
+    await act(async () => result.current.dispatch({ type: "partnerSaid", id: "1", text: "What size?", at: 1 }));
+    expect(result.current.state.repliesAskedAt).toBe(42_000);
+  });
+
   it("shows phrase matches immediately and asks the model after the debounce", async () => {
     const client = fakeClient(done);
     const { result } = await setup(client);

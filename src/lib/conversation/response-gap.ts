@@ -9,10 +9,8 @@ import type { Reply } from "@/lib/types";
 export class GapTimer {
   private turnStartedAt: number | null = null;
   private shownAt: number | null = null;
-  /** End times of turns that ended with no replies for them yet. */
-  private waiting: number[] = [];
-  /** The reply set that answered waiting turns; its later updates don't count for a newer turn. */
-  private lateAnswer: object | null = null;
+  /** Turns that ended with no replies for them yet. */
+  private waiting: { startedAt: number; endedAt: number }[] = [];
 
   constructor(private readonly record: (ms: number) => void) {}
 
@@ -25,20 +23,23 @@ export class GapTimer {
     this.turnStartedAt = at;
   }
 
-  repliesShown(at: number, replies: readonly Pick<Reply, "source">[]): void {
-    // A streamed answer arrives as several updates that reuse the same reply
-    // objects, so its first model reply identifies the request it came from.
-    const first = replies.find((r) => r.source === "model");
-    if (!first || first === this.lateAnswer) return;
-    if (this.waiting.length) {
-      // These replies answer the turn(s) that were waiting, even if the partner
-      // has started talking again; they weren't prepared for the new turn.
-      // Every waiting turn gets a sample: nothing was on screen for it until now.
-      for (const endedAt of this.waiting) this.record(Math.max(0, at - endedAt));
-      this.waiting = [];
-      this.lateAnswer = first;
-      return;
+  /**
+   * Replies reached the screen at `at`; `askedAt` is when their request was
+   * made. A request made before a turn began can't have been prepared for it:
+   * it is a late answer to an earlier turn, however many updates it streams.
+   */
+  repliesShown(at: number, replies: readonly Pick<Reply, "source">[], askedAt: number | null): void {
+    if (!replies.some((r) => r.source === "model")) return;
+    const asked = askedAt ?? at;
+    // Every waiting turn that began before this request gets a sample: nothing
+    // was on screen for it until now. Back-to-back turns each keep their own.
+    const still: typeof this.waiting = [];
+    for (const turn of this.waiting) {
+      if (turn.startedAt <= asked) this.record(Math.max(0, at - turn.endedAt));
+      else still.push(turn);
     }
+    this.waiting = still;
+    if (this.turnStartedAt !== null && asked < this.turnStartedAt) return;
     this.shownAt = at;
   }
 
@@ -49,7 +50,7 @@ export class GapTimer {
       this.record(Math.max(0, this.shownAt - endedAt));
       return;
     }
-    this.waiting.push(endedAt);
+    this.waiting.push({ startedAt: started, endedAt });
   }
 }
 
