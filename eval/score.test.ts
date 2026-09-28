@@ -141,3 +141,15 @@ describe("judgedByPhrase", () => {
     expect(judgedByPhrase([r(), r()])).toBe("no judge");
   });
 });
+
+describe("summarize: claim check", () => {
+  it("adds up replies the claim check dropped and shows them in the table", () => {
+    const base: ScenarioResult = {
+      id: "x", ok: true, shown: ["a"], rawReplies: 3, blocked: 0, judgement: { match: 1, invented: [], unbacked: [] },
+      keystrokesSaved: 0, noteRecall: true, firstReplyMs: 1, totalMs: 1, checkBlocked: 2,
+    };
+    const s = summarize("m", [base, { ...base, checkBlocked: 1 }]);
+    expect(s.checkBlocked).toBe(3);
+    expect(toMarkdown([s])).toContain("| Dropped by the claim check |");
+  });
+});

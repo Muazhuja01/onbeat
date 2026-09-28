@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { personas } from "@/data/personas";
 import { en } from "@/lib/language-packs/en";
 import { MemoryStore } from "@/lib/memory/store";
+import { checkReply } from "@/lib/server/claim-check";
 import { groqExtraBody, providerConfigs, streamCompletion, type ProviderId } from "@/lib/server/providers";
 import { buildMessages } from "@/lib/suggest/prompt";
 import { createObjectSplitter, parseLine } from "@/lib/suggest/protocol";
@@ -31,7 +32,7 @@ function arg(name: string): string | undefined {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-async function runScenario(sc: Scenario, provider: ProviderId, model: string, endpoints: JudgeEndpoint[], cache: JudgeCache, spent: Set<string>): Promise<ScenarioResult> {
+async function runScenario(sc: Scenario, provider: ProviderId, model: string, endpoints: JudgeEndpoint[], cache: JudgeCache, spent: Set<string>, claimCheck: boolean): Promise<ScenarioResult> {
   const persona = personas.find((p) => p.id === sc.persona)!;
   const memory = await MemoryStore.create();
   await memory.replaceAll(persona.notes, persona.phrases);
@@ -57,6 +58,7 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
   let raw = "";
   let rawReplies = 0;
   let blocked = 0;
+  let checkBlocked = 0;
   let firstReplyMs = null as number | null;
   let started = performance.now();
   try {
@@ -66,6 +68,7 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
       started = performance.now();
       return streamCompletion(buildMessages(body), { order: [provider], configs, firstTokenTimeoutMs: 10_000, idleTimeoutMs: 10_000, cooldown });
     });
+    const queue: { text: string; noteIds: string[] }[] = [];
     const splitter = createObjectSplitter((obj) => {
       const parsed = parseLine(obj);
       if (parsed?.kind !== "reply") return;
@@ -74,15 +77,33 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
         blocked++;
         return;
       }
-      if (shown.length >= 3 || shown.some((t) => isNearDuplicate(t, parsed.text))) return;
-      shown.push(parsed.text);
-      firstReplyMs ??= performance.now() - started;
+      queue.push({ text: parsed.text, noteIds: parsed.noteIds });
     });
+    const drain = async () => {
+      while (queue.length) {
+        const reply = queue.shift()!;
+        if (shown.length >= 3 || shown.some((t) => isNearDuplicate(t, reply.text))) continue;
+        if (claimCheck) {
+          const verdict = await checkReply(
+            { reply: reply.text, notes: body.notes.map((n) => n.text), partnerSaid: body.partnerSaid, typed: body.typed, contextLine: body.contextLine, phrases: body.examples },
+            { apiKey: process.env.GROQ_API_KEY },
+          );
+          if (verdict === "invented") {
+            checkBlocked++;
+            continue;
+          }
+        }
+        shown.push(reply.text);
+        firstReplyMs ??= performance.now() - started;
+      }
+    };
     for await (const d of deltas) {
       raw += d;
       splitter.push(d);
+      await drain();
     }
     splitter.flush();
+    await drain();
   } catch (err) {
     return {
       id: sc.id,
@@ -91,6 +112,7 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
       shown,
       rawReplies,
       blocked,
+      checkBlocked,
       judgement: null,
       keystrokesSaved: 0,
       noteRecall: false,
@@ -118,6 +140,7 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
     shown,
     rawReplies,
     blocked,
+    checkBlocked,
     judgement,
     keystrokesSaved: keystrokesSaved(sc.intended, typed, (judgement?.match ?? 0) > 0),
     noteRecall: sc.noteIds.every((id) => sentIds.has(id)),
@@ -141,6 +164,7 @@ async function main() {
   const judgeModel = process.env.EVAL_JUDGE_MODEL ?? "openai/gpt-oss-120b";
   const endpoints = judgeEndpoints();
   if (endpoints.length === 0) throw new Error("No judge endpoint: set GROQ_API_KEY (and optionally the Cloudflare keys) in .env.local.");
+  const claimCheck = process.argv.includes("--claim-check");
   const set = arg("set") ?? "dev";
   if (set !== "dev" && set !== "test") throw new Error(`Unknown set "${set}". Use --set dev or --set test.`);
   const pool = set === "test" ? testScenarios : scenarios;
@@ -156,7 +180,7 @@ async function main() {
     const list: ScenarioResult[] = [];
     for (const sc of chosen) {
       const spentBefore = new Set(spent);
-      const r = await runScenario(sc, provider, model, endpoints, cache, spent);
+      const r = await runScenario(sc, provider, model, endpoints, cache, spent, claimCheck);
       list.push(r);
       for (const ep of spent) {
         if (!spentBefore.has(ep)) console.log(`  judge: ${ep} is out of quota, using the next judge for the rest of the run`);
@@ -175,7 +199,7 @@ async function main() {
   writeFileSync(`eval/results/latest-${set}.json`, `${JSON.stringify({ ranAt, set, judgeModel, summaries, results }, null, 2)}\n`);
   writeFileSync(
     `eval/results/latest-${set}.md`,
-    `# Eval results\n\nRun ${ranAt.slice(0, 10)}, ${set} set, ${chosen.length} scenarios per model, judged by ${judgedByPhrase(Object.values(results).flat())}. Generated by \`npm run eval -- --set ${set}\`.\n\n${table}\n`,
+    `# Eval results\n\nRun ${ranAt.slice(0, 10)}, ${set} set, ${chosen.length} scenarios per model, judged by ${judgedByPhrase(Object.values(results).flat())}${claimCheck ? " with the claim check" : ""}. Generated by \`npm run eval -- --set ${set}\`.\n\n${table}\n`,
   );
 }
 
