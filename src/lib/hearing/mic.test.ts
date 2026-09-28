@@ -29,6 +29,79 @@ describe("openMic", () => {
     expect((err as MicError).kind).toBe("unavailable");
   });
 
+  it("tells the caller when the microphone stops on its own, but not when the caller stops it", async () => {
+    const track = new EventTarget() as EventTarget & { stop: () => void };
+    track.stop = vi.fn();
+    const stream = { getTracks: () => [track], getAudioTracks: () => [track] } as unknown as MediaStream;
+    stubMic(() => Promise.resolve(stream));
+    class FakeAudioContext extends EventTarget {
+      sampleRate = SAMPLE_RATE;
+      state = "running";
+      audioWorklet = { addModule: () => Promise.resolve() };
+      createMediaStreamSource = () => ({ connect: vi.fn(), disconnect: vi.fn() });
+      resume = () => Promise.resolve();
+      close = vi.fn(() => {
+        this.state = "closed";
+        this.dispatchEvent(new Event("statechange"));
+        return Promise.resolve();
+      });
+    }
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+    vi.stubGlobal(
+      "AudioWorkletNode",
+      class {
+        port = { onmessage: null };
+        disconnect() {}
+      },
+    );
+
+    const onEnded = vi.fn();
+    await openMic(() => {}, onEnded);
+    track.dispatchEvent(new Event("ended"));
+    expect(onEnded).toHaveBeenCalledTimes(1);
+    expect(track.stop).toHaveBeenCalled();
+
+    const onEndedAgain = vi.fn();
+    const mic = await openMic(() => {}, onEndedAgain);
+    mic.stop();
+    track.dispatchEvent(new Event("ended"));
+    expect(onEndedAgain).not.toHaveBeenCalled();
+  });
+
+  it("tells the caller when the audio context closes or is interrupted by the system", async () => {
+    const track = new EventTarget() as EventTarget & { stop: () => void };
+    track.stop = vi.fn();
+    const stream = { getTracks: () => [track], getAudioTracks: () => [track] } as unknown as MediaStream;
+    stubMic(() => Promise.resolve(stream));
+    const contexts: (EventTarget & { state: string })[] = [];
+    class FakeAudioContext extends EventTarget {
+      sampleRate = SAMPLE_RATE;
+      state = "running";
+      audioWorklet = { addModule: () => Promise.resolve() };
+      createMediaStreamSource = () => ({ connect: vi.fn(), disconnect: vi.fn() });
+      resume = () => Promise.resolve();
+      close = vi.fn(() => Promise.resolve());
+      constructor() {
+        super();
+        contexts.push(this);
+      }
+    }
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+    vi.stubGlobal(
+      "AudioWorkletNode",
+      class {
+        port = { onmessage: null };
+        disconnect() {}
+      },
+    );
+
+    const onEnded = vi.fn();
+    await openMic(() => {}, onEnded);
+    contexts[0].state = "interrupted";
+    contexts[0].dispatchEvent(new Event("statechange"));
+    expect(onEnded).toHaveBeenCalledTimes(1);
+  });
+
   it("closes the AudioContext and stops every track when setup fails after the context is created", async () => {
     const trackStop = vi.fn();
     const stream = {

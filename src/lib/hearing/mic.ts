@@ -16,8 +16,15 @@ export class MicError extends Error {
   }
 }
 
-/** Opens the microphone and calls onChunk with 16 kHz mono samples and their level (0 to 1). */
-export async function openMic(onChunk: (samples: Float32Array, level: number) => void): Promise<MicSource> {
+/**
+ * Opens the microphone and calls onChunk with 16 kHz mono samples and their level (0 to 1).
+ * onEnded is called once if the microphone stops on its own: the device is unplugged, the
+ * permission is revoked, or the system takes the audio (a phone call). It is not called after stop().
+ */
+export async function openMic(
+  onChunk: (samples: Float32Array, level: number) => void,
+  onEnded: () => void = () => {},
+): Promise<MicSource> {
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia || typeof AudioWorkletNode === "undefined") {
     throw new MicError("unavailable", "Recording needs a secure page and Web Audio support.");
   }
@@ -59,11 +66,14 @@ export async function openMic(onChunk: (samples: Float32Array, level: number) =>
     source.connect(node);
     await ctx.resume();
     const context = ctx;
+    const tracks = stream.getAudioTracks();
     let stopped = false;
-    return {
+    const mic: MicSource = {
       stop() {
         if (stopped) return;
         stopped = true;
+        tracks.forEach((t) => t.removeEventListener("ended", ended));
+        context.removeEventListener("statechange", stateChanged);
         node.port.onmessage = null;
         source.disconnect();
         node.disconnect();
@@ -71,6 +81,19 @@ export async function openMic(onChunk: (samples: Float32Array, level: number) =>
         void context.close().catch(() => {});
       },
     };
+    function ended() {
+      if (stopped) return;
+      mic.stop();
+      onEnded();
+    }
+    function stateChanged() {
+      // Safari reports "interrupted" when the system takes the audio, such as for a phone call.
+      const state: string = context.state;
+      if (state === "closed" || state === "interrupted") ended();
+    }
+    tracks.forEach((t) => t.addEventListener("ended", ended));
+    context.addEventListener("statechange", stateChanged);
+    return mic;
   } catch (err) {
     stream.getTracks().forEach((t) => t.stop());
     void ctx?.close().catch(() => {});

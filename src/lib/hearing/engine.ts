@@ -2,7 +2,8 @@ import type { WorkerLike } from "@/lib/worker-like";
 import type { HearingWorkerMessage } from "./messages";
 import { MicError, type MicSource } from "./mic";
 
-export type HearingStatus = "off" | "loading" | "listening" | "denied" | "unavailable" | "error";
+/** "interrupted": the microphone stopped on its own (unplugged, permission revoked, a phone call). */
+export type HearingStatus = "off" | "loading" | "listening" | "denied" | "unavailable" | "error" | "interrupted";
 
 export interface TurnEnd {
   text: string;
@@ -33,7 +34,8 @@ export interface Hearing {
 
 export interface HearingDeps {
   createWorker: () => WorkerLike | null;
-  openMic: (onChunk: (samples: Float32Array, level: number) => void) => Promise<MicSource>;
+  /** onEnded: the microphone stopped without being asked to. */
+  openMic: (onChunk: (samples: Float32Array, level: number) => void, onEnded: () => void) => Promise<MicSource>;
   model: string;
   levelEveryMs?: number;
   now?: () => number;
@@ -73,12 +75,20 @@ export class HearingEngine implements Hearing {
     const token = ++this.startToken;
     this.setStatus("loading");
     if (!this.worker) {
-      this.worker = this.deps.createWorker();
-      if (!this.worker) {
+      let worker: WorkerLike | null;
+      try {
+        worker = this.deps.createWorker();
+      } catch (err) {
+        console.error("HearingEngine: couldn't create the speech recognition worker", err);
+        worker = null;
+      }
+      if (!worker) {
         this.setStatus("unavailable");
         return;
       }
-      this.worker.onmessage = (e: MessageEvent) => this.onWorkerMessage(e.data as HearingWorkerMessage);
+      this.worker = worker;
+      worker.onmessage = (e: MessageEvent) => this.onWorkerMessage(e.data as HearingWorkerMessage);
+      worker.onerror = (e: ErrorEvent) => this.onWorkerDied(worker, e);
     }
     if (!this.ready && !this.loading) {
       this.loading = true;
@@ -86,7 +96,12 @@ export class HearingEngine implements Hearing {
     }
     let mic: MicSource;
     try {
-      mic = await this.deps.openMic((samples, level) => this.onChunk(samples, level));
+      mic = await this.deps.openMic(
+        (samples, level) => this.onChunk(samples, level),
+        () => {
+          if (token === this.startToken) this.onMicEnded();
+        },
+      );
     } catch (err) {
       if (token === this.startToken) this.setStatus(err instanceof MicError && err.kind === "denied" ? "denied" : "unavailable");
       return;
@@ -127,6 +142,35 @@ export class HearingEngine implements Hearing {
     this.resumeTimer = setTimeout(() => {
       this.paused = false;
     }, afterMs);
+  }
+
+  /** The worker failed to load, threw, or was killed (for example for memory). */
+  private onWorkerDied(worker: WorkerLike, e: ErrorEvent): void {
+    if (worker !== this.worker) return;
+    console.error("HearingEngine: speech recognition worker stopped", e.message);
+    worker.terminate();
+    this.worker = null;
+    this.ready = false;
+    this.loading = false;
+    this.halt("error");
+  }
+
+  /** The microphone stopped without being asked to. */
+  private onMicEnded(): void {
+    this.worker?.postMessage({ type: "reset" });
+    this.halt("interrupted");
+  }
+
+  /** Stops hearing because something broke, and says so. */
+  private halt(status: HearingStatus): void {
+    this.startToken++;
+    clearTimeout(this.resumeTimer);
+    this.paused = false;
+    this.mic?.stop();
+    this.mic = null;
+    this.clearPartial();
+    this.emit("level", 0);
+    this.setStatus(status);
   }
 
   private get active(): boolean {

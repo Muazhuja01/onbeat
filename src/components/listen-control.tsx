@@ -10,7 +10,8 @@ const TEXT: Record<HearingStatus, string> = {
   listening: "Listening. Their words appear in the conversation.",
   denied: "Microphone is off. You can still type replies. Turn it on in your browser's site settings.",
   unavailable: "This browser can't use the microphone here. You can still type what they said.",
-  error: "Couldn't download speech recognition. Check your connection and try again.",
+  error: "Speech recognition couldn't load or stopped working. Check your connection, then press Listen to try again.",
+  interrupted: "The microphone stopped. Check that it's connected, then press Listen to try again.",
 };
 
 interface Props {

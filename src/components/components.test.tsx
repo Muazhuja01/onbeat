@@ -173,6 +173,18 @@ describe("ListenControl", () => {
       screen.getByText("Microphone is off. You can still type replies. Turn it on in your browser's site settings."),
     ).toBeInTheDocument();
   });
+
+  it("says what happened and what to do when hearing stops on its own", () => {
+    const { rerender } = render(<ListenControl hearing={null} status="interrupted" progress={0} onToggle={() => {}} />);
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "The microphone stopped. Check that it's connected, then press Listen to try again.",
+    );
+    expect(screen.getByRole("button", { name: "Listen" })).toHaveAttribute("aria-pressed", "false");
+    rerender(<ListenControl hearing={null} status="error" progress={0} onToggle={() => {}} />);
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Speech recognition couldn't load or stopped working. Check your connection, then press Listen to try again.",
+    );
+  });
 });
 
 describe("ResponseGap", () => {
