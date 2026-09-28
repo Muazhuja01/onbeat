@@ -24,7 +24,9 @@ The judge ran out of its free daily quota (HTTP 429) during the Cloudflare row, 
 
 ## In-app timing
 
-Time from the other person's last word until replies are on screen, measured by the live browser check (`tests/e2e/live-hearing.spec.ts`, Chromium on an AMD Ryzen 7 6800HS with Windows 11 Home, 5 turns): median 652 ms, p95 1880 ms. Replies prepared while they were still talking count as 0 ms.
+Time from the other person's last word until replies are on screen, measured by the live browser check (`tests/e2e/live-hearing.spec.ts`, Chromium on an AMD Ryzen 7 6800HS with Windows 11 Home, 5 turns): gaps of 1159, 1343, 3665, 1105 and 1003 ms, median 1159 ms, p95 3665 ms (nearest rank). Replies prepared while they were still talking count as 0 ms; none did in this run.
+
+The first run reported a median of 652 ms and a p95 of 1880 ms, with one 0 ms turn. The timer was corrected after that run: it now starts a turn at its latest speech start, counts only replies from the model, and gives a late answer to the turn that was waiting for it rather than to the next one. The 0 ms turn from the first run can't be confirmed, so those numbers are replaced by the ones above.
 
 ## Known gaps
 
