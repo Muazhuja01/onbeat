@@ -203,6 +203,20 @@ describe("SuggestClient", () => {
     expect(seen).not.toContain("Old.");
   });
 
+  it("accepts two replies sent on one line", async () => {
+    const fetchImpl = vi.fn(async () => streamResponse(['{"reply": "Large, please.", "notes": []}{"reply": "What sizes do you have?", "notes": []}']));
+    const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl });
+    const final = await client.request(input, () => {});
+    expect(final?.replies.map((r) => r.text)).toEqual(["Large, please.", "What sizes do you have?"]);
+  });
+
+  it("keeps a reply that names the current partner without citing a note", async () => {
+    const fetchImpl = vi.fn(async () => streamResponse(['{"reply": "Thanks Sam!", "notes": []}']));
+    const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl });
+    const final = await client.request(input, () => {});
+    expect(final?.replies.map((r) => r.text)).toEqual(["Thanks Sam!"]);
+  });
+
   it("propagates an error thrown while processing a stream line instead of swallowing it", async () => {
     const fetchImpl = vi.fn(async () => streamResponse(['{"reply": "Large, please."}', '{"reply": "Medium."}']));
     const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl });

@@ -2,16 +2,12 @@ import { contextLine } from "@/lib/context";
 import type { LanguagePack, Reaction } from "@/lib/language-packs/types";
 import type { MemoryStore } from "@/lib/memory/store";
 import { normalize } from "@/lib/text";
-import type { ConversationContext, Reply } from "@/lib/types";
-import { createLineSplitter, parseLine, type SuggestRequestBody } from "./protocol";
+import type { Reply } from "@/lib/types";
+import { createLineSplitter, parseLines, type ParsedLine, type SuggestRequestBody } from "./protocol";
+import { buildSuggestRequest, clampInput, type RequestInput } from "./request";
 import { isNearDuplicate, validateReply, type ValidationSources } from "./validate";
 
-export interface SuggestInput {
-  mode: SuggestRequestBody["mode"];
-  typed: string;
-  partnerSaid: string;
-  context: ConversationContext;
-}
+export type SuggestInput = RequestInput;
 
 export interface SuggestUpdate {
   replies: Reply[];
@@ -65,17 +61,16 @@ export class SuggestClient {
   }
 
   async request(input: SuggestInput, onUpdate: (u: SuggestUpdate) => void): Promise<SuggestUpdate | null> {
-    const typed = input.typed.slice(0, 500);
-    const partnerSaid = input.partnerSaid.slice(-1000);
+    const clamped = clampInput(input);
     const { memory, pack } = this.deps;
     const simple = this.deps.simpleLanguage?.() ?? false;
-    const line = contextLine(input.context, (id) => memory.getNote(id));
+    const line = contextLine(clamped.context, (id) => memory.getNote(id));
     const key = JSON.stringify([
-      input.mode,
-      normalize(typed.trim()),
-      normalize(partnerSaid.trim()),
-      input.context.placeId ?? "",
-      input.context.partnerId ?? "",
+      clamped.mode,
+      normalize(clamped.typed.trim()),
+      normalize(clamped.partnerSaid.trim()),
+      clamped.context.placeId ?? "",
+      clamped.context.partnerId ?? "",
       simple,
       line,
     ]);
@@ -92,21 +87,8 @@ export class SuggestClient {
     const generation = this.generation;
     const isCurrent = () => generation === this.generation && !controller.signal.aborted;
 
-    const query = `${typed} ${partnerSaid}`.trim();
-    const notes = await memory.searchNotes(query, input.context, 8);
+    const { body, sources } = await buildSuggestRequest({ memory, pack, input: clamped, simple });
     if (!isCurrent()) return null;
-
-    const body: SuggestRequestBody = {
-      mode: input.mode,
-      typed,
-      partnerSaid,
-      contextLine: line,
-      notes: notes.map((n) => ({ id: n.id, text: n.text.slice(0, 300) })),
-      examples: memory.styleExamples(query, 5).map((e) => e.slice(0, 200)),
-      reactions: pack.reactions,
-      maxWords: simple ? pack.simpleMaxWords : pack.maxWords,
-    };
-    const sources: ValidationSources = { notes: new Map(notes.map((n) => [n.id, n.text])), partnerSaid, typed };
 
     let outcome = await this.stream(body, sources, controller, isCurrent, onUpdate);
     if (outcome && outcome.replies.length === 0 && outcome.invalid > 0 && isCurrent()) {
@@ -155,9 +137,7 @@ export class SuggestClient {
     let reactions: Reaction[] = [];
     let invalid = 0;
 
-    const splitter = createLineSplitter((line) => {
-      const parsed = parseLine(line);
-      if (!parsed) return;
+    const handle = (parsed: ParsedLine) => {
       if (parsed.kind === "invalid") {
         invalid++;
         return;
@@ -171,7 +151,8 @@ export class SuggestClient {
         replies.push({ text: parsed.text, noteIds: parsed.noteIds, source: "model" });
       }
       if (isCurrent()) onUpdate({ replies: [...replies], reactions, done: false });
-    });
+    };
+    const splitter = createLineSplitter((line) => parseLines(line).forEach(handle));
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
