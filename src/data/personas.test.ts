@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { personas } from "./personas";
+import { claimSupported, extractClaims } from "@/lib/suggest/validate";
+import { normalize } from "@/lib/text";
 
 describe("personas", () => {
   it("has the three example people", () => {
@@ -26,6 +28,17 @@ describe("personas", () => {
       it("has no dash characters in visible text", () => {
         const text = [p.summary, ...p.notes.map((n) => n.text), ...p.phrases.map((x) => x.text)].join(" ");
         expect(text).not.toMatch(/[\u2013\u2014]/);
+      });
+      it("names each note's entities in its text", () => {
+        for (const note of p.notes) {
+          for (const e of note.entities) expect(normalize(note.text), `${note.id}: ${e}`).toContain(normalize(e));
+        }
+      });
+      it("only puts names, days and numbers in phrases that its notes back up", () => {
+        const allNotes = p.notes.map((n) => n.text).join("\n");
+        for (const ph of p.phrases) {
+          for (const claim of extractClaims(ph.text)) expect(claimSupported(claim, allNotes), `${ph.id}: ${claim}`).toBe(true);
+        }
       });
     });
   }

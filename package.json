@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "eval": "tsx eval/run.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "3.8.1",
@@ -40,6 +41,7 @@
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^30.1.1",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5",
     "vitest": "^5.0.2"
   }
