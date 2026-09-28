@@ -5,6 +5,8 @@ export interface Judgement {
   match: number;
   /** 1-based numbers of shown replies that state a fact the sources don't back up. */
   invented: number[];
+  /** The unbacked facts the judge named, for the write-up. */
+  unbacked: { n: number; fact: string }[];
 }
 
 export interface ScenarioResult {
@@ -48,16 +50,29 @@ export interface ModelSummary {
 export function parseJudgement(text: string, candidates: number): Judgement | null {
   const found = text.match(/\{[\s\S]*\}/);
   if (!found) return null;
+  let j: { match?: unknown; invented?: unknown; replies?: unknown };
   try {
-    const j = JSON.parse(found[0]) as { match?: unknown; invented?: unknown };
-    const inRange = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= candidates;
-    return {
-      match: inRange(j.match) ? j.match : 0,
-      invented: Array.isArray(j.invented) ? [...new Set(j.invented.filter(inRange))] : [],
-    };
+    j = JSON.parse(found[0]);
   } catch {
     return null;
   }
+  const inRange = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= candidates;
+  const unbacked: { n: number; fact: string }[] = [];
+  if (Array.isArray(j.replies)) {
+    for (const r of j.replies as { n?: unknown; facts?: unknown }[]) {
+      if (!inRange(r?.n) || !Array.isArray(r.facts)) continue;
+      for (const f of r.facts as { fact?: unknown; source?: unknown }[]) {
+        if (String(f?.source ?? "").trim().toLowerCase() === "none") unbacked.push({ n: r.n, fact: String(f.fact ?? "") });
+      }
+    }
+  }
+  const fromFacts = unbacked.map((u) => u.n);
+  const fromList = Array.isArray(j.invented) ? j.invented.filter(inRange) : [];
+  return {
+    match: inRange(j.match) ? j.match : 0,
+    invented: [...new Set([...fromFacts, ...fromList])].sort((a, b) => a - b),
+    unbacked,
+  };
 }
 
 /** Share of keystrokes saved against typing the intended sentence in full. A tap on a reply costs one. */

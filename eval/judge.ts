@@ -3,6 +3,9 @@ import type { ChatMessage } from "@/lib/suggest/prompt";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
+/** Bump when the judge prompt changes, so cached judgements from the old prompt are not reused. */
+export const JUDGE_PROMPT_VERSION = 2;
+
 export interface JudgeInput {
   intended: string;
   partnerSaid: string;
@@ -13,6 +16,31 @@ export interface JudgeInput {
   /** Saved phrases sent to the model as style examples: the person's own words. */
   phrases: string[];
   candidates: string[];
+}
+
+export interface JudgeEndpoint {
+  name: string;
+  url: string;
+  apiKey: string;
+  model: string;
+  extraBody: Record<string, unknown>;
+}
+
+/** The same judge model on Groq, then on Cloudflare Workers AI, each only when its keys are set. */
+export function judgeEndpoints(env: NodeJS.ProcessEnv = process.env): JudgeEndpoint[] {
+  const list: JudgeEndpoint[] = [];
+  const groqModel = env.EVAL_JUDGE_MODEL ?? "openai/gpt-oss-120b";
+  if (env.GROQ_API_KEY) list.push({ name: "groq", url: GROQ_URL, apiKey: env.GROQ_API_KEY, model: groqModel, extraBody: groqExtraBody(groqModel) });
+  if (env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN) {
+    list.push({
+      name: "cloudflare",
+      url: `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/ai/v1/chat/completions`,
+      apiKey: env.CLOUDFLARE_API_TOKEN,
+      model: env.EVAL_JUDGE_CF_MODEL ?? "@cf/openai/gpt-oss-120b",
+      extraBody: {},
+    });
+  }
+  return list;
 }
 
 export function judgeMessages(j: JudgeInput): ChatMessage[] {
@@ -37,8 +65,10 @@ export function judgeMessages(j: JudgeInput): ChatMessage[] {
     "",
     "Give two things:",
     "match: the number of the first reply that says what the person meant closely enough that they would pick it (same meaning, wording may differ), or 0 if none does.",
-    "invented: the numbers of replies that state a specific fact (a name, place, number, day, time, or a claim about the person's life) that is not in the facts, the situation, what the other person said, or what the person typed.",
-    'Answer with one JSON object and nothing else, like {"match": 2, "invented": []}',
+    "replies: for each reply, the facts it states about the person, their life or the situation (what they did, have, feel, want, plan or prefer, and any name, place, number, day or time). For each fact give its source:",
+    '"note" (the facts above), "situation", "partner" (what the other person said), "typed", "phrase" (something the person has said before), or "none" if nothing above backs it.',
+    "Politeness, yes or no, agreeing, declining, asking a question, and repeating what the other person said are not facts.",
+    'Answer with one JSON object and nothing else, like {"match": 1, "replies": [{"n": 1, "facts": [{"fact": "usual is an oat latte", "source": "note"}]}, {"n": 2, "facts": []}]}',
   ];
   return [
     { role: "system", content: "You grade reply suggestions for a communication aid. You answer with one JSON object." },
@@ -46,34 +76,52 @@ export function judgeMessages(j: JudgeInput): ChatMessage[] {
   ];
 }
 
-/** Asks the judge model on Groq. Returns its raw text; parse it with parseJudgement. */
+const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Asks the judge, trying each endpoint in order. On one endpoint a 429 is retried
+ * three times after its Retry-After (at most 60 s each); a 400 is retried once
+ * without JSON mode. Any other failure moves on to the next endpoint.
+ */
 export async function judge(
   input: JudgeInput,
-  opts: { apiKey: string; model: string; fetchImpl?: typeof fetch; sleep?: (ms: number) => Promise<void> },
-): Promise<string> {
+  opts: { endpoints: JudgeEndpoint[]; fetchImpl?: typeof fetch; sleep?: (ms: number) => Promise<void> },
+): Promise<{ text: string; endpoint: string }> {
+  if (opts.endpoints.length === 0) throw new Error("judge failed: no judge endpoint is configured");
   const fetchImpl = opts.fetchImpl ?? fetch;
-  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const call = (jsonMode: boolean) =>
-    fetchImpl(GROQ_URL, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${opts.apiKey}` },
-      body: JSON.stringify({
-        model: opts.model,
-        messages: judgeMessages(input),
-        temperature: 0,
-        max_tokens: 1000,
-        ...groqExtraBody(opts.model),
-        ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
-      }),
-    });
-  let res = await call(true);
-  for (let attempt = 1; attempt < 4 && res.status === 429; attempt++) {
-    await sleep(Math.min(60_000, retryAfterMs(res.headers.get("retry-after"))));
-    res = await call(true);
+  const sleep = opts.sleep ?? defaultSleep;
+  const failures: string[] = [];
+  for (const ep of opts.endpoints) {
+    const call = (jsonMode: boolean) =>
+      fetchImpl(ep.url, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${ep.apiKey}` },
+        body: JSON.stringify({
+          model: ep.model,
+          messages: judgeMessages(input),
+          temperature: 0,
+          max_tokens: 1500,
+          ...ep.extraBody,
+          ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
+        }),
+      });
+    try {
+      let res = await call(true);
+      for (let attempt = 1; attempt < 4 && res.status === 429; attempt++) {
+        await sleep(Math.min(60_000, retryAfterMs(res.headers.get("retry-after"))));
+        res = await call(true);
+      }
+      // Some models reject JSON mode; ask again without it.
+      if (res.status === 400) res = await call(false);
+      if (!res.ok) {
+        failures.push(`${ep.name} HTTP ${res.status}`);
+        continue;
+      }
+      const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+      return { text: data.choices?.[0]?.message?.content ?? "", endpoint: ep.name };
+    } catch (err) {
+      failures.push(`${ep.name} ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
-  // Some models reject JSON mode; ask again without it.
-  if (res.status === 400) res = await call(false);
-  if (!res.ok) throw new Error(`judge HTTP ${res.status}`);
-  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-  return data.choices?.[0]?.message?.content ?? "";
+  throw new Error(`judge failed: ${failures.join("; ")}`);
 }

@@ -7,7 +7,7 @@ import { buildMessages } from "@/lib/suggest/prompt";
 import { createLineSplitter, parseLines } from "@/lib/suggest/protocol";
 import { buildSuggestRequest } from "@/lib/suggest/request";
 import { isNearDuplicate, validateReply } from "@/lib/suggest/validate";
-import { judge } from "./judge";
+import { judge, judgeEndpoints, type JudgeEndpoint } from "./judge";
 import { withRetry } from "./retry";
 import { scenarios, type Scenario } from "./scenarios";
 import { testScenarios } from "./test-scenarios";
@@ -30,7 +30,7 @@ function arg(name: string): string | undefined {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-async function runScenario(sc: Scenario, provider: ProviderId, model: string, judgeModel: string): Promise<ScenarioResult> {
+async function runScenario(sc: Scenario, provider: ProviderId, model: string, endpoints: JudgeEndpoint[]): Promise<ScenarioResult> {
   const persona = personas.find((p) => p.id === sc.persona)!;
   const memory = await MemoryStore.create();
   await memory.replaceAll(persona.notes, persona.phrases);
@@ -96,12 +96,12 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, ju
   }
   const totalMs = performance.now() - started;
 
-  let judgement: Judgement | null = { match: 0, invented: [] };
+  let judgement: Judgement | null = { match: 0, invented: [], unbacked: [] };
   if (shown.length) {
     try {
-      const text = await judge(
+      const { text } = await judge(
         { intended: sc.intended, partnerSaid: sc.partnerSaid, typed, contextLine: body.contextLine, notes: body.notes.map((n) => n.text), phrases: body.examples, candidates: shown },
-        { apiKey: process.env.GROQ_API_KEY ?? "", model: judgeModel },
+        { endpoints },
       );
       judgement = parseJudgement(text, shown.length);
     } catch (err) {
@@ -135,6 +135,8 @@ async function main() {
   const limit = Number(arg("limit") ?? Infinity);
   const delay = Number(arg("delay") ?? 2500);
   const judgeModel = process.env.EVAL_JUDGE_MODEL ?? "openai/gpt-oss-120b";
+  const endpoints = judgeEndpoints();
+  if (endpoints.length === 0) throw new Error("No judge endpoint: set GROQ_API_KEY (and optionally the Cloudflare keys) in .env.local.");
   const set = arg("set") ?? "dev";
   if (set !== "dev" && set !== "test") throw new Error(`Unknown set "${set}". Use --set dev or --set test.`);
   const pool = set === "test" ? testScenarios : scenarios;
@@ -147,7 +149,7 @@ async function main() {
     console.log(`\n${name} (${chosen.length} scenarios)`);
     const list: ScenarioResult[] = [];
     for (const sc of chosen) {
-      const r = await runScenario(sc, provider, model, judgeModel);
+      const r = await runScenario(sc, provider, model, endpoints);
       list.push(r);
       console.log(`  ${sc.id}: ${r.ok ? `${r.shown.length} shown, match ${r.judgement?.match ?? "?"}` : `failed (${r.error})`}`);
       await sleep(delay);
