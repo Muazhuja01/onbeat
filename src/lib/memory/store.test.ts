@@ -123,4 +123,27 @@ describe("MemoryStore", () => {
     expect(m.getNote("physio")?.text).toContain("Thursdays");
     expect((await m.searchNotes("thursdays", ctx))[0]?.id).toBe("physio");
   });
+
+  it("always sends pinned notes right after the place and partner", async () => {
+    const m = await MemoryStore.create();
+    const me = note("me", "about-me", "I'm Tom. I'm Deaf and I read captions.");
+    await m.replaceAll([...NOTES, { ...me, pinned: true }], []);
+    const ids = (await m.searchNotes("what size would you like", { ...ctx, placeId: "cafe", partnerId: "sam" })).map((n) => n.id);
+    expect(ids.slice(0, 3)).toEqual(["cafe", "sam", "me"]);
+    const noQuery = (await m.searchNotes("", ctx)).map((n) => n.id);
+    expect(noQuery).toEqual(["me"]);
+  });
+
+  it("does not repeat a pinned note that is also the place or partner, and keeps to k", async () => {
+    const m = await MemoryStore.create();
+    await m.replaceAll(NOTES.map((n) => (n.id === "sam" ? { ...n, pinned: true } : n)), []);
+    const ids = (await m.searchNotes("barista", { ...ctx, placeId: "cafe", partnerId: "sam" }, 2)).map((n) => n.id);
+    expect(ids).toEqual(["cafe", "sam"]);
+  });
+
+  it("works with no pinned note", async () => {
+    const m = await MemoryStore.create();
+    await m.replaceAll(NOTES, []);
+    expect((await m.searchNotes("", ctx)).map((n) => n.id)).toEqual([]);
+  });
 });

@@ -40,6 +40,11 @@ describe("personas", () => {
           for (const claim of extractClaims(ph.text)) expect(claimSupported(claim, allNotes), `${ph.id}: ${claim}`).toBe(true);
         }
       });
+      it("pins exactly one about-me note", () => {
+        const pinned = p.notes.filter((n) => n.pinned);
+        expect(pinned).toHaveLength(1);
+        expect(pinned[0].kind).toBe("about-me");
+      });
     });
   }
 });
