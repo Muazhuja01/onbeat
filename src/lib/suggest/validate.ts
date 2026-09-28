@@ -19,7 +19,7 @@ const RELATIVE_TIMES = /\b(?:(?:this|next|last) (?:week|weekend|month)|later tod
 /** A full stop after these doesn't end a sentence, so the name after them is still checked. */
 const SENTENCE_END = /(?<=[.!?])(?<!\b(?:Dr|Mr|Mrs|Ms)\.)\s+/;
 
-const NEVER_NAMES = new Set(["i", "i'm", "i'll", "i've", "i'd", "ok", "okay"]);
+const NEVER_NAMES = new Set(["i", "i'm", "i'll", "i've", "i'd", "ok", "okay", "dr", "mr", "mrs", "ms"]);
 
 /**
  * Number words that state a quantity or time. "one" is left out on purpose:
@@ -70,7 +70,10 @@ export function extractClaims(text: string): string[] {
 }
 
 export function claimSupported(claim: string, sourceText: string): boolean {
-  if (/\s/.test(claim)) return normalize(sourceText).includes(normalize(claim));
+  if (/\s/.test(claim)) {
+    const phrase = normalize(claim).split(/\s+/).filter(Boolean).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    return new RegExp(`(?<![\\p{L}\\d])${phrase.join("\\s+")}(?![\\p{L}\\d])`, "u").test(normalize(sourceText));
+  }
   const sourceNumbers = [...sourceText.matchAll(NUMBER)].map((m) => canonicalNumber(m[0]));
   const words = (normalize(sourceText).match(WORD) ?? []).flatMap((w) => [w, w.replace(/'s$/, "")]);
   if (/^\d/.test(claim)) {

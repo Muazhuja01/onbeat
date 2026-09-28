@@ -155,3 +155,25 @@ describe("titles and relative times", () => {
     expect(validateReply({ text: "Sam knows my order.", noteIds: ["sam"] }, sources()).ok).toBe(true);
   });
 });
+
+describe("everyday openers and titles", () => {
+  it("does not treat a common reply opener as a name", () => {
+    const openers = [
+      "Cheers", "Yup", "Nah", "Bye", "Goodbye", "Congrats", "Honestly", "Whatever", "Hope", "Hopefully", "Might", "Need",
+      "Anyone", "Everyone", "Nobody", "Enough", "Afternoon", "Evening", "Indeed", "Sweet", "Stop", "Slowly", "Tired",
+      "Hungry", "Thirsty", "Unfortunately", "Basically", "Anytime", "Depends", "Kind", "Sadly", "Yay", "Oops", "Ugh",
+      "Lol", "Ooh", "Whoa", "Uh", "Mm", "Aw", "Ta", "Thx", "Sorry", "Please", "Yes", "Okay", "Fine", "Great", "Sure",
+      "Hello", "Hi", "Hey", "Lovely", "Perfect", "Brilliant", "Wonderful", "Ouch", "Hmm", "Huh", "Night", "Wait",
+    ];
+    expect(openers.length).toBeGreaterThanOrEqual(60);
+    for (const w of openers) expect(extractClaims(`${w}, thanks.`), w).toEqual([]);
+  });
+  it("does not treat a title as a name", () => {
+    expect(extractClaims("Dr. Chen said so.")).toEqual(["Chen"]);
+  });
+  it("matches time phrases on word boundaries", () => {
+    expect(claimSupported("this week", "Are you free this weekend?")).toBe(false);
+    expect(claimSupported("this week", "Are you free this  week?")).toBe(true);
+    expect(claimSupported("this week", "Free this week.")).toBe(true);
+  });
+});
