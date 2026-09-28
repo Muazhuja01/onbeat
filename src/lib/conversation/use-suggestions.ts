@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, type Dispatch } from "react";
 import type { MemoryStore } from "@/lib/memory/store";
-import { SuggestUnavailableError, type SuggestClient, type SuggestInput } from "@/lib/suggest/client";
+import type { RequestPriority } from "@/lib/suggest/budget";
+import { SuggestSkippedError, SuggestUnavailableError, type SuggestClient, type SuggestInput } from "@/lib/suggest/client";
 import type { ConversationAction, ConversationState } from "./reducer";
+
+type Run = (mode: SuggestInput["mode"], typed: string, partnerSaid: string, priority: RequestPriority) => Promise<boolean>;
 
 interface Args {
   client: SuggestClient | null;
@@ -32,20 +35,40 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
   // clearing the field.
   const prevTypedRef = useRef("");
 
+  // A request skipped for budget reasons is asked again later (see run).
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(retryTimer.current), []);
+  const runRef = useRef<Run>(async () => false);
+
   const lastPartner = state.turns.findLast((t) => t.speaker === "partner");
   const partnerTurnId = lastPartner?.id ?? "";
 
-  const run = useCallback(
-    async (mode: SuggestInput["mode"], typed: string, partnerSaid: string) => {
-      if (!client) return;
+  const run = useCallback<Run>(
+    async (mode, typed, partnerSaid, priority) => {
+      if (!client) return false;
+      clearTimeout(retryTimer.current);
       const s = stateRef.current;
       dispatch({ type: "thinking" });
       try {
-        await client.request(
-          { mode, typed, partnerSaid, context: { now: new Date(), placeId: s.placeId, partnerId: s.partnerId } },
+        const final = await client.request(
+          { mode, typed, partnerSaid, priority, context: { now: new Date(), placeId: s.placeId, partnerId: s.partnerId } },
           (u) => dispatch({ type: "suggestions", replies: u.replies, reactions: u.reactions, done: u.done, hold: holdingRef.current() }),
         );
+        return final !== null;
       } catch (err) {
+        if (err instanceof SuggestSkippedError) {
+          // Over budget (spec 5, quota guard). Speculative requests are dropped;
+          // typed and final ones are asked again once the budget allows.
+          dispatch({ type: "cancelled" });
+          if (priority !== "speculative") {
+            retryTimer.current = setTimeout(() => {
+              const latest = stateRef.current;
+              if (priority === "typed" && !latest.typed.trim()) return;
+              void runRef.current(mode, priority === "typed" ? latest.typed : typed, partnerSaid, priority);
+            }, err.retryInMs);
+          }
+          return false;
+        }
         if (err instanceof SuggestUnavailableError) {
           dispatch({ type: "unavailable" });
         } else {
@@ -56,17 +79,21 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
           console.error("useSuggestions: unexpected error", err);
           dispatch({ type: "unavailable" });
         }
+        return false;
       }
     },
     [client, dispatch],
   );
+  useEffect(() => {
+    runRef.current = run;
+  });
 
   // The partner finished a turn: ask right away, with reactions.
   useEffect(() => {
     if (!partnerTurnId) return;
     const s = stateRef.current;
     const said = s.turns.findLast((t) => t.speaker === "partner")?.text ?? "";
-    void run("replies+reactions", s.typed, said);
+    void run("replies+reactions", s.typed, said, "final");
   }, [partnerTurnId, run]);
 
   // Typing: instant matches from the user's phrases, model after a pause.
@@ -98,7 +125,7 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
     if (t.length < 2) return;
     const handle = setTimeout(() => {
       const said = stateRef.current.turns.findLast((x) => x.speaker === "partner")?.text ?? "";
-      void run("replies", typed, said);
+      void run("replies", typed, said, "typed");
     }, debounceMs);
     return () => clearTimeout(handle);
   }, [typed, memory, client, run, dispatch, debounceMs]);
@@ -113,6 +140,6 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
     }
     const s = stateRef.current;
     const said = s.turns.findLast((t) => t.speaker === "partner")?.text ?? "";
-    if (said || s.typed.trim().length >= 2) void run(said ? "replies+reactions" : "replies", s.typed, said);
+    if (said || s.typed.trim().length >= 2) void run(said ? "replies+reactions" : "replies", s.typed, said, "final");
   }, [contextKey, run]);
 }

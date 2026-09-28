@@ -3,11 +3,15 @@ import type { LanguagePack, Reaction } from "@/lib/language-packs/types";
 import type { MemoryStore } from "@/lib/memory/store";
 import { normalize } from "@/lib/text";
 import type { Reply } from "@/lib/types";
+import { RequestBudget, type RequestPriority } from "./budget";
 import { createLineSplitter, parseLines, type ParsedLine, type SuggestRequestBody } from "./protocol";
 import { buildSuggestRequest, clampInput, type RequestInput } from "./request";
 import { isNearDuplicate, validateReply, type ValidationSources } from "./validate";
 
-export type SuggestInput = RequestInput;
+export interface SuggestInput extends RequestInput {
+  /** How much the request matters when the budget is low. Defaults to "final". */
+  priority?: RequestPriority;
+}
 
 export interface SuggestUpdate {
   replies: Reply[];
@@ -23,12 +27,21 @@ export class SuggestUnavailableError extends Error {
   }
 }
 
+/** The request was not sent, to stay under the rate limit. Nothing was cancelled. */
+export class SuggestSkippedError extends Error {
+  constructor(readonly retryInMs: number) {
+    super(`Suggestion request skipped to stay under the rate limit; retry in ${retryInMs} ms`);
+    this.name = "SuggestSkippedError";
+  }
+}
+
 interface Deps {
   memory: MemoryStore;
   pack: LanguagePack;
   fetchImpl?: typeof fetch;
   endpoint?: string;
   simpleLanguage?: () => boolean;
+  budget?: RequestBudget;
 }
 
 interface StreamOutcome {
@@ -46,8 +59,11 @@ export class SuggestClient {
   private controller: AbortController | null = null;
   private generation = 0;
   private cache = new Map<string, SuggestUpdate>();
+  private readonly budget: RequestBudget;
 
-  constructor(private readonly deps: Deps) {}
+  constructor(private readonly deps: Deps) {
+    this.budget = deps.budget ?? new RequestBudget();
+  }
 
   cancel(): void {
     this.generation++;
@@ -75,12 +91,17 @@ export class SuggestClient {
       line,
     ]);
 
-    this.cancel();
+    const priority = input.priority ?? "final";
     const cached = this.cache.get(key);
     if (cached) {
+      this.cancel();
       onUpdate(cached);
       return cached;
     }
+    // Checked before cancelling, so a skipped request never stops the one in flight.
+    const wait = this.budget.take(priority);
+    if (wait > 0) throw new SuggestSkippedError(wait);
+    this.cancel();
 
     const controller = new AbortController();
     this.controller = controller;
@@ -91,7 +112,7 @@ export class SuggestClient {
     if (!isCurrent()) return null;
 
     let outcome = await this.stream(body, sources, controller, isCurrent, onUpdate);
-    if (outcome && outcome.replies.length === 0 && outcome.invalid > 0 && isCurrent()) {
+    if (outcome && outcome.replies.length === 0 && outcome.invalid > 0 && isCurrent() && this.budget.take(priority) === 0) {
       const other = outcome.provider === "cloudflare" ? "groq" : "cloudflare";
       outcome = await this.stream({ ...body, preferProvider: other }, sources, controller, isCurrent, onUpdate);
     }
@@ -129,6 +150,7 @@ export class SuggestClient {
     if (!isCurrent()) return null;
     if (!res.ok || !res.body) {
       await res.body?.cancel().catch(() => {});
+      if (res.status === 429) this.budget.drain();
       throw new SuggestUnavailableError(`HTTP ${res.status}`);
     }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { SuggestClient, SuggestUnavailableError, type SuggestUpdate } from "./client";
+import { SuggestClient, SuggestSkippedError, SuggestUnavailableError, type SuggestUpdate } from "./client";
+import { RequestBudget } from "./budget";
 import { MemoryStore } from "@/lib/memory/store";
 import { en } from "@/lib/language-packs/en";
 import type { Note } from "@/lib/types";
@@ -227,5 +228,34 @@ describe("SuggestClient", () => {
         if (calls === 1) throw new Error("boom");
       }),
     ).rejects.toThrow("boom");
+  });
+
+  it("skips a request when the budget is spent, without cancelling the one in flight", async () => {
+    const budget = new RequestBudget({ capacity: 8, perMinute: 60, now: () => 0 });
+    const fetchImpl = vi.fn(async () => streamResponse(['{"reply": "Large, please.", "notes": []}']));
+    const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl, budget });
+    const first = client.request({ ...input, priority: "final" }, () => {}); // 7 tokens left
+    await expect(client.request({ ...input, partnerSaid: "Anything else?", priority: "speculative" }, () => {})).rejects.toBeInstanceOf(
+      SuggestSkippedError,
+    );
+    expect((await first)?.replies).toHaveLength(1);
+  });
+
+  it("serves a cached answer even when the budget is spent", async () => {
+    const budget = new RequestBudget({ capacity: 1, perMinute: 60, now: () => 0 });
+    const fetchImpl = vi.fn(async () => streamResponse(['{"reply": "Large, please.", "notes": []}']));
+    const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl, budget });
+    await client.request(input, () => {});
+    const again = await client.request(input, () => {});
+    expect(again?.replies).toHaveLength(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("empties the budget when the server answers 429", async () => {
+    const budget = new RequestBudget({ capacity: 20, perMinute: 24, now: () => 0 });
+    const fetchImpl = vi.fn(async () => new Response("slow down", { status: 429 }));
+    const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl, budget });
+    await expect(client.request(input, () => {})).rejects.toBeInstanceOf(SuggestUnavailableError);
+    expect(budget.take("final")).toBeGreaterThan(0);
   });
 });

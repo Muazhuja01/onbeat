@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { useReducer } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "@/lib/memory/store";
-import { SuggestUnavailableError, type SuggestClient, type SuggestInput, type SuggestUpdate } from "@/lib/suggest/client";
+import { SuggestSkippedError, SuggestUnavailableError, type SuggestClient, type SuggestInput, type SuggestUpdate } from "@/lib/suggest/client";
 import { conversationReducer, initialConversation } from "./reducer";
 import { useSuggestions } from "./use-suggestions";
 
@@ -186,5 +186,37 @@ describe("useSuggestions", () => {
     expect(client.calls.length).toBeGreaterThanOrEqual(1);
     expect(client.cancel).not.toHaveBeenCalled();
     expect(result.current.state.replies[0]?.text).toBe("Sure, here.");
+  });
+
+  it("retries a typed request after the budget wait, without pausing suggestions", async () => {
+    const calls: SuggestInput[] = [];
+    let first = true;
+    const client = {
+      cancel: vi.fn(),
+      clearCache: vi.fn(),
+      request: vi.fn(async (input: SuggestInput, onUpdate: (u: SuggestUpdate) => void) => {
+        calls.push(input);
+        if (first) {
+          first = false;
+          throw new SuggestSkippedError(1000);
+        }
+        onUpdate(done);
+        return done;
+      }),
+    } as unknown as SuggestClient;
+    const { result } = await setup(client);
+    await act(async () => result.current.dispatch({ type: "typed", text: "zz" }));
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ priority: "typed" });
+    expect(result.current.state.status).not.toBe("paused");
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toMatchObject({ mode: "replies", typed: "zz", priority: "typed" });
+    expect(result.current.state.replies[0].text).toBe("Large, please.");
   });
 });
