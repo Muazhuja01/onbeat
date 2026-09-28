@@ -20,7 +20,7 @@ Phones already offer captions and type-to-speak. OnBeat tries to shorten the gap
 
 ## Status
 
-Core conversation works with typed input. Listening through the microphone is next. Decisions and background research are in [docs/research-notes.md](docs/research-notes.md).
+Listening works: the other person's speech is captioned in the browser and replies are prepared while they talk. Eval results are in [eval/RESULTS.md](eval/RESULTS.md). Settings, notes editing and the first-run flow are next.
 
 ## Planned stack
 
@@ -34,9 +34,11 @@ You need Node 24.
 2. Copy `.env.example` to `.env.local` and add free API keys from [Groq](https://console.groq.com/keys) and [Cloudflare Workers AI](https://dash.cloudflare.com) (open Workers AI, then "Use REST API" for the account ID and a token). The app still runs without them, but only past phrases are suggested.
 3. `npm run dev` and open http://localhost:3000
 
-The first visit downloads the voice (about 90 MB) and the search model (about 23 MB). Both are cached by the browser afterwards.
+The first visit downloads the voice (about 90 MB) and the search model (about 23 MB). Pressing Listen downloads speech recognition (about 53 MB) the first time. All are cached by the browser afterwards.
 
 Checks: `npm run lint`, `npm run typecheck`, `npm test`, `npm run e2e`.
+
+Eval: `npm run eval` (needs the API keys; about 20 minutes).
 
 ## License
 
