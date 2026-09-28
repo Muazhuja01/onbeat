@@ -161,7 +161,7 @@ If fewer than three replies survive, fewer are shown. Nothing unchecked is used 
 | Provider fallback | Groq, then Cloudflare Workers AI on 429, 5xx, or no first token after 1.5 s |
 | Quota guard | client-side token bucket per provider; speculative requests are skipped first when the budget is low |
 
-Default model: Qwen 3.8 27B with reasoning off on both providers (`qwen/qwen3.8-27b` on Groq, `@cf/qwen/qwen3.8-27b` on Cloudflare), so the fallback behaves like the primary. The eval (section 9) compares it with `openai/gpt-oss-20b` on Groq before the choice is final. The plan 2 eval chose qwen/qwen3.8-27b; see eval/RESULTS.md.
+Default model: Qwen 3.8 27B with reasoning off on Groq (`qwen/qwen3.8-27b`). The Cloudflare fallback runs Llama 3.3 70B (`@cf/meta/llama-3.3-70b-instruct-fp8-fast`), because Qwen 3.8 on Workers AI can't turn its reasoning off and misses the first-token budget. The eval (section 9) compares Qwen 3.8 27B with `openai/gpt-oss-20b` on Groq before the choice is final. The plan 2 eval chose qwen/qwen3.8-27b; see eval/RESULTS.md.
 
 ### Phrase learning
 
