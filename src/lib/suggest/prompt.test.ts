@@ -33,4 +33,24 @@ describe("buildMessages", () => {
     expect(user.content).toContain("(none)");
     expect(user.content).toContain("(nothing yet)");
   });
+
+  it("asks for a direct answer, a detail from the notes, and an opposite or neutral answer", () => {
+    const [, user] = buildMessages(body);
+    expect(user.content).toContain("Reply 1 answers directly.");
+    expect(user.content).toContain("Reply 2 answers with one detail from the notes or the conversation.");
+    expect(user.content).toContain("Reply 3 gives the opposite or a neutral answer");
+    expect(user.content).not.toMatch(/alternative/i);
+  });
+
+  it("forbids anything about the person the sources don't say, with examples", () => {
+    const [, user] = buildMessages(body);
+    expect(user.content).toContain("what they did, have, feel, want, plan or prefer");
+    expect(user.content).toContain('"Not sure yet."');
+    expect(user.content).toContain('"Maybe a mocha today?"');
+  });
+
+  it("keeps all three replies on the typed meaning when the person has typed", () => {
+    const [, user] = buildMessages(body);
+    expect(user.content).toContain("If the person has typed something, all 3 replies keep that meaning");
+  });
 });
