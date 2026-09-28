@@ -257,6 +257,39 @@ describe("useSuggestions", () => {
     expect(client.calls[1]).toMatchObject({ partnerSaid: "What size would you like?", priority: "final" });
   });
 
+  it("keeps the typed retry when a speculative request is skipped in the meantime", async () => {
+    const calls: SuggestInput[] = [];
+    let typedSkips = 1;
+    const client = {
+      cancel: vi.fn(),
+      clearCache: vi.fn(),
+      request: vi.fn(async (input: SuggestInput, onUpdate: (u: SuggestUpdate) => void) => {
+        calls.push(input);
+        if (input.priority === "speculative") throw new SuggestSkippedError(5000);
+        if (input.priority === "typed" && typedSkips-- > 0) throw new SuggestSkippedError(1000);
+        onUpdate(done);
+        return done;
+      }),
+    } as unknown as SuggestClient;
+    const { result } = await setup(client);
+    vi.setSystemTime(10_000);
+    await act(async () => result.current.dispatch({ type: "typed", text: "zz" }));
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(calls.map((c) => c.priority)).toEqual(["typed"]);
+
+    // The partner keeps talking; the budget skips the speculative request too.
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would" }));
+    expect(calls.map((c) => c.priority)).toEqual(["typed", "speculative"]);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(calls.map((c) => c.priority)).toEqual(["typed", "speculative", "typed"]);
+    expect(calls[2]).toMatchObject({ mode: "replies", typed: "zz" });
+  });
+
   it("drops a skipped speculative request without retrying", async () => {
     const client = fakeClient(new SuggestSkippedError(1000));
     const { result } = await setup(client);

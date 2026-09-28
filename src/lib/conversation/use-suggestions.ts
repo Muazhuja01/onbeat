@@ -48,7 +48,10 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
   const run = useCallback<Run>(
     async (mode, typed, partnerSaid, priority) => {
       if (!client) return false;
-      clearTimeout(retryTimer.current);
+      // A speculative request is the first to be skipped for budget, so it must
+      // not throw away a pending typed or final retry. If it is sent, it
+      // already carries the typed text; if the retry fires later, it wins.
+      if (priority !== "speculative") clearTimeout(retryTimer.current);
       const s = stateRef.current;
       dispatch({ type: "thinking" });
       try {
