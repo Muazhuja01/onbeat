@@ -16,10 +16,10 @@ export interface Scenario {
 
 type Extra = Pick<Scenario, "placeId" | "partnerId" | "typed">;
 
-const make =
-  (persona: Scenario["persona"]) =>
+export const make =
+  (persona: Scenario["persona"], prefix = "") =>
   (n: number, partnerSaid: string, intended: string, noteIds: string[] = [], extra: Extra = {}): Scenario => ({
-    id: `${persona}-${String(n).padStart(2, "0")}`,
+    id: `${persona}-${prefix}${String(n).padStart(2, "0")}`,
     persona,
     partnerSaid,
     intended,
