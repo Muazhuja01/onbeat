@@ -32,8 +32,9 @@ export async function openMic(onChunk: (samples: Float32Array, level: number) =>
     throw new MicError(kind, err instanceof Error ? err.message : String(err));
   }
 
+  let ctx: AudioContext | undefined;
   try {
-    let ctx = new AudioContext({ sampleRate: SAMPLE_RATE, latencyHint: "interactive" });
+    ctx = new AudioContext({ sampleRate: SAMPLE_RATE, latencyHint: "interactive" });
     let source: MediaStreamAudioSourceNode;
     try {
       source = ctx.createMediaStreamSource(stream);
@@ -58,17 +59,21 @@ export async function openMic(onChunk: (samples: Float32Array, level: number) =>
     source.connect(node);
     await ctx.resume();
     const context = ctx;
+    let stopped = false;
     return {
       stop() {
+        if (stopped) return;
+        stopped = true;
         node.port.onmessage = null;
         source.disconnect();
         node.disconnect();
         stream.getTracks().forEach((t) => t.stop());
-        void context.close();
+        void context.close().catch(() => {});
       },
     };
   } catch (err) {
     stream.getTracks().forEach((t) => t.stop());
+    void ctx?.close().catch(() => {});
     throw new MicError("unavailable", err instanceof Error ? err.message : String(err));
   }
 }

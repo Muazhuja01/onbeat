@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SAMPLE_RATE } from "./audio";
 import { MicError, openMic } from "./mic";
 
 function stubMic(getUserMedia: () => Promise<MediaStream>) {
@@ -26,5 +27,29 @@ describe("openMic", () => {
     const err = await openMic(() => {}).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(MicError);
     expect((err as MicError).kind).toBe("unavailable");
+  });
+
+  it("closes the AudioContext and stops every track when setup fails after the context is created", async () => {
+    const trackStop = vi.fn();
+    const stream = {
+      getTracks: () => [{ stop: trackStop }, { stop: trackStop }],
+    } as unknown as MediaStream;
+    stubMic(() => Promise.resolve(stream));
+
+    const closeSpy = vi.fn(() => Promise.resolve());
+    class FakeAudioContext {
+      sampleRate = SAMPLE_RATE;
+      audioWorklet = { addModule: () => Promise.reject(new Error("no worklet")) };
+      createMediaStreamSource = vi.fn(() => ({ connect: vi.fn(), disconnect: vi.fn() }));
+      resume = vi.fn(() => Promise.resolve());
+      close = closeSpy;
+    }
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+
+    const err = await openMic(() => {}).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(MicError);
+    expect((err as MicError).kind).toBe("unavailable");
+    expect(trackStop).toHaveBeenCalledTimes(2);
+    expect(closeSpy).toHaveBeenCalledTimes(1);
   });
 });
