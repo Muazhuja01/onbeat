@@ -71,7 +71,7 @@ The profile's main about-me note, the one that says who the user is and how they
 
 ### 4.4 Validator
 
-- A capitalised word at the start of a sentence is checked as a possible name when it isn't a common sentence starter (a short list in the language pack, for example "Yes", "No", "Thanks", "Sure", "Okay").
+- A capitalised word at the start of a sentence is checked as a possible name when it isn't a common English word (a short list of everyday words kept next to the validator's other word lists, for example "Yes", "Large", "Thanks", "Sure", "Okay").
 - Titles with a full stop ("Dr.", "Mr.", "Mrs.", "Ms.") don't end a sentence, so the name after them is checked.
 - Relative time words that need a source grow to include "this week", "next week", "this weekend", "next month" and "later today". "Today" stays unchecked.
 
@@ -81,7 +81,7 @@ Each change gets tests with the replies quoted in `eval/RESULTS.md`, plus tests 
 
 A second, small and fast model on Groq (the plan picks one, for example `llama-3.1-8b-instant`, after checking availability and latency) reads each reply with the notes and the conversation and answers whether it states anything about the person that they don't back. A reply that fails isn't shown.
 
-This is built behind a flag and measured in the eval on the dev set, with and without the check. It goes into the app only if, after sections 4.1 to 4.4, the default model is still at or above 5% invented on the dev set, and the check brings it under 5% while adding at most 250 ms to first-reply p50. Otherwise the flag stays off and the code stays for plan 3 to decide. The check never runs on replies from the phrase matcher, only on model replies.
+If the check model errors or takes longer than 600 ms, the reply is shown (the deterministic validator still applies), so a slow checker never empties the list. This is built behind a flag and measured in the eval on the dev set, with and without the check. It goes into the app only if, after sections 4.1 to 4.4, the default model is still at or above 5% invented on the dev set, and the check brings it under 5% while adding at most 250 ms to first-reply p50. Otherwise the flag stays off and the code stays for plan 3 to decide. The check never runs on replies from the phrase matcher, only on model replies.
 
 ### 4.6 Reply timer
 
@@ -93,7 +93,7 @@ After sections 4.1 to 4.5, run the dev set for Qwen and gpt-oss-20b and apply th
 
 ## 6. Order of work
 
-1. Eval: test set, judge precision and fallback, cache, scoring fixes, raw output on empty scenarios. Baseline both sets with the current app.
+1. Eval: test set, judge precision and fallback, cache, scoring fixes, raw output on empty scenarios. Baseline the dev set with the current app; the test set stays unseen.
 2. Stream parsing (4.1). Rerun the dev set.
 3. Prompt (4.2), retrieval (4.3), validator (4.4). Rerun the dev set after each.
 4. Claim check (4.5) behind a flag; measure; decide.
