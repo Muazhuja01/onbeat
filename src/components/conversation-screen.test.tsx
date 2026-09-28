@@ -26,10 +26,33 @@ const h = vi.hoisted(() => {
     for (const cb of listeners[event]) cb(v);
   };
   const requests: { input: SuggestInput; onUpdate: (u: SuggestUpdate) => void }[] = [];
-  return { voice, emit, requests };
+  const hearingListeners: Record<string, Set<Listener>> = {
+    status: new Set(),
+    progress: new Set(),
+    level: new Set(),
+    speechStart: new Set(),
+    partial: new Set(),
+    turnEnd: new Set(),
+  };
+  const hearing = {
+    status: "off",
+    on(event: string, cb: Listener) {
+      hearingListeners[event].add(cb);
+      return () => hearingListeners[event].delete(cb);
+    },
+    start: async () => {},
+    stop: () => {},
+    pause: () => {},
+    resume: () => {},
+  };
+  const hear = (event: string, v: unknown) => {
+    for (const cb of hearingListeners[event]) cb(v);
+  };
+  return { voice, emit, requests, hearing, hear };
 });
 
 vi.mock("@/lib/voice/browser", () => ({ getBrowserVoice: () => h.voice }));
+vi.mock("@/lib/hearing/browser", () => ({ getBrowserHearing: () => h.hearing }));
 
 vi.mock("@/lib/memory/browser", async () => {
   const { MemoryStore } = await import("@/lib/memory/store");
@@ -89,6 +112,10 @@ const liveRegion = () => document.querySelector<HTMLElement>('[aria-live="polite
 beforeEach(() => {
   h.requests.length = 0;
   h.voice.stop = vi.fn();
+  h.hearing.start = vi.fn(async () => {});
+  h.hearing.stop = vi.fn();
+  h.hearing.pause = vi.fn();
+  h.hearing.resume = vi.fn();
 });
 
 describe("ConversationScreen", () => {
@@ -229,5 +256,34 @@ describe("ConversationScreen", () => {
     await userEvent.click(screen.getByRole("button", { name: "Example profiles" }));
     expect(screen.queryByRole("heading", { name: "Try it with an example profile" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Replies" })).toBeInTheDocument();
+  });
+});
+
+describe("ConversationScreen listening", () => {
+  it("starts listening from the Listen button", async () => {
+    await startWithMaya();
+    await userEvent.click(screen.getByRole("button", { name: "Listen" }));
+    expect(h.hearing.start).toHaveBeenCalled();
+  });
+
+  it("shows the partner's words live, then as a line that brings replies", async () => {
+    await startWithMaya();
+    act(() => h.hear("partial", "What size would"));
+    expect(screen.getByText("What size would…")).toBeInTheDocument();
+    expect(screen.getByText("(still talking)")).toBeInTheDocument();
+    act(() => h.hear("turnEnd", { text: "What size would you like?", endedAt: Date.now() }));
+    expect(screen.queryByText("(still talking)")).not.toBeInTheDocument();
+    expect(screen.getByText("What size would you like?")).toBeInTheDocument();
+    expect(h.requests.at(-1)?.input).toMatchObject({ partnerSaid: "What size would you like?", priority: "final" });
+  });
+
+  it("pauses listening while a reply is spoken", async () => {
+    await startWithMaya();
+    await partnerSays("What size?");
+    answer("Large, please.");
+    await userEvent.click(screen.getByRole("button", { name: "Large, please." }));
+    expect(h.hearing.pause).toHaveBeenCalled();
+    act(() => h.emit("end", "Large, please."));
+    expect(h.hearing.resume).toHaveBeenCalledWith(400);
   });
 });

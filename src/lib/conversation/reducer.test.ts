@@ -27,6 +27,16 @@ describe("conversationReducer", () => {
     expect(s3.heldReplies).toBeNull();
   });
 
+  it("remembers when the replies on screen were asked for, through a hold and release", () => {
+    const s1 = r(s0, { type: "suggestions", replies: [reply("A")], reactions: [], done: true, hold: false, askedAt: 100 });
+    expect(s1.repliesAskedAt).toBe(100);
+    const s2 = r(s1, { type: "suggestions", replies: [reply("B")], reactions: [], done: true, hold: true, askedAt: 200 });
+    expect(s2.repliesAskedAt).toBe(100);
+    expect(r(s2, { type: "releaseHeld" }).repliesAskedAt).toBe(200);
+    const local = r(s1, { type: "suggestions", replies: [{ text: "Hi", noteIds: [], source: "phrase" }], reactions: [], done: false, hold: false });
+    expect(local.repliesAskedAt).toBeNull();
+  });
+
   it("does not hold when nothing is on screen yet", () => {
     const s1 = r(s0, { type: "suggestions", replies: [reply("A")], reactions: [], done: false, hold: true });
     expect(s1.replies).toEqual([reply("A")]);
@@ -39,6 +49,16 @@ describe("conversationReducer", () => {
     const s2 = r(s1, { type: "thinking" });
     expect(s2.notice).toBeNull();
     expect(s2.status).toBe("thinking");
+  });
+
+  it("keeps the paused notice through a speculative attempt and clears it when model replies arrive", () => {
+    const s1 = r(s0, { type: "unavailable" });
+    expect(r(s1, { type: "thinking", speculative: true })).toBe(s1);
+    const phrase = r(s1, { type: "suggestions", replies: [{ text: "Hi", noteIds: [], source: "phrase" }], reactions: [], done: false, hold: false });
+    expect(phrase.notice).toBe(PAUSED_NOTICE);
+    const model = r(s1, { type: "suggestions", replies: [reply("A")], reactions: [], done: true, hold: false });
+    expect(model.notice).toBeNull();
+    expect(model.status).toBe("ready");
   });
 
   it("records spoken lines and clears matching typed text", () => {
@@ -75,5 +95,15 @@ describe("conversationReducer", () => {
 
     const thinkingWithReplies = { ...s0, status: "thinking" as const, replies: [reply("A")] };
     expect(r(thinkingWithReplies, { type: "cancelled" }).status).toBe("ready");
+  });
+
+  it("shows the partner's words while they talk and clears them when the turn ends", () => {
+    let s = r(s0, { type: "partnerPartial", text: " What size " });
+    expect(s.partnerPartial).toBe("What size");
+    s = r(s, { type: "partnerSaid", id: "1", text: "What size would you like?", at: 1 });
+    expect(s.partnerPartial).toBe("");
+    expect(s.turns.at(-1)?.text).toBe("What size would you like?");
+    s = r({ ...s, partnerPartial: "Hello" }, { type: "reset" });
+    expect(s.partnerPartial).toBe("");
   });
 });

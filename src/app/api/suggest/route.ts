@@ -1,10 +1,12 @@
-import { AllProvidersFailedError, providerConfigs, streamCompletion, type ProviderId } from "@/lib/server/providers";
+import { AllProvidersFailedError, createCooldown, providerConfigs, streamCompletion, type ProviderId } from "@/lib/server/providers";
 import { createRateLimiter } from "@/lib/server/rate-limit";
 import { buildMessages } from "@/lib/suggest/prompt";
 import { SuggestRequestSchema } from "@/lib/suggest/protocol";
 
 const MAX_BODY_CHARS = 16_000;
 const limiter = createRateLimiter({ limit: 30, windowMs: 60_000 });
+// Remembers which provider answered 429 so the next requests skip it until it recovers.
+const cooldown = createCooldown();
 
 function json(data: unknown, status: number): Response {
   return Response.json(data, { status, headers: { "cache-control": "no-store" } });
@@ -43,6 +45,7 @@ export async function POST(request: Request): Promise<Response> {
     const { provider, deltas } = await streamCompletion(buildMessages(parsed.data), {
       order,
       configs: providerConfigs(),
+      cooldown,
       signal: request.signal,
     });
     const encoder = new TextEncoder();

@@ -15,6 +15,8 @@ export interface LanguagePack {
   name: string;
   tier: "generative" | "retrieval-only";
   bcp47: string;
+  /** Speech recognition model (Transformers.js id) for the partner's speech. */
+  asrModel: string;
   maxWords: number;
   simpleMaxWords: number;
   reactions: Reaction[];

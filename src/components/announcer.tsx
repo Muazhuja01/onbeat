@@ -13,6 +13,8 @@ const AnnounceContext = createContext<Announce>(() => {});
 
 const GAP_MS = 1000;
 const CLEAR_MS = 50;
+/** Live captions can arrive faster than one a second; keep the newest few rather than falling behind. */
+const MAX_WAITING = 5;
 
 /** A queue that shows at most one message per GAP_MS, clearing the region briefly before each. */
 function createAnnouncer(show: (message: string) => void) {
@@ -41,6 +43,7 @@ function createAnnouncer(show: (message: string) => void) {
     const same = key === undefined ? -1 : queue.findIndex((m) => m.key === key);
     if (same >= 0) queue[same] = { text, key };
     else queue.push({ text, key });
+    while (queue.length > MAX_WAITING) queue.shift();
     pump();
   };
 

@@ -5,11 +5,16 @@ export type SuggestStatus = "idle" | "thinking" | "ready" | "paused";
 
 export interface ConversationState {
   turns: Turn[];
+  /** What the partner has said so far in the turn they are still speaking; "" when nobody is talking. */
+  partnerPartial: string;
   placeId?: string;
   partnerId?: string;
   typed: string;
   replies: Reply[];
   heldReplies: Reply[] | null;
+  /** When the request behind `replies` was made (ms since epoch); null for the user's own phrase matches. */
+  repliesAskedAt: number | null;
+  heldAskedAt: number | null;
   reactions: Reaction[];
   status: SuggestStatus;
   speaking: string | null;
@@ -20,9 +25,10 @@ export interface ConversationState {
 export type ConversationAction =
   | { type: "setContext"; placeId?: string; partnerId?: string }
   | { type: "partnerSaid"; id: string; text: string; at: number }
+  | { type: "partnerPartial"; text: string }
   | { type: "typed"; text: string }
-  | { type: "thinking" }
-  | { type: "suggestions"; replies: Reply[]; reactions: Reaction[]; done: boolean; hold: boolean }
+  | { type: "thinking"; speculative?: boolean }
+  | { type: "suggestions"; replies: Reply[]; reactions: Reaction[]; done: boolean; hold: boolean; askedAt?: number }
   | { type: "releaseHeld" }
   | { type: "unavailable" }
   | { type: "speakStart"; id: string; text: string; at: number }
@@ -36,9 +42,12 @@ const MAX_TURNS = 50;
 
 export const initialConversation: ConversationState = {
   turns: [],
+  partnerPartial: "",
   typed: "",
   replies: [],
   heldReplies: null,
+  repliesAskedAt: null,
+  heldAskedAt: null,
   reactions: [],
   status: "idle",
   speaking: null,
@@ -57,11 +66,16 @@ export function conversationReducer(state: ConversationState, action: Conversati
     case "partnerSaid": {
       const text = action.text.trim();
       if (!text) return state;
-      return { ...state, turns: addTurn(state.turns, { id: action.id, speaker: "partner", text, at: action.at }) };
+      return { ...state, partnerPartial: "", turns: addTurn(state.turns, { id: action.id, speaker: "partner", text, at: action.at }) };
     }
+    case "partnerPartial":
+      return { ...state, partnerPartial: action.text.trim() };
     case "typed":
       return { ...state, typed: action.text };
     case "thinking":
+      // While suggestions are paused, a speculative attempt changes nothing on
+      // screen, so the notice isn't cleared and read out again every 2.5 s.
+      if (action.speculative && state.status === "paused") return state;
       return {
         ...state,
         status: state.replies.length ? (state.status === "paused" ? "ready" : state.status) : "thinking",
@@ -69,13 +83,18 @@ export function conversationReducer(state: ConversationState, action: Conversati
       };
     case "suggestions": {
       const status = action.replies.length ? "ready" : action.done ? "idle" : state.status;
+      const askedAt = action.askedAt ?? null;
+      // Replies from the model mean suggestions work again.
+      const notice = state.notice === PAUSED_NOTICE && action.replies.some((r) => r.source === "model") ? null : state.notice;
       if (action.hold && state.replies.length) {
-        return { ...state, heldReplies: action.replies, reactions: action.reactions, status };
+        return { ...state, heldReplies: action.replies, heldAskedAt: askedAt, reactions: action.reactions, status, notice };
       }
-      return { ...state, replies: action.replies, heldReplies: null, reactions: action.reactions, status };
+      return { ...state, replies: action.replies, repliesAskedAt: askedAt, heldReplies: null, heldAskedAt: null, reactions: action.reactions, status, notice };
     }
     case "releaseHeld":
-      return state.heldReplies ? { ...state, replies: state.heldReplies, heldReplies: null } : state;
+      return state.heldReplies
+        ? { ...state, replies: state.heldReplies, repliesAskedAt: state.heldAskedAt, heldReplies: null, heldAskedAt: null }
+        : state;
     case "unavailable":
       return { ...state, status: "paused", notice: PAUSED_NOTICE };
     case "speakStart":

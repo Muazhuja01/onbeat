@@ -81,3 +81,52 @@ describe("isNearDuplicate", () => {
     expect(isNearDuplicate("Large, please.", "What sizes do you have?")).toBe(false);
   });
 });
+
+describe("number words", () => {
+  it("treats number words as claims, but not 'one'", () => {
+    expect(extractClaims("Two, please. Just one more.")).toEqual(["two"]);
+    expect(extractClaims("See you at noon.")).toEqual(["noon"]);
+  });
+
+  it("backs number words with digits and plain digits with number words", () => {
+    expect(claimSupported("two", "I have 2 dogs")).toBe(true);
+    expect(claimSupported("2", "two blocks from home")).toBe(true);
+    expect(claimSupported("noon", "Lunch at 12:00")).toBe(true);
+    expect(claimSupported("three", "I have 2 dogs")).toBe(false);
+    expect(claimSupported("2:30", "two blocks from home")).toBe(false);
+  });
+
+  it("drops an invented quantity", () => {
+    expect(validateReply({ text: "I'd like three, please.", noteIds: [] }, sources({ partnerSaid: "How many?" }))).toMatchObject({
+      ok: false,
+      detail: "three",
+    });
+  });
+});
+
+describe("relative days", () => {
+  // From the eval (tom-16): nothing in the notes or the conversation mentions tomorrow.
+  it("drops an invented tomorrow", () => {
+    const s = sources({
+      notes: new Map([["t-meds", "I pick up my blood pressure medication at Riverside Pharmacy every month."]]),
+      partnerSaid: "Is there anything else you need?",
+      context: "It is Tuesday morning. Place: Riverside Pharmacy. Talking with: Priya.",
+    });
+    expect(validateReply({ text: "Could you confirm the pickup time for tomorrow?", noteIds: ["t-meds"] }, s)).toMatchObject({
+      ok: false,
+      detail: "tomorrow",
+    });
+    expect(extractClaims("Yesterday was fine. See you tonight.")).toEqual(["Yesterday", "tonight"]);
+  });
+  it("accepts a relative day the partner mentioned, and never checks today", () => {
+    expect(validateReply({ text: "Sure, tomorrow works for me.", noteIds: [] }, sources({ partnerSaid: "Can we move our meeting to tomorrow?" })).ok).toBe(true);
+    expect(extractClaims("Not today, thanks.")).toEqual([]);
+  });
+});
+
+describe("context line as a source", () => {
+  it("accepts the current partner, place and weekday without a cited note", () => {
+    const s = sources({ notes: new Map(), context: "It is Tuesday morning. Place: Blue Door Café. Talking with: Sam." });
+    expect(validateReply({ text: "Morning Sam, happy Tuesday.", noteIds: [] }, s).ok).toBe(true);
+  });
+});

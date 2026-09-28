@@ -2,8 +2,8 @@ import { act, renderHook } from "@testing-library/react";
 import { useReducer } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "@/lib/memory/store";
-import { SuggestUnavailableError, type SuggestClient, type SuggestInput, type SuggestUpdate } from "@/lib/suggest/client";
-import { conversationReducer, initialConversation } from "./reducer";
+import { SuggestSkippedError, SuggestUnavailableError, type SuggestClient, type SuggestInput, type SuggestUpdate } from "@/lib/suggest/client";
+import { conversationReducer, initialConversation, PAUSED_NOTICE, type ConversationAction, type ConversationState } from "./reducer";
 import { useSuggestions } from "./use-suggestions";
 
 function fakeClient(result: SuggestUpdate | Error) {
@@ -43,6 +43,14 @@ describe("useSuggestions", () => {
     await act(async () => result.current.dispatch({ type: "partnerSaid", id: "1", text: "What size?", at: 1 }));
     expect(client.calls[0]).toMatchObject({ mode: "replies+reactions", partnerSaid: "What size?" });
     expect(result.current.state.replies[0].text).toBe("Large, please.");
+  });
+
+  it("records when the replies on screen were asked for", async () => {
+    const client = fakeClient(done);
+    const { result } = await setup(client);
+    vi.setSystemTime(42_000);
+    await act(async () => result.current.dispatch({ type: "partnerSaid", id: "1", text: "What size?", at: 1 }));
+    expect(result.current.state.repliesAskedAt).toBe(42_000);
   });
 
   it("shows phrase matches immediately and asks the model after the debounce", async () => {
@@ -186,5 +194,146 @@ describe("useSuggestions", () => {
     expect(client.calls.length).toBeGreaterThanOrEqual(1);
     expect(client.cancel).not.toHaveBeenCalled();
     expect(result.current.state.replies[0]?.text).toBe("Sure, here.");
+  });
+
+  it("retries a typed request after the budget wait, without pausing suggestions", async () => {
+    const calls: SuggestInput[] = [];
+    let first = true;
+    const client = {
+      cancel: vi.fn(),
+      clearCache: vi.fn(),
+      request: vi.fn(async (input: SuggestInput, onUpdate: (u: SuggestUpdate) => void) => {
+        calls.push(input);
+        if (first) {
+          first = false;
+          throw new SuggestSkippedError(1000);
+        }
+        onUpdate(done);
+        return done;
+      }),
+    } as unknown as SuggestClient;
+    const { result } = await setup(client);
+    await act(async () => result.current.dispatch({ type: "typed", text: "zz" }));
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ priority: "typed" });
+    expect(result.current.state.status).not.toBe("paused");
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toMatchObject({ mode: "replies", typed: "zz", priority: "typed" });
+    expect(result.current.state.replies[0].text).toBe("Large, please.");
+  });
+
+  it("asks while the partner is still talking, at most every 2.5 s after 3 new words", async () => {
+    const client = fakeClient(done);
+    const { result } = await setup(client);
+    vi.setSystemTime(10_000);
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What" }));
+    expect(client.calls).toHaveLength(0);
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would" }));
+    expect(client.calls[0]).toMatchObject({ mode: "replies+reactions", partnerSaid: "What size would", priority: "speculative" });
+    vi.setSystemTime(11_000);
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would you like today" }));
+    expect(client.calls).toHaveLength(1);
+    vi.setSystemTime(12_600);
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would you like today then" }));
+    expect(client.calls).toHaveLength(2);
+  });
+
+  it("skips the final request when the speculative one already answered the same words", async () => {
+    const client = fakeClient(done);
+    const { result } = await setup(client);
+    vi.setSystemTime(10_000);
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would you like" }));
+    expect(client.calls).toHaveLength(1);
+    await act(async () => result.current.dispatch({ type: "partnerSaid", id: "1", text: "What size would you like?", at: 1 }));
+    expect(client.calls).toHaveLength(1);
+    expect(result.current.state.partnerPartial).toBe("");
+  });
+
+  it("sends a final request when the turn ended with new words", async () => {
+    const client = fakeClient(done);
+    const { result } = await setup(client);
+    vi.setSystemTime(10_000);
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would" }));
+    await act(async () => result.current.dispatch({ type: "partnerSaid", id: "1", text: "What size would you like?", at: 1 }));
+    expect(client.calls).toHaveLength(2);
+    expect(client.calls[1]).toMatchObject({ partnerSaid: "What size would you like?", priority: "final" });
+  });
+
+  it("keeps the typed retry when a speculative request is skipped in the meantime", async () => {
+    const calls: SuggestInput[] = [];
+    let typedSkips = 1;
+    const client = {
+      cancel: vi.fn(),
+      clearCache: vi.fn(),
+      request: vi.fn(async (input: SuggestInput, onUpdate: (u: SuggestUpdate) => void) => {
+        calls.push(input);
+        if (input.priority === "speculative") throw new SuggestSkippedError(5000);
+        if (input.priority === "typed" && typedSkips-- > 0) throw new SuggestSkippedError(1000);
+        onUpdate(done);
+        return done;
+      }),
+    } as unknown as SuggestClient;
+    const { result } = await setup(client);
+    vi.setSystemTime(10_000);
+    await act(async () => result.current.dispatch({ type: "typed", text: "zz" }));
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(calls.map((c) => c.priority)).toEqual(["typed"]);
+
+    // The partner keeps talking; the budget skips the speculative request too.
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would" }));
+    expect(calls.map((c) => c.priority)).toEqual(["typed", "speculative"]);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(calls.map((c) => c.priority)).toEqual(["typed", "speculative", "typed"]);
+    expect(calls[2]).toMatchObject({ mode: "replies", typed: "zz" });
+  });
+
+  it("does not clear and re-announce the paused notice for each speculative attempt", async () => {
+    const client = fakeClient(new SuggestUnavailableError("HTTP 503"));
+    const memory = await MemoryStore.create();
+    const notices: (string | null)[] = [];
+    const { result } = renderHook(() => {
+      const [state, dispatch] = useReducer((s: ConversationState, a: ConversationAction) => {
+        const next = conversationReducer(s, a);
+        notices.push(next.notice);
+        return next;
+      }, initialConversation);
+      useSuggestions({ client, memory, state, dispatch, isHolding: () => false, debounceMs: 300 });
+      return { state, dispatch };
+    });
+    await act(async () => result.current.dispatch({ type: "partnerSaid", id: "1", text: "Hi", at: 1 }));
+    expect(result.current.state.notice).toBe(PAUSED_NOTICE);
+    notices.length = 0;
+
+    vi.setSystemTime(10_000);
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would" }));
+    vi.setSystemTime(12_600);
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would you like today" }));
+    expect(client.calls.filter((c) => c.priority === "speculative")).toHaveLength(2);
+    expect(notices.length).toBeGreaterThan(0);
+    expect(notices.every((n) => n === PAUSED_NOTICE)).toBe(true);
+    expect(result.current.state.status).toBe("paused");
+  });
+
+  it("drops a skipped speculative request without retrying", async () => {
+    const client = fakeClient(new SuggestSkippedError(1000));
+    const { result } = await setup(client);
+    vi.setSystemTime(10_000);
+    await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would" }));
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(client.calls).toHaveLength(1);
+    expect(result.current.state.status).not.toBe("paused");
   });
 });

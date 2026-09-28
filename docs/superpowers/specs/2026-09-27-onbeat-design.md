@@ -161,7 +161,7 @@ If fewer than three replies survive, fewer are shown. Nothing unchecked is used 
 | Provider fallback | Groq, then Cloudflare Workers AI on 429, 5xx, or no first token after 1.5 s |
 | Quota guard | client-side token bucket per provider; speculative requests are skipped first when the budget is low |
 
-Default model: Qwen 3.8 27B with reasoning off on both providers (`qwen/qwen3.8-27b` on Groq, `@cf/qwen/qwen3.8-27b` on Cloudflare), so the fallback behaves like the primary. The eval (section 9) compares it with `openai/gpt-oss-20b` on Groq before the choice is final.
+Default model: Qwen 3.8 27B with reasoning off on Groq (`qwen/qwen3.8-27b`). The Cloudflare fallback runs Llama 3.3 70B (`@cf/meta/llama-3.3-70b-instruct-fp8-fast`), because Qwen 3.8 on Workers AI can't turn its reasoning off and misses the first-token budget. The eval (section 9) compares Qwen 3.8 27B with `openai/gpt-oss-20b` on Groq before the choice is final. The plan 2 eval chose qwen/qwen3.8-27b; see eval/RESULTS.md.
 
 ### Phrase learning
 
@@ -305,7 +305,7 @@ Versions at time of writing: Next.js 16.3, React 19, Tailwind 4.3, Orama 3.1, Tr
 - keystrokes saved compared with typing the full sentence
 - latency p50 and p95 for the API call; in-app timing for turn end to suggestions visible
 
-Results go into a table in the README.
+Results go into a table in the README. Before deployment, a quality pass has to reach a top-3 hit rate of 90% and invented details in under 5% of shown replies, or the owner has to accept the measured numbers (see eval/RESULTS.md).
 
 **Demo video (120 s).** Outline: the problem in one line (10 s); Maya at the café with a live conversation, reactions landing while the barista talks, replies ready when she stops, a visible timer (60 s); Tom at the pharmacy showing captions and the visual speaking signal (30 s); eval table and privacy note (20 s).
 

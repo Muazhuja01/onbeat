@@ -39,6 +39,48 @@ export function parseLine(raw: string): ParsedLine | null {
   return { kind: "invalid", raw: line };
 }
 
+/**
+ * Split a line holding several JSON objects ("{...}{...}" or "{...} {...}")
+ * into one string per object. Text outside the objects is dropped; a cut-off
+ * last object is kept so it is reported as invalid. A line without any
+ * complete object is returned unchanged.
+ */
+export function splitObjects(line: string): string[] {
+  const objects: string[] = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === "\\") escaped = true;
+      else if (c === '"') inString = false;
+    } else if (c === '"') {
+      if (depth > 0) inString = true;
+    } else if (c === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (c === "}" && depth > 0) {
+      depth--;
+      if (depth === 0) objects.push(line.slice(start, i + 1));
+    }
+  }
+  if (objects.length === 0) return [line];
+  if (depth > 0) objects.push(line.slice(start));
+  return objects;
+}
+
+/** Parse one line of model output, which may hold several JSON objects. */
+export function parseLines(raw: string): ParsedLine[] {
+  const line = raw.trim();
+  if (!line) return [];
+  return splitObjects(line)
+    .map(parseLine)
+    .filter((p): p is ParsedLine => p !== null);
+}
+
 export function createLineSplitter(onLine: (line: string) => void) {
   let buffer = "";
   return {

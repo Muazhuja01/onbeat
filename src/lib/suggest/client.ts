@@ -2,15 +2,15 @@ import { contextLine } from "@/lib/context";
 import type { LanguagePack, Reaction } from "@/lib/language-packs/types";
 import type { MemoryStore } from "@/lib/memory/store";
 import { normalize } from "@/lib/text";
-import type { ConversationContext, Reply } from "@/lib/types";
-import { createLineSplitter, parseLine, type SuggestRequestBody } from "./protocol";
+import type { Reply } from "@/lib/types";
+import { RequestBudget, type RequestPriority } from "./budget";
+import { createLineSplitter, parseLines, type ParsedLine, type SuggestRequestBody } from "./protocol";
+import { buildSuggestRequest, clampInput, type RequestInput } from "./request";
 import { isNearDuplicate, validateReply, type ValidationSources } from "./validate";
 
-export interface SuggestInput {
-  mode: SuggestRequestBody["mode"];
-  typed: string;
-  partnerSaid: string;
-  context: ConversationContext;
+export interface SuggestInput extends RequestInput {
+  /** How much the request matters when the budget is low. Defaults to "final". */
+  priority?: RequestPriority;
 }
 
 export interface SuggestUpdate {
@@ -27,12 +27,21 @@ export class SuggestUnavailableError extends Error {
   }
 }
 
+/** The request was not sent, to stay under the rate limit. Nothing was cancelled. */
+export class SuggestSkippedError extends Error {
+  constructor(readonly retryInMs: number) {
+    super(`Suggestion request skipped to stay under the rate limit; retry in ${retryInMs} ms`);
+    this.name = "SuggestSkippedError";
+  }
+}
+
 interface Deps {
   memory: MemoryStore;
   pack: LanguagePack;
   fetchImpl?: typeof fetch;
   endpoint?: string;
   simpleLanguage?: () => boolean;
+  budget?: RequestBudget;
 }
 
 interface StreamOutcome {
@@ -50,8 +59,11 @@ export class SuggestClient {
   private controller: AbortController | null = null;
   private generation = 0;
   private cache = new Map<string, SuggestUpdate>();
+  private readonly budget: RequestBudget;
 
-  constructor(private readonly deps: Deps) {}
+  constructor(private readonly deps: Deps) {
+    this.budget = deps.budget ?? new RequestBudget();
+  }
 
   cancel(): void {
     this.generation++;
@@ -65,51 +77,42 @@ export class SuggestClient {
   }
 
   async request(input: SuggestInput, onUpdate: (u: SuggestUpdate) => void): Promise<SuggestUpdate | null> {
-    const typed = input.typed.slice(0, 500);
-    const partnerSaid = input.partnerSaid.slice(-1000);
+    const clamped = clampInput(input);
     const { memory, pack } = this.deps;
     const simple = this.deps.simpleLanguage?.() ?? false;
-    const line = contextLine(input.context, (id) => memory.getNote(id));
+    const line = contextLine(clamped.context, (id) => memory.getNote(id));
     const key = JSON.stringify([
-      input.mode,
-      normalize(typed.trim()),
-      normalize(partnerSaid.trim()),
-      input.context.placeId ?? "",
-      input.context.partnerId ?? "",
+      clamped.mode,
+      normalize(clamped.typed.trim()),
+      normalize(clamped.partnerSaid.trim()),
+      clamped.context.placeId ?? "",
+      clamped.context.partnerId ?? "",
       simple,
       line,
     ]);
 
-    this.cancel();
+    const priority = input.priority ?? "final";
     const cached = this.cache.get(key);
     if (cached) {
+      this.cancel();
       onUpdate(cached);
       return cached;
     }
+    // Checked before cancelling, so a skipped request never stops the one in flight.
+    const wait = this.budget.take(priority);
+    if (wait > 0) throw new SuggestSkippedError(wait);
+    this.cancel();
 
     const controller = new AbortController();
     this.controller = controller;
     const generation = this.generation;
     const isCurrent = () => generation === this.generation && !controller.signal.aborted;
 
-    const query = `${typed} ${partnerSaid}`.trim();
-    const notes = await memory.searchNotes(query, input.context, 8);
+    const { body, sources } = await buildSuggestRequest({ memory, pack, input: clamped, simple });
     if (!isCurrent()) return null;
 
-    const body: SuggestRequestBody = {
-      mode: input.mode,
-      typed,
-      partnerSaid,
-      contextLine: line,
-      notes: notes.map((n) => ({ id: n.id, text: n.text.slice(0, 300) })),
-      examples: memory.styleExamples(query, 5).map((e) => e.slice(0, 200)),
-      reactions: pack.reactions,
-      maxWords: simple ? pack.simpleMaxWords : pack.maxWords,
-    };
-    const sources: ValidationSources = { notes: new Map(notes.map((n) => [n.id, n.text])), partnerSaid, typed };
-
     let outcome = await this.stream(body, sources, controller, isCurrent, onUpdate);
-    if (outcome && outcome.replies.length === 0 && outcome.invalid > 0 && isCurrent()) {
+    if (outcome && outcome.replies.length === 0 && outcome.invalid > 0 && isCurrent() && this.budget.take(priority) === 0) {
       const other = outcome.provider === "cloudflare" ? "groq" : "cloudflare";
       outcome = await this.stream({ ...body, preferProvider: other }, sources, controller, isCurrent, onUpdate);
     }
@@ -147,6 +150,7 @@ export class SuggestClient {
     if (!isCurrent()) return null;
     if (!res.ok || !res.body) {
       await res.body?.cancel().catch(() => {});
+      if (res.status === 429) this.budget.drain();
       throw new SuggestUnavailableError(`HTTP ${res.status}`);
     }
 
@@ -155,9 +159,7 @@ export class SuggestClient {
     let reactions: Reaction[] = [];
     let invalid = 0;
 
-    const splitter = createLineSplitter((line) => {
-      const parsed = parseLine(line);
-      if (!parsed) return;
+    const handle = (parsed: ParsedLine) => {
       if (parsed.kind === "invalid") {
         invalid++;
         return;
@@ -171,7 +173,8 @@ export class SuggestClient {
         replies.push({ text: parsed.text, noteIds: parsed.noteIds, source: "model" });
       }
       if (isCurrent()) onUpdate({ replies: [...replies], reactions, done: false });
-    });
+    };
+    const splitter = createLineSplitter((line) => parseLines(line).forEach(handle));
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();

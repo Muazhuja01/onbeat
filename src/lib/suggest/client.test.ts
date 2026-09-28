@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { SuggestClient, SuggestUnavailableError, type SuggestUpdate } from "./client";
+import { SuggestClient, SuggestSkippedError, SuggestUnavailableError, type SuggestUpdate } from "./client";
+import { RequestBudget } from "./budget";
 import { MemoryStore } from "@/lib/memory/store";
 import { en } from "@/lib/language-packs/en";
 import type { Note } from "@/lib/types";
@@ -203,6 +204,20 @@ describe("SuggestClient", () => {
     expect(seen).not.toContain("Old.");
   });
 
+  it("accepts two replies sent on one line", async () => {
+    const fetchImpl = vi.fn(async () => streamResponse(['{"reply": "Large, please.", "notes": []}{"reply": "What sizes do you have?", "notes": []}']));
+    const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl });
+    const final = await client.request(input, () => {});
+    expect(final?.replies.map((r) => r.text)).toEqual(["Large, please.", "What sizes do you have?"]);
+  });
+
+  it("keeps a reply that names the current partner without citing a note", async () => {
+    const fetchImpl = vi.fn(async () => streamResponse(['{"reply": "Thanks Sam!", "notes": []}']));
+    const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl });
+    const final = await client.request(input, () => {});
+    expect(final?.replies.map((r) => r.text)).toEqual(["Thanks Sam!"]);
+  });
+
   it("propagates an error thrown while processing a stream line instead of swallowing it", async () => {
     const fetchImpl = vi.fn(async () => streamResponse(['{"reply": "Large, please."}', '{"reply": "Medium."}']));
     const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl });
@@ -213,5 +228,34 @@ describe("SuggestClient", () => {
         if (calls === 1) throw new Error("boom");
       }),
     ).rejects.toThrow("boom");
+  });
+
+  it("skips a request when the budget is spent, without cancelling the one in flight", async () => {
+    const budget = new RequestBudget({ capacity: 8, perMinute: 60, now: () => 0 });
+    const fetchImpl = vi.fn(async () => streamResponse(['{"reply": "Large, please.", "notes": []}']));
+    const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl, budget });
+    const first = client.request({ ...input, priority: "final" }, () => {}); // 7 tokens left
+    await expect(client.request({ ...input, partnerSaid: "Anything else?", priority: "speculative" }, () => {})).rejects.toBeInstanceOf(
+      SuggestSkippedError,
+    );
+    expect((await first)?.replies).toHaveLength(1);
+  });
+
+  it("serves a cached answer even when the budget is spent", async () => {
+    const budget = new RequestBudget({ capacity: 1, perMinute: 60, now: () => 0 });
+    const fetchImpl = vi.fn(async () => streamResponse(['{"reply": "Large, please.", "notes": []}']));
+    const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl, budget });
+    await client.request(input, () => {});
+    const again = await client.request(input, () => {});
+    expect(again?.replies).toHaveLength(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("empties the budget when the server answers 429", async () => {
+    const budget = new RequestBudget({ capacity: 20, perMinute: 24, now: () => 0 });
+    const fetchImpl = vi.fn(async () => new Response("slow down", { status: 429 }));
+    const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl, budget });
+    await expect(client.request(input, () => {})).rejects.toBeInstanceOf(SuggestUnavailableError);
+    expect(budget.take("final")).toBeGreaterThan(0);
   });
 });
