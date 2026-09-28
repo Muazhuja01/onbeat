@@ -1,5 +1,8 @@
 import type { Reply } from "@/lib/types";
 
+/** A turn still waiting this long when replies arrive is from a stall or an outage, not a response gap. */
+const MAX_WAIT_MS = 30_000;
+
 /**
  * Measures the time from the partner's last word until replies for that turn
  * are on screen (spec 1: about 1 second). Replies prepared during the turn
@@ -13,6 +16,13 @@ export class GapTimer {
   private waiting: { startedAt: number; endedAt: number }[] = [];
 
   constructor(private readonly record: (ms: number) => void) {}
+
+  /** Forget the current conversation: a profile switch or stopping Listen. */
+  reset(): void {
+    this.turnStartedAt = null;
+    this.shownAt = null;
+    this.waiting = [];
+  }
 
   /**
    * Segments are sequential, so the latest start before a turn end is that
@@ -35,6 +45,7 @@ export class GapTimer {
     // was on screen for it until now. Back-to-back turns each keep their own.
     const still: typeof this.waiting = [];
     for (const turn of this.waiting) {
+      if (at - turn.endedAt > MAX_WAIT_MS) continue;
       if (turn.startedAt <= asked) this.record(Math.max(0, at - turn.endedAt));
       else still.push(turn);
     }
