@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { judgedByPhrase, keystrokesSaved, parseJudgement, summarize, toMarkdown, type ScenarioResult } from "./score";
+import { judgedByPhrase, keystrokesSaved, parseJudgement, resultFiles, summarize, toMarkdown, type ScenarioResult } from "./score";
 
 describe("parseJudgement", () => {
   it("reads match and marks replies with an unbacked fact as invented", () => {
@@ -170,5 +170,68 @@ describe("summarize: claim check", () => {
     };
     const s = summarize("m", [base, { ...base, checkUnknown: 1 }]);
     expect(s.checkUnknown).toBe(1);
+  });
+});
+
+describe("resultFiles", () => {
+  const ranAt = "2026-09-28T12:00:00Z";
+  const set = "dev";
+  const judgeModel = "openai/gpt-oss-120b";
+  const summaries = [summarize("groq:m1", []), summarize("groq:m2", []), summarize("groq:m3", [])];
+  const results = { "groq:m1": [], "groq:m2": [], "groq:m3": [] };
+  const scenarioCount = 5;
+  const claimCheck = false;
+
+  it("partial: 1 of 3 models done -> md contains partial note", () => {
+    const { json, md } = resultFiles({
+      ranAt,
+      set,
+      judgeModel,
+      summaries: [summaries[0]],
+      results: { "groq:m1": [] },
+      scenarioCount,
+      claimCheck,
+      modelsDone: 1,
+      modelsTotal: 3,
+    });
+    expect(md).toContain("Partial: 1 of 3 models done.");
+    const parsed = JSON.parse(json);
+    expect(parsed.modelsDone).toBe(1);
+    expect(parsed.modelsTotal).toBe(3);
+  });
+
+  it("complete: 3 of 3 models done -> md does not contain Partial", () => {
+    const { json, md } = resultFiles({
+      ranAt,
+      set,
+      judgeModel,
+      summaries,
+      results,
+      scenarioCount,
+      claimCheck,
+      modelsDone: 3,
+      modelsTotal: 3,
+    });
+    expect(md).not.toContain("Partial");
+    const parsed = JSON.parse(json);
+    expect(parsed.modelsDone).toBe(3);
+    expect(parsed.modelsTotal).toBe(3);
+    expect(md.split("\n")[0]).toContain("# Eval results");
+    expect(md).toContain(toMarkdown(summaries));
+  });
+
+  it("claimCheck: true -> keeps with the claim check in header", () => {
+    const { md } = resultFiles({
+      ranAt,
+      set,
+      judgeModel,
+      summaries,
+      results,
+      scenarioCount,
+      claimCheck: true,
+      modelsDone: 3,
+      modelsTotal: 3,
+    });
+    expect(md).toContain("with the claim check");
   });
 });
