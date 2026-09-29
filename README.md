@@ -20,7 +20,16 @@ Phones already offer captions and type-to-speak. OnBeat tries to shorten the gap
 
 ## Status
 
-Listening works: the other person's speech is captioned in the browser and replies are prepared while they talk. Eval results are in [eval/RESULTS.md](eval/RESULTS.md). Settings, notes editing and the first-run flow are next.
+Listening works: the other person's speech is captioned in the browser and replies are prepared while they talk. Settings, notes editing and the first-run flow are next.
+
+Results on the held-out test set (60 scenarios written before any tuning) for the default model `qwen/qwen3.8-27b`. Neither target (90% top-3 hit rate, under 5% invented details) is met; the owner decides before deployment. Details, method and known gaps are in [eval/RESULTS.md](eval/RESULTS.md).
+
+| Claim check | Top-3 hit rate | Invented details | First reply p50 |
+|---|---|---|---|
+| off | 87% | 20 of 168 (12%) | 344 ms |
+| on | 82% | 13 of 143 (9%) | 783 ms |
+
+The judge flags plain answers too often, so the invented rates run high. The claim check is off by default. Setting `CLAIM_CHECK=on` makes the server check each reply with a second small model and hide the ones it calls invented. It lowers the invented rate and the hit rate, and adds about 440 ms to the first reply in the eval.
 
 ## Planned stack
 

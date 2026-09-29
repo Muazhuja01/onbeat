@@ -10,7 +10,14 @@ export interface Persona {
   phrases: Phrase[];
 }
 
-const n = (id: string, kind: Note["kind"], text: string, entities: string[] = []): Note => ({ id, kind, text, entities, updatedAt: 0 });
+const n = (id: string, kind: Note["kind"], text: string, entities: string[] = [], extra: Partial<Note> = {}): Note => ({
+  id,
+  kind,
+  text,
+  entities,
+  updatedAt: 0,
+  ...extra,
+});
 
 const p = (id: string, text: string, timesUsed: number, placeId?: string, partnerId?: string): Phrase => ({
   id,
@@ -28,7 +35,7 @@ export const personas: Persona[] = [
     defaultPlaceId: "m-cafe",
     defaultPartnerId: "m-sam",
     notes: [
-      n("m-me", "about-me", "I'm Maya. I have ALS, so I type to talk. I can hear fine.", ["Maya"]),
+      n("m-me", "about-me", "I'm Maya. I have ALS, so I type to talk. I can hear fine.", ["Maya"], { pinned: true }),
       n("m-cafe", "place", "Blue Door Café is my local coffee shop, two blocks from home.", ["Blue Door Café"]),
       n("m-sam", "person", "Sam is the barista at Blue Door Café and knows my usual order.", ["Sam", "Blue Door Café"]),
       n("m-usual", "preference", "My usual order at Blue Door Café is a large oat milk latte, no sugar.", ["Blue Door Café"]),
@@ -55,7 +62,7 @@ export const personas: Persona[] = [
     defaultPlaceId: "t-pharmacy",
     defaultPartnerId: "t-priya",
     notes: [
-      n("t-me", "about-me", "I'm Tom. I'm Deaf and I use ASL. I read captions to follow what people say.", ["Tom"]),
+      n("t-me", "about-me", "I'm Tom. I'm Deaf and I use ASL. I read captions to follow what people say.", ["Tom"], { pinned: true }),
       n("t-pharmacy", "place", "Riverside Pharmacy is where I pick up my prescriptions.", ["Riverside Pharmacy"]),
       n("t-priya", "person", "Priya is the pharmacist at Riverside Pharmacy.", ["Priya", "Riverside Pharmacy"]),
       n("t-meds", "routine", "I pick up my blood pressure medication at Riverside Pharmacy every month.", ["Riverside Pharmacy"]),
@@ -79,7 +86,7 @@ export const personas: Persona[] = [
     defaultPlaceId: "a-office",
     defaultPartnerId: "a-marco",
     notes: [
-      n("a-me", "about-me", "I'm Aisha. I had a laryngectomy, so I type instead of speaking.", ["Aisha"]),
+      n("a-me", "about-me", "I'm Aisha. I had a laryngectomy, so I type instead of speaking.", ["Aisha"], { pinned: true }),
       n("a-office", "place", "The Northline Design office, third floor, is where I work.", ["Northline Design"]),
       n("a-marco", "person", "Marco is my manager at Northline Design.", ["Marco", "Northline Design"]),
       n("a-jen", "person", "Jen sits next to me at Northline Design and works on the website team.", ["Jen", "Northline Design"]),

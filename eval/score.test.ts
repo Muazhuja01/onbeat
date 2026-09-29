@@ -1,19 +1,38 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { keystrokesSaved, parseJudgement, summarize, toMarkdown, type ScenarioResult } from "./score";
+import { judgedByPhrase, keystrokesSaved, parseJudgement, resultFiles, summarize, toMarkdown, type ScenarioResult } from "./score";
 
 describe("parseJudgement", () => {
-  it("reads the judge's JSON, even with text around it", () => {
-    expect(parseJudgement('Sure. {"match": 2, "invented": [3, 3]}', 3)).toEqual({ match: 2, invented: [3] });
+  it("reads match and marks replies with an unbacked fact as invented", () => {
+    const text = JSON.stringify({
+      match: 2,
+      replies: [
+        { n: 1, facts: [{ fact: "usual is an oat latte", source: "note" }] },
+        { n: 2, facts: [] },
+        { n: 3, facts: [{ fact: "went to the park", source: "none" }, { fact: "it is Tuesday", source: "situation" }] },
+      ],
+    });
+    expect(parseJudgement(text, 3)).toEqual({ match: 2, invented: [3], unbacked: [{ n: 3, fact: "went to the park" }] });
   });
 
-  it("ignores numbers outside the candidate list", () => {
-    expect(parseJudgement('{"match": 5, "invented": [0, 2, 9]}', 3)).toEqual({ match: 0, invented: [2] });
+  it("treats source case and spacing loosely", () => {
+    const text = '{"match": 0, "replies": [{"n": 1, "facts": [{"fact": "has a cat", "source": " None "}]}]}';
+    expect(parseJudgement(text, 1)).toEqual({ match: 0, invented: [1], unbacked: [{ n: 1, fact: "has a cat" }] });
   });
 
-  it("returns null for an unreadable answer", () => {
-    expect(parseJudgement("no idea", 3)).toBeNull();
-    expect(parseJudgement("{broken", 3)).toBeNull();
+  it("ignores reply numbers out of range", () => {
+    const text = '{"match": 4, "replies": [{"n": 4, "facts": [{"fact": "x", "source": "none"}]}]}';
+    expect(parseJudgement(text, 3)).toEqual({ match: 0, invented: [], unbacked: [] });
+  });
+
+  it("still reads an old-style invented list", () => {
+    expect(parseJudgement('{"match": 1, "invented": [2, 2, 9]}', 3)).toEqual({ match: 1, invented: [2], unbacked: [] });
+  });
+
+  it("finds the object inside surrounding text and returns null when there is none", () => {
+    expect(parseJudgement('Sure: {"match": 1, "replies": []} done', 2)).toEqual({ match: 1, invented: [], unbacked: [] });
+    expect(parseJudgement("no json here", 2)).toBeNull();
+    expect(parseJudgement("{broken", 2)).toBeNull();
   });
 });
 
@@ -29,8 +48,8 @@ describe("summarize", () => {
   it("rolls results up per model", () => {
     const base = { shown: ["a", "b"], rawReplies: 3, blocked: 1, keystrokesSaved: 0.5, noteRecall: true, firstReplyMs: 400, totalMs: 900 };
     const results: ScenarioResult[] = [
-      { id: "1", ok: true, ...base, judgement: { match: 1, invented: [] } },
-      { id: "2", ok: true, ...base, noteRecall: false, judgement: { match: 0, invented: [2] }, keystrokesSaved: 0, firstReplyMs: 600, totalMs: 1100 },
+      { id: "1", ok: true, ...base, judgement: { match: 1, invented: [], unbacked: [] } },
+      { id: "2", ok: true, ...base, noteRecall: false, judgement: { match: 0, invented: [2], unbacked: [{ n: 2, fact: "went to the park" }] }, keystrokesSaved: 0, firstReplyMs: 600, totalMs: 1100 },
       { id: "3", ok: false, error: "HTTP 503", shown: [], rawReplies: 0, blocked: 0, judgement: null, keystrokesSaved: 0, noteRecall: false, firstReplyMs: null, totalMs: null },
     ];
     expect(summarize("groq:m", results)).toMatchObject({
@@ -40,6 +59,8 @@ describe("summarize", () => {
       hitRate: 0.5,
       inventedShown: 1,
       shownReplies: 4,
+      empty: 0,
+      judgedReplies: 4,
       blockedRate: 2 / 6,
       keystrokesSaved: 0.25,
       noteRecall: 0.5,
@@ -54,5 +75,174 @@ describe("toMarkdown", () => {
     const md = toMarkdown([summarize("groq:m", [])]);
     expect(md.split("\n")).toHaveLength(3);
     expect(md).toContain("| groq:m | 0% |");
+  });
+});
+
+describe("summarize: empty answers and judged replies", () => {
+  const r = (over: Partial<ScenarioResult>): ScenarioResult => ({
+    id: "x",
+    ok: true,
+    shown: ["a", "b"],
+    rawReplies: 2,
+    blocked: 0,
+    judgement: { match: 1, invented: [], unbacked: [] },
+    keystrokesSaved: 0.5,
+    noteRecall: true,
+    firstReplyMs: 100,
+    totalMs: 200,
+    ...over,
+  });
+
+  it("counts empty answers and divides invented details by judged replies only", () => {
+    const s = summarize("m", [
+      r({ judgement: { match: 1, invented: [2], unbacked: [{ n: 2, fact: "x" }] } }),
+      r({ shown: [], rawReplies: 0, judgement: { match: 0, invented: [], unbacked: [] }, keystrokesSaved: 0 }),
+      r({ shown: ["a", "b", "c"], judgement: null, keystrokesSaved: 0 }),
+    ]);
+    expect(s.empty).toBe(1);
+    expect(s.judgedReplies).toBe(2);
+    expect(s.inventedShown).toBe(1);
+    expect(s.shownReplies).toBe(5);
+    expect(s.judgeErrors).toBe(1);
+    expect(s.keystrokesSaved).toBeCloseTo(0.25);
+  });
+
+  it("shows the invented rate, empty answers and unjudged scenarios in the table", () => {
+    const s = summarize("m", [r({ judgement: { match: 1, invented: [2], unbacked: [] } }), r({ judgement: null })]);
+    const md = toMarkdown([s]);
+    expect(md).toContain("| Empty |");
+    expect(md).toContain("| Not judged |");
+    expect(md).toContain("1 of 2 (50%)");
+  });
+});
+
+describe("judgedByPhrase", () => {
+  const r = (judgedBy?: string): ScenarioResult => ({
+    id: "x",
+    ok: true,
+    shown: [],
+    rawReplies: 0,
+    blocked: 0,
+    judgement: null,
+    keystrokesSaved: 0,
+    noteRecall: true,
+    firstReplyMs: null,
+    totalMs: null,
+    ...(judgedBy ? { judgedBy } : {}),
+  });
+
+  it("counts cache hits under the endpoint that answered and shows how many were cached", () => {
+    const results = [r("cache:groq"), r("groq"), r("groq"), r(), r("cloudflare"), r("cache:cloudflare"), r("groq")];
+    expect(judgedByPhrase(results)).toBe("groq (4, 1 cached), cloudflare (2, 1 cached)");
+    expect(judgedByPhrase([r("groq"), r("cloudflare")])).toBe("groq (1), cloudflare (1)");
+  });
+
+  it("says so when nothing was judged", () => {
+    expect(judgedByPhrase([r(), r()])).toBe("no judge");
+  });
+});
+
+describe("summarize: claim check", () => {
+  it("adds up replies the claim check dropped and shows them in the table", () => {
+    const base: ScenarioResult = {
+      id: "x", ok: true, shown: ["a"], rawReplies: 3, blocked: 0, judgement: { match: 1, invented: [], unbacked: [] },
+      keystrokesSaved: 0, noteRecall: true, firstReplyMs: 1, totalMs: 1, checkBlocked: 2,
+    };
+    const s = summarize("m", [base, { ...base, checkBlocked: 1 }]);
+    expect(s.checkBlocked).toBe(3);
+    expect(toMarkdown([s])).toContain("| Dropped by the claim check |");
+  });
+
+  it("adds up replies the claim check could not decide on and shows them in the table", () => {
+    const base: ScenarioResult = {
+      id: "x", ok: true, shown: ["a"], rawReplies: 3, blocked: 0, judgement: { match: 1, invented: [], unbacked: [] },
+      keystrokesSaved: 0, noteRecall: true, firstReplyMs: 1, totalMs: 1, checkUnknown: 2,
+    };
+    const s = summarize("m", [base, { ...base, checkUnknown: 1 }]);
+    expect(s.checkUnknown).toBe(3);
+    expect(toMarkdown([s])).toContain("| Claim check unsure |");
+  });
+
+  it("treats missing checkUnknown as 0 when summing", () => {
+    const base: ScenarioResult = {
+      id: "x", ok: true, shown: ["a"], rawReplies: 3, blocked: 0, judgement: { match: 1, invented: [], unbacked: [] },
+      keystrokesSaved: 0, noteRecall: true, firstReplyMs: 1, totalMs: 1,
+    };
+    const s = summarize("m", [base, { ...base, checkUnknown: 1 }]);
+    expect(s.checkUnknown).toBe(1);
+  });
+});
+
+describe("resultFiles", () => {
+  const ranAt = "2026-09-28T12:00:00Z";
+  const set = "dev";
+  const judgeModel = "openai/gpt-oss-120b";
+  const summaries = [summarize("groq:m1", []), summarize("groq:m2", []), summarize("groq:m3", [])];
+  const results = { "groq:m1": [], "groq:m2": [], "groq:m3": [] };
+  const scenarioCount = 5;
+  const claimCheck = false;
+  const judge = { promptVersion: 5, reasoningEffort: "high", votes: 3, maxTokens: 8000, endpointModels: ["openai/gpt-oss-120b"] };
+
+  it("partial: 1 of 3 models done -> md contains partial note", () => {
+    const { json, md } = resultFiles({
+      ranAt,
+      set,
+      judgeModel,
+      judge,
+      summaries: [summaries[0]],
+      results: { "groq:m1": [] },
+      scenarioCount,
+      claimCheck,
+      modelsDone: 1,
+      modelsTotal: 3,
+    });
+    expect(md).toContain("Partial: 1 of 3 models done.");
+    const parsed = JSON.parse(json);
+    expect(parsed.modelsDone).toBe(1);
+    expect(parsed.modelsTotal).toBe(3);
+    expect(parsed.judge).toEqual(judge);
+  });
+
+  it("complete: 3 of 3 models done -> md does not contain Partial", () => {
+    const resultWithJudgedBy: ScenarioResult = {
+      id: "test", ok: true, shown: ["reply"], rawReplies: 1, blocked: 0, judgement: { match: 1, invented: [], unbacked: [] },
+      keystrokesSaved: 0.5, noteRecall: true, firstReplyMs: 100, totalMs: 200, judgedBy: "groq",
+    };
+    const results = { "groq:m1": [resultWithJudgedBy], "groq:m2": [resultWithJudgedBy], "groq:m3": [resultWithJudgedBy] };
+    const { json, md } = resultFiles({
+      ranAt,
+      set,
+      judgeModel,
+      judge,
+      summaries,
+      results,
+      scenarioCount,
+      claimCheck,
+      modelsDone: 3,
+      modelsTotal: 3,
+    });
+    const table = toMarkdown(summaries);
+    const expectedMd = `# Eval results\n\nRun ${ranAt.slice(0, 10)}, ${set} set, ${scenarioCount} scenarios per model, judged by groq (3). Judge prompt version 5, reasoning effort high, 3 votes. Generated by \`npm run eval -- --set ${set}\`.\n\n${table}\n`;
+    expect(md).toBe(expectedMd);
+    expect(md).not.toContain("Partial");
+    const parsed = JSON.parse(json);
+    expect(parsed.modelsDone).toBe(3);
+    expect(parsed.modelsTotal).toBe(3);
+  });
+
+  it("claimCheck: true -> keeps with the claim check in header", () => {
+    const { md } = resultFiles({
+      ranAt,
+      set,
+      judgeModel,
+      judge,
+      summaries,
+      results,
+      scenarioCount,
+      claimCheck: true,
+      modelsDone: 3,
+      modelsTotal: 3,
+    });
+    expect(md).toContain("with the claim check");
   });
 });

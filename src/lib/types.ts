@@ -7,6 +7,8 @@ export interface Note {
   /** Proper names in the note, e.g. ["Sam", "Blue Door Café"]. */
   entities: string[];
   updatedAt: number;
+  /** Always sent with suggestion requests: the note that says who the user is and how they communicate. */
+  pinned?: boolean;
 }
 
 export type TimeOfDay = "morning" | "afternoon" | "evening" | "night";

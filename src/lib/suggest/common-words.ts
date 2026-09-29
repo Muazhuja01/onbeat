@@ -1,0 +1,47 @@
+/**
+ * Everyday English words that can start a reply. A capitalised first word that is not
+ * in this list is checked as a possible name, so "Jen helped me" needs a source but
+ * "Large, please." doesn't. Add ordinary words here when a good reply is blocked;
+ * never add names.
+ */
+export const COMMON_WORDS: ReadonlySet<string> = new Set([
+  "a", "about", "absolutely", "actually", "afraid", "after", "afternoon", "afterwards", "again", "ah", "aha", "ain't",
+  "all", "almost", "already", "alright", "also", "although", "always", "amazing", "an", "and", "angry", "another", "any",
+  "anyhow", "anyone", "anything", "anytime", "anyway", "apologies", "appreciate", "are", "aren't", "around", "as", "ask",
+  "at", "aw", "awesome", "back", "bad", "barely", "basically", "be", "because", "been", "before", "beginning", "believe",
+  "besides", "best", "better", "black", "bless", "bored", "both", "brilliant", "bring", "busy", "but", "by", "bye",
+  "can", "can't", "card", "carefully", "cash", "certainly", "check", "cheerio", "cheers", "ciao", "clearly", "clever",
+  "close", "coffee", "cold", "come", "completely", "congrats", "congratulations", "cool", "could", "couldn't", "cup",
+  "currently", "cute", "damn", "darn", "decaf", "definitely", "depends", "did", "didn't", "dizzy", "do", "does",
+  "doesn't", "doing", "don't", "done", "drink", "each", "eat", "eh", "either", "empty", "end", "enjoy", "enough",
+  "entirely", "even", "evening", "eventually", "ever", "every", "everyone", "everything", "exactly", "excellent",
+  "excited", "excuse", "fab", "fair", "fairly", "false", "fantastic", "fast", "feel", "feels", "felt", "few", "finally",
+  "fine", "first", "for", "forget", "frankly", "from", "full", "funny", "generally", "gently", "give", "glad", "gladly",
+  "go", "going", "good", "goodbye", "gorgeous", "gosh", "got", "great", "ha", "had", "hadn't", "half", "handsome",
+  "happily", "happy", "hardly", "has", "hasn't", "hate", "have", "haven't", "he", "he'll", "he's", "hello", "help",
+  "her", "here", "hey", "hi", "his", "hmm", "hold", "home", "honestly", "hope", "hopefully", "hot", "how", "however",
+  "huh", "hungry", "hurt", "i'd", "i'll", "i'm", "i've", "iced", "if", "immediately", "in", "indeed", "instead", "is",
+  "isn't", "it", "it'll", "it's", "just", "keep", "kind", "know", "large", "last", "lately", "later", "latte", "leave",
+  "let", "let's", "like", "liked", "likes", "little", "lol", "lonely", "look", "lots", "louder", "love", "lovely",
+  "luckily", "lucky", "made", "mainly", "make", "many", "maybe", "me", "mean", "meanwhile", "medium", "middle", "might",
+  "milk", "mine", "mm", "more", "morning", "most", "mostly", "move", "much", "my", "nah", "naturally", "nearly", "need",
+  "needed", "needs", "neither", "nervous", "never", "next", "nice", "night", "no", "nobody", "none", "nope", "nor",
+  "normally", "not", "nothing", "now", "obviously", "odd", "of", "off", "often", "oh", "okay", "on", "once", "one",
+  "only", "ooh", "oops", "open", "or", "other", "otherwise", "ouch", "our", "out", "over", "pardon", "pass", "perfect",
+  "perhaps", "phew", "pick", "please", "plenty", "precisely", "pretty", "probably", "put", "quickly", "quiet", "quietly",
+  "quite", "rarely", "rather", "ready", "really", "recently", "regular", "remember", "rest", "right", "sadly", "same",
+  "say", "scared", "see", "send", "seriously", "several", "she", "she'll", "she's", "should", "shouldn't", "sick",
+  "silly", "simply", "since", "sit", "sleep", "sleepy", "slow", "slowly", "small", "smart", "so", "softer", "some",
+  "someone", "something", "sometimes", "soon", "sorry", "sounds", "stand", "stay", "still", "stop", "strange", "such",
+  "suddenly", "sugar", "superb", "sure", "surely", "sweet", "ta", "take", "tea", "tell", "terrific", "thank",
+  "thankfully", "thanks", "that", "that'll", "that's", "the", "their", "them", "then", "there", "there's", "therefore",
+  "these", "they", "they'd", "they'll", "they're", "they've", "think", "third", "thirsty", "this", "those", "though",
+  "thx", "tired", "to", "toast", "today", "together", "tomorrow", "tonight", "too", "totally", "true", "truly", "try",
+  "turn", "two", "ugh", "uh", "um", "unfortunately", "unless", "until", "up", "upset", "us", "usual", "usually", "very",
+  "wait", "wake", "walk", "want", "wanted", "wants", "warm", "was", "wash", "wasn't", "water", "we", "we'd", "we'll",
+  "we're", "we've", "wear", "weird", "welcome", "well", "were", "weren't", "what", "what's", "whatever", "when",
+  "whenever", "where", "wherever", "whether", "which", "whichever", "while", "who", "whoa", "whoever", "why", "will",
+  "wish", "with", "without", "won't", "wonderful", "worried", "worse", "worst", "would", "wouldn't", "wow", "wrong",
+  "yay", "yeah", "yep", "yes", "yesterday", "yet", "yikes", "you", "you'd", "you'll", "you're", "you've", "your",
+  "yours", "yup",
+]);

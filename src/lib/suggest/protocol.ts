@@ -22,79 +22,115 @@ export type ParsedLine =
   | { kind: "reactions"; ids: string[] }
   | { kind: "invalid"; raw: string };
 
-export function parseLine(raw: string): ParsedLine | null {
+const ReplyText = z.string().trim().min(1).max(200);
+const WrapperItem = z.union([
+  ReplyText.transform((text) => ({ text, notes: [] as string[] })),
+  z.object({ reply: ReplyText, notes: z.array(z.string()).default([]) }).transform((o) => ({ text: o.reply, notes: o.notes })),
+  z.object({ text: ReplyText, notes: z.array(z.string()).default([]) }).transform((o) => ({ text: o.text, notes: o.notes })),
+]);
+const RepliesWrapper = z.object({ replies: z.array(z.unknown()), reactions: z.array(z.string()).max(4).optional() });
+
+/**
+ * Parses one JSON object from the model. A reply line, a reactions line or junk gives one
+ * entry. A {"replies": [...]} wrapper gives one entry per item, then a reactions entry if
+ * the wrapper has one. A top-level notes array is ignored: it cannot be tied to a reply.
+ */
+export function parseObject(raw: string): ParsedLine[] {
   const line = raw.trim();
-  if (!line) return null;
-  if (!line.startsWith("{")) return { kind: "invalid", raw: line };
+  if (!line) return [];
+  if (!line.startsWith("{")) return [{ kind: "invalid", raw: line }];
   let json: unknown;
   try {
     json = JSON.parse(line);
   } catch {
-    return { kind: "invalid", raw: line };
+    return [{ kind: "invalid", raw: line }];
   }
   const reply = ReplyLine.safeParse(json);
-  if (reply.success) return { kind: "reply", text: reply.data.reply.trim(), noteIds: reply.data.notes };
+  if (reply.success) return [{ kind: "reply", text: reply.data.reply.trim(), noteIds: reply.data.notes }];
+  const wrapper = RepliesWrapper.safeParse(json);
+  if (wrapper.success) {
+    const out: ParsedLine[] = wrapper.data.replies.map((item) => {
+      const parsed = WrapperItem.safeParse(item);
+      return parsed.success
+        ? { kind: "reply" as const, text: parsed.data.text, noteIds: parsed.data.notes }
+        : { kind: "invalid" as const, raw: JSON.stringify(item) };
+    });
+    if (wrapper.data.reactions) out.push({ kind: "reactions", ids: wrapper.data.reactions });
+    // An empty wrapper is junk, so the client can retry, unless it still carries reactions.
+    return out.length ? out : [{ kind: "invalid", raw: line }];
+  }
   const reactions = ReactionsLine.safeParse(json);
-  if (reactions.success) return { kind: "reactions", ids: reactions.data.reactions };
-  return { kind: "invalid", raw: line };
+  if (reactions.success) return [{ kind: "reactions", ids: reactions.data.reactions }];
+  return [{ kind: "invalid", raw: line }];
 }
+
+export function parseLine(raw: string): ParsedLine | null {
+  return parseObject(raw)[0] ?? null;
+}
+
+const FENCE = /^`{3}[\w-]*$/;
 
 /**
- * Split a line holding several JSON objects ("{...}{...}" or "{...} {...}")
- * into one string per object. Text outside the objects is dropped; a cut-off
- * last object is kept so it is reported as invalid. A line without any
- * complete object is returned unchanged.
+ * Reads model output as a stream of JSON objects, whatever the line breaks: models
+ * sometimes pretty-print an object over several lines or wrap the output in a
+ * markdown fence. Each top-level object is emitted as soon as its closing brace
+ * arrives. Text between objects is reported line by line through onStray, except
+ * blank lines and fences. flush() emits a cut-off last object, so it can be counted
+ * as invalid.
  */
-export function splitObjects(line: string): string[] {
-  const objects: string[] = [];
+export function createObjectSplitter(onObject: (json: string) => void, onStray: (text: string) => void = () => {}) {
+  let current = "";
+  let stray = "";
   let depth = 0;
-  let start = -1;
   let inString = false;
   let escaped = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (c === "\\") escaped = true;
-      else if (c === '"') inString = false;
-    } else if (c === '"') {
-      if (depth > 0) inString = true;
-    } else if (c === "{") {
-      if (depth === 0) start = i;
-      depth++;
-    } else if (c === "}" && depth > 0) {
-      depth--;
-      if (depth === 0) objects.push(line.slice(start, i + 1));
-    }
-  }
-  if (objects.length === 0) return [line];
-  if (depth > 0) objects.push(line.slice(start));
-  return objects;
-}
 
-/** Parse one line of model output, which may hold several JSON objects. */
-export function parseLines(raw: string): ParsedLine[] {
-  const line = raw.trim();
-  if (!line) return [];
-  return splitObjects(line)
-    .map(parseLine)
-    .filter((p): p is ParsedLine => p !== null);
-}
+  const endStray = () => {
+    const t = stray.trim();
+    stray = "";
+    if (t && !FENCE.test(t)) onStray(t);
+  };
 
-export function createLineSplitter(onLine: (line: string) => void) {
-  let buffer = "";
   return {
     push(chunk: string) {
-      buffer += chunk;
-      let i: number;
-      while ((i = buffer.indexOf("\n")) >= 0) {
-        onLine(buffer.slice(0, i));
-        buffer = buffer.slice(i + 1);
+      for (const c of chunk) {
+        if (depth === 0) {
+          if (c === "{") {
+            endStray();
+            current = "{";
+            depth = 1;
+          } else if (c === "\n") {
+            endStray();
+          } else {
+            stray += c;
+          }
+          continue;
+        }
+        current += c;
+        if (inString) {
+          if (escaped) escaped = false;
+          else if (c === "\\") escaped = true;
+          else if (c === '"') inString = false;
+        } else if (c === '"') {
+          inString = true;
+        } else if (c === "{") {
+          depth++;
+        } else if (c === "}") {
+          depth--;
+          if (depth === 0) {
+            onObject(current);
+            current = "";
+          }
+        }
       }
     },
     flush() {
-      if (buffer.trim()) onLine(buffer);
-      buffer = "";
+      if (depth > 0 && current.trim()) onObject(current);
+      endStray();
+      current = "";
+      depth = 0;
+      inString = false;
+      escaped = false;
     },
   };
 }

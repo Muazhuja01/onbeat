@@ -140,11 +140,12 @@ export class MemoryStore {
       }
     }
 
+    const pinnedIds = [...this.notesById.values()].filter((n) => n.pinned && !contextIds.includes(n.id)).map((n) => n.id);
     const ranked = [...scores.entries()]
-      .filter(([id]) => !contextIds.includes(id) && this.notesById.has(id))
+      .filter(([id]) => !contextIds.includes(id) && !pinnedIds.includes(id) && this.notesById.has(id))
       .sort((a, b) => b[1] - a[1])
       .map(([id]) => this.notesById.get(id)!);
-    return [...contextIds.map((id) => this.notesById.get(id)!), ...ranked].slice(0, k);
+    return [...[...contextIds, ...pinnedIds].map((id) => this.notesById.get(id)!), ...ranked].slice(0, k);
   }
 
   matchPhrases(prefix: string, k = 3): Phrase[] {

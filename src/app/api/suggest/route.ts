@@ -1,4 +1,6 @@
 import { AllProvidersFailedError, createCooldown, providerConfigs, streamCompletion, type ProviderId } from "@/lib/server/providers";
+import { checkReply } from "@/lib/server/claim-check";
+import { filterReplies } from "@/lib/server/claim-filter";
 import { createRateLimiter } from "@/lib/server/rate-limit";
 import { buildMessages } from "@/lib/suggest/prompt";
 import { SuggestRequestSchema } from "@/lib/suggest/protocol";
@@ -48,11 +50,21 @@ export async function POST(request: Request): Promise<Response> {
       cooldown,
       signal: request.signal,
     });
+    const body = parsed.data;
+    const output =
+      process.env.CLAIM_CHECK === "on"
+        ? filterReplies(deltas, (reply) =>
+            checkReply(
+              { reply, notes: body.notes.map((n) => n.text), partnerSaid: body.partnerSaid, typed: body.typed, contextLine: body.contextLine, phrases: body.examples },
+              { apiKey: process.env.GROQ_API_KEY },
+            ),
+          )
+        : deltas;
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       async pull(controller) {
         try {
-          const { value, done } = await deltas.next();
+          const { value, done } = await output.next();
           if (done) controller.close();
           else controller.enqueue(encoder.encode(value));
         } catch (err) {
@@ -62,7 +74,7 @@ export async function POST(request: Request): Promise<Response> {
         }
       },
       async cancel() {
-        await deltas.return(undefined);
+        await output.return(undefined);
       },
     });
     // Request content is never logged.

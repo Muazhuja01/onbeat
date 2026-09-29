@@ -144,8 +144,10 @@ function Screen() {
 
   const toggleListening = () => {
     if (!hearing) return;
-    if (hearingStatus === "listening" || hearingStatus === "loading") hearing.stop();
-    else void hearing.start();
+    if (hearingStatus === "listening" || hearingStatus === "loading") {
+      hearing.stop();
+      gapTimer.reset();
+    } else void hearing.start();
   };
 
   // Every new set of replies on screen is announced; queued updates collapse to the latest.
@@ -231,12 +233,13 @@ function Screen() {
       // Notes and phrases changed, so cached suggestions are stale (R13).
       client?.clearCache();
       dispatch({ type: "reset" });
+      gapTimer.reset();
       dispatch({ type: "setContext", placeId: p.defaultPlaceId, partnerId: p.defaultPartnerId });
       setNotesVersion((v) => v + 1);
       setShowProfiles(false);
       resetFocusToTop();
     },
-    [memory, client],
+    [memory, client, gapTimer],
   );
 
   const closeProfiles = () => {

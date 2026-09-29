@@ -1,16 +1,17 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { personas } from "@/data/personas";
-import { en } from "@/lib/language-packs/en";
-import { MemoryStore } from "@/lib/memory/store";
+import { checkReply } from "@/lib/server/claim-check";
 import { groqExtraBody, providerConfigs, streamCompletion, type ProviderId } from "@/lib/server/providers";
 import { buildMessages } from "@/lib/suggest/prompt";
-import { createLineSplitter, parseLines } from "@/lib/suggest/protocol";
-import { buildSuggestRequest } from "@/lib/suggest/request";
+import { createObjectSplitter, parseObject } from "@/lib/suggest/protocol";
 import { isNearDuplicate, validateReply } from "@/lib/suggest/validate";
-import { judge } from "./judge";
+import { judge, judgeEndpoints, JUDGE_MAX_TOKENS, JUDGE_PROMPT_VERSION, JUDGE_REASONING_EFFORT, JUDGE_VOTES, type JudgeEndpoint } from "./judge";
+import { JudgeCache, judgeWithCache } from "./judge-cache";
+import { scenarioRequest } from "./judge-input";
+import { askVoted } from "./judge-vote";
 import { withRetry } from "./retry";
 import { scenarios, type Scenario } from "./scenarios";
-import { keystrokesSaved, parseJudgement, summarize, toMarkdown, type Judgement, type ScenarioResult } from "./score";
+import { testScenarios } from "./test-scenarios";
+import { keystrokesSaved, parseJudgement, resultFiles, summarize, toMarkdown, type Judgement, type ScenarioResult } from "./score";
 
 try {
   process.loadEnvFile(".env.local");
@@ -19,8 +20,6 @@ try {
 }
 
 const DEFAULT_MODELS = ["groq:qwen/qwen3.8-27b", "groq:openai/gpt-oss-20b", "cloudflare:@cf/meta/llama-3.3-70b-instruct-fp8-fast"];
-/** A Tuesday morning, so the weekday and time of day in every prompt stay the same. */
-const NOW = new Date(2026, 8, 29, 9, 0);
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -29,22 +28,9 @@ function arg(name: string): string | undefined {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-async function runScenario(sc: Scenario, provider: ProviderId, model: string, judgeModel: string): Promise<ScenarioResult> {
-  const persona = personas.find((p) => p.id === sc.persona)!;
-  const memory = await MemoryStore.create();
-  await memory.replaceAll(persona.notes, persona.phrases);
-  const typed = sc.typed ?? "";
-  const context = {
-    now: NOW,
-    placeId: sc.placeId === null ? undefined : (sc.placeId ?? persona.defaultPlaceId),
-    partnerId: sc.partnerId === null ? undefined : (sc.partnerId ?? persona.defaultPartnerId),
-  };
-  const { body, sources } = await buildSuggestRequest({
-    memory,
-    pack: en,
-    input: { mode: "replies+reactions", typed, partnerSaid: sc.partnerSaid, context },
-    simple: false,
-  });
+async function runScenario(sc: Scenario, provider: ProviderId, model: string, endpoints: JudgeEndpoint[], cache: JudgeCache, spent: Set<string>, claimCheck: boolean, votes: number): Promise<ScenarioResult> {
+  const { body, sources, judgeInput } = await scenarioRequest(sc);
+  const typed = judgeInput.typed;
 
   const base = providerConfigs();
   const configs = {
@@ -52,8 +38,11 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, ju
     [provider]: { ...base[provider], model, extraBody: provider === "groq" ? groqExtraBody(model) : base[provider].extraBody },
   };
   const shown: string[] = [];
+  let raw = "";
   let rawReplies = 0;
   let blocked = 0;
+  let checkBlocked = 0;
+  let checkUnknown = 0;
   let firstReplyMs = null as number | null;
   let started = performance.now();
   try {
@@ -63,21 +52,46 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, ju
       started = performance.now();
       return streamCompletion(buildMessages(body), { order: [provider], configs, firstTokenTimeoutMs: 10_000, idleTimeoutMs: 10_000, cooldown });
     });
-    const splitter = createLineSplitter((line) => {
-      for (const parsed of parseLines(line)) {
+    const queue: { text: string; noteIds: string[] }[] = [];
+    const splitter = createObjectSplitter((obj) => {
+      for (const parsed of parseObject(obj)) {
         if (parsed.kind !== "reply") continue;
         rawReplies++;
         if (!validateReply({ text: parsed.text, noteIds: parsed.noteIds }, sources).ok) {
           blocked++;
           continue;
         }
-        if (shown.length >= 3 || shown.some((t) => isNearDuplicate(t, parsed.text))) continue;
-        shown.push(parsed.text);
-        firstReplyMs ??= performance.now() - started;
+        queue.push({ text: parsed.text, noteIds: parsed.noteIds });
       }
     });
-    for await (const d of deltas) splitter.push(d);
+    const drain = async () => {
+      while (queue.length) {
+        const reply = queue.shift()!;
+        if (shown.length >= 3 || shown.some((t) => isNearDuplicate(t, reply.text))) continue;
+        if (claimCheck) {
+          const verdict = await checkReply(
+            { reply: reply.text, notes: body.notes.map((n) => n.text), partnerSaid: body.partnerSaid, typed: body.typed, contextLine: body.contextLine, phrases: body.examples },
+            { apiKey: process.env.GROQ_API_KEY },
+          );
+          if (verdict === "invented") {
+            checkBlocked++;
+            continue;
+          }
+          if (verdict === "unknown") {
+            checkUnknown++;
+          }
+        }
+        shown.push(reply.text);
+        firstReplyMs ??= performance.now() - started;
+      }
+    };
+    for await (const d of deltas) {
+      raw += d;
+      splitter.push(d);
+      await drain();
+    }
     splitter.flush();
+    await drain();
   } catch (err) {
     return {
       id: sc.id,
@@ -86,6 +100,8 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, ju
       shown,
       rawReplies,
       blocked,
+      checkBlocked,
+      checkUnknown,
       judgement: null,
       keystrokesSaved: 0,
       noteRecall: false,
@@ -95,14 +111,13 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, ju
   }
   const totalMs = performance.now() - started;
 
-  let judgement: Judgement | null = { match: 0, invented: [] };
+  let judgement: Judgement | null = { match: 0, invented: [], unbacked: [] };
+  let judgedBy: string | undefined;
   if (shown.length) {
+    const input = { ...judgeInput, candidates: shown };
     try {
-      const text = await judge(
-        { intended: sc.intended, partnerSaid: sc.partnerSaid, typed, contextLine: body.contextLine, notes: body.notes.map((n) => n.text), phrases: body.examples, candidates: shown },
-        { apiKey: process.env.GROQ_API_KEY ?? "", model: judgeModel },
-      );
-      judgement = parseJudgement(text, shown.length);
+      const parse = (text: string) => parseJudgement(text, shown.length);
+      ({ judgement, judgedBy } = await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, () => askVoted(() => judge(input, { endpoints, spent }), parse, votes), parse, votes, (reason) => console.warn(`  ${sc.id}: ${reason}`), { models: endpoints.map((e) => e.model), reasoningEffort: JUDGE_REASONING_EFFORT, maxTokens: JUDGE_MAX_TOKENS }));
     } catch (err) {
       console.warn(`  judge failed for ${sc.id}: ${err instanceof Error ? err.message : String(err)}`);
       judgement = null;
@@ -115,11 +130,15 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, ju
     shown,
     rawReplies,
     blocked,
+    checkBlocked,
+    checkUnknown,
     judgement,
     keystrokesSaved: keystrokesSaved(sc.intended, typed, (judgement?.match ?? 0) > 0),
     noteRecall: sc.noteIds.every((id) => sentIds.has(id)),
     firstReplyMs,
     totalMs,
+    ...(shown.length === 0 ? { raw: raw.slice(0, 2000) } : {}),
+    ...(judgedBy ? { judgedBy } : {}),
   };
 }
 
@@ -133,34 +152,66 @@ async function main() {
   const persona = arg("persona");
   const limit = Number(arg("limit") ?? Infinity);
   const delay = Number(arg("delay") ?? 2500);
+  const votes = Number(arg("votes") ?? JUDGE_VOTES);
+  if (!Number.isInteger(votes) || votes < 1) throw new Error(`--votes must be a whole number of at least 1, not "${arg("votes")}".`);
   const judgeModel = process.env.EVAL_JUDGE_MODEL ?? "openai/gpt-oss-120b";
-  const chosen = scenarios.filter((s) => !persona || s.persona === persona).slice(0, limit);
+  const endpoints = judgeEndpoints();
+  if (endpoints.length === 0) throw new Error("No judge endpoint: set GROQ_API_KEY (and optionally the Cloudflare keys) in .env.local.");
+  const claimCheck = process.argv.includes("--claim-check");
+  const set = arg("set") ?? "dev";
+  if (set !== "dev" && set !== "test") throw new Error(`Unknown set "${set}". Use --set dev or --set test.`);
+  const pool = set === "test" ? testScenarios : scenarios;
+  const chosen = pool.filter((s) => !persona || s.persona === persona).slice(0, limit);
 
+  const cache = new JudgeCache("eval/results/judge-cache.json");
+  const spent = new Set<string>();
   const summaries = [];
   const results: Record<string, ScenarioResult[]> = {};
+  let checkUnknownWarningPrinted = false;
+  mkdirSync("eval/results", { recursive: true });
+  const ranAt = new Date().toISOString();
   for (const { provider, model } of models) {
     const name = `${provider}:${model}`;
     console.log(`\n${name} (${chosen.length} scenarios)`);
     const list: ScenarioResult[] = [];
     for (const sc of chosen) {
-      const r = await runScenario(sc, provider, model, judgeModel);
+      const spentBefore = new Set(spent);
+      const r = await runScenario(sc, provider, model, endpoints, cache, spent, claimCheck, votes);
       list.push(r);
-      console.log(`  ${sc.id}: ${r.ok ? `${r.shown.length} shown, match ${r.judgement?.match ?? "?"}` : `failed (${r.error})`}`);
+      for (const ep of spent) {
+        if (!spentBefore.has(ep)) console.log(`  judge: ${ep} is out of quota, using the next judge for the rest of the run`);
+      }
+      if (!checkUnknownWarningPrinted && (r.checkUnknown ?? 0) > 0) {
+        console.log(`  claim check: could not decide a reply (error, timeout or missing model); those replies are shown`);
+        checkUnknownWarningPrinted = true;
+      }
+      console.log(`  ${sc.id}: ${r.ok ? `${r.shown.length} shown, match ${r.judgement?.match ?? "?"}${r.shown.length === 0 ? " (empty)" : ""}` : `failed (${r.error})`}`);
       await sleep(delay);
     }
     results[name] = list;
-    summaries.push(summarize(name, list));
+    const summary = summarize(name, list);
+    summaries.push(summary);
+    const modelsDone = summaries.length;
+    const modelsTotal = models.length;
+    const { json, md } = resultFiles({
+      ranAt,
+      set,
+      judgeModel,
+      judge: { promptVersion: JUDGE_PROMPT_VERSION, reasoningEffort: JUDGE_REASONING_EFFORT, votes, maxTokens: JUDGE_MAX_TOKENS, endpointModels: endpoints.map((e) => e.model) },
+      summaries,
+      results,
+      scenarioCount: chosen.length,
+      claimCheck,
+      modelsDone,
+      modelsTotal,
+    });
+    writeFileSync(`eval/results/latest-${set}.json`, json);
+    writeFileSync(`eval/results/latest-${set}.md`, md);
+    console.log(`  wrote eval/results/latest-${set}.{json,md} (${modelsDone} of ${modelsTotal} models)`);
   }
 
   const table = toMarkdown(summaries);
   console.log(`\n${table}`);
-  mkdirSync("eval/results", { recursive: true });
-  const ranAt = new Date().toISOString();
-  writeFileSync("eval/results/latest.json", `${JSON.stringify({ ranAt, judgeModel, summaries, results }, null, 2)}\n`);
-  writeFileSync(
-    "eval/results/latest.md",
-    `# Eval results\n\nRun ${ranAt.slice(0, 10)}, ${chosen.length} scenarios per model, judged by ${judgeModel}. Generated by \`npm run eval\`.\n\n${table}\n`,
-  );
 }
 
 main().catch((err) => {

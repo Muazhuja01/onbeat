@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GapTimer, loadGaps, saveGap } from "./response-gap";
 
 const model = () => [{ source: "model" as const }];
@@ -132,6 +132,40 @@ describe("GapTimer", () => {
     expect(recorded).toEqual([2200]);
     gaps.repliesShown(4700, model(), 4000);
     expect(recorded).toEqual([2200, 700]);
+  });
+});
+
+describe("GapTimer clean-up", () => {
+  const model = [{ source: "model" as const }];
+
+  it("drops a waiting turn that ended more than 30 s before replies arrive", () => {
+    const record = vi.fn();
+    const t = new GapTimer(record);
+    t.speechStarted(1_000);
+    t.turnEnded(2_000);
+    t.repliesShown(32_001, model, 2_500);
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it("still records a turn that waited just under 30 s", () => {
+    const record = vi.fn();
+    const t = new GapTimer(record);
+    t.speechStarted(1_000);
+    t.turnEnded(2_000);
+    t.repliesShown(31_999, model, 2_500);
+    expect(record).toHaveBeenCalledWith(29_999);
+  });
+
+  it("forgets waiting and unfinished turns on reset", () => {
+    const record = vi.fn();
+    const t = new GapTimer(record);
+    t.speechStarted(1_000);
+    t.turnEnded(2_000);
+    t.speechStarted(3_000);
+    t.reset();
+    t.repliesShown(4_000, model, 3_500);
+    t.turnEnded(5_000);
+    expect(record).not.toHaveBeenCalled();
   });
 });
 

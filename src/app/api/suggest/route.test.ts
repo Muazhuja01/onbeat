@@ -68,6 +68,23 @@ describe("POST /api/suggest", () => {
     expect(await res.text()).toBe('{"reply":"Large, please.","notes":[]}\n');
   });
 
+  it("drops replies the claim check calls invented when CLAIM_CHECK is on", async () => {
+    vi.stubEnv("CLAIM_CHECK", "on");
+    const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const sent = JSON.parse(String(init?.body ?? "{}")) as { stream?: boolean; messages?: { content: string }[] };
+      if (!sent.stream) {
+        const verdict = sent.messages?.[1]?.content.includes('Reply: "I went to the park."') ? "invented" : "ok";
+        return Response.json({ choices: [{ message: { content: verdict } }] });
+      }
+      return sseResponse('{"reply":"Large, please.","notes":[]}\n{"reply":"I went to the park.","notes":[]}\n');
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await POST(req(body));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('{"reply":"Large, please.","notes":[]}\n');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("prefers cloudflare when asked", async () => {
     const fetchMock = vi.fn(async () => sseResponse("x"));
     vi.stubGlobal("fetch", fetchMock);
