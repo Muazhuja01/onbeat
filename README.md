@@ -2,6 +2,8 @@
 
 OnBeat is a web app for people who can't speak and have to communicate by typing. It listens to the person they're talking with and suggests short replies they can say out loud with one tap.
 
+Try it at https://onbeat-mu.vercel.app (pick an example profile; the speech and voice models download to your browser the first time).
+
 It's meant for both hearing and Deaf users. The other person's speech is shown as live captions, and every reply the user speaks is shown on screen as well.
 
 ## Why
