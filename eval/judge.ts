@@ -107,7 +107,7 @@ const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 export async function judge(
   input: JudgeInput,
   opts: { endpoints: JudgeEndpoint[]; fetchImpl?: typeof fetch; sleep?: (ms: number) => Promise<void>; spent?: Set<string> },
-): Promise<{ text: string; endpoint: string; model: string }> {
+): Promise<{ text: string; endpoint: string; model: string; finishReason?: string }> {
   if (opts.endpoints.length === 0) throw new Error("judge failed: no judge endpoint is configured");
   const fetchImpl = opts.fetchImpl ?? fetch;
   const sleep = opts.sleep ?? defaultSleep;
@@ -150,8 +150,9 @@ export async function judge(
         failures.push(`${ep.name} HTTP ${res.status}`);
         continue;
       }
-      const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-      return { text: data.choices?.[0]?.message?.content ?? "", endpoint: ep.name, model: ep.model };
+      const data = (await res.json()) as { choices?: { message?: { content?: string }; finish_reason?: string }[] };
+      const finishReason = data.choices?.[0]?.finish_reason;
+      return { text: data.choices?.[0]?.message?.content ?? "", endpoint: ep.name, model: ep.model, ...(finishReason ? { finishReason } : {}) };
     } catch (err) {
       failures.push(`${ep.name} ${err instanceof Error ? err.message : String(err)}`);
     }

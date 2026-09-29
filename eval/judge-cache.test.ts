@@ -114,6 +114,23 @@ describe("judgeWithCache", () => {
     expect(ask).toHaveBeenCalledTimes(2);
   });
 
+  it("logs why an answer gave no judgement", async () => {
+    const cache = new JudgeCache(tempFile());
+    const log = vi.fn();
+    await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, async () => ({ ...answer, text: "no json" }), parse, 1, log);
+    await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, async () => ({ ...answer, text: "", finishReason: "length" }), parse, 1, log);
+    await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, async () => ({ ...answer, text: "", note: "because" }), parse, 3, log);
+    expect(log.mock.calls).toEqual([["judge answer unreadable (not valid judge JSON)"], ["judge answer unreadable (empty, finish_reason length)"], ["because"]]);
+  });
+
+  it("logs nothing for a readable answer or a cache hit", async () => {
+    const cache = new JudgeCache(tempFile());
+    const log = vi.fn();
+    await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, async () => answer, parse, 1, log);
+    await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, vi.fn(), parse, 1, log);
+    expect(log).not.toHaveBeenCalled();
+  });
+
   it("still returns the judgement when the cache write throws", async () => {
     const cache = new JudgeCache(tempFile());
     vi.spyOn(cache, "set").mockImplementation(() => {

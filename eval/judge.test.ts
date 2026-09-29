@@ -80,6 +80,12 @@ describe("judge", () => {
     expect((init.headers as Record<string, string>).authorization).toBe("Bearer g");
   });
 
+  it("passes on the finish reason when the API gives one", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: "" }, finish_reason: "length" }] }), { status: 200 }));
+    const out = await judge(input, { endpoints: [groq], fetchImpl, sleep: noSleep });
+    expect(out).toEqual({ text: "", endpoint: "groq", model: "openai/gpt-oss-120b", finishReason: "length" });
+  });
+
   it("retries a 429 three times on one endpoint, then moves to the next", async () => {
     const fetchImpl = vi
       .fn()

@@ -55,6 +55,38 @@ describe("askVoted", () => {
     expect(parse(out.text)).toEqual({ match: 1, invented: [2], unbacked: [] });
   });
 
+  const good = { text: '{"match": 1, "invented": []}', endpoint: "groq", model: "m" };
+  const empty = { text: "", endpoint: "groq", model: "m", finishReason: "length" };
+
+  it("asks again once when an answer is unreadable, and uses the retry", async () => {
+    const ask = vi.fn().mockResolvedValueOnce(empty).mockResolvedValue(good);
+    const out = await askVoted(ask, parse, 3);
+    expect(ask).toHaveBeenCalledTimes(4);
+    expect(parse(out.text)).toEqual({ match: 1, invented: [], unbacked: [] });
+    expect(out.note).toBeUndefined();
+  });
+
+  it("still judges when 2 of 3 votes are readable after retries", async () => {
+    const ask = vi.fn().mockResolvedValueOnce(good).mockResolvedValueOnce(good).mockResolvedValue(empty);
+    const out = await askVoted(ask, parse, 3);
+    expect(ask).toHaveBeenCalledTimes(4);
+    expect(parse(out.text)).not.toBeNull();
+  });
+
+  it("gives an empty answer with a reason when only 1 of 3 votes is readable", async () => {
+    const ask = vi.fn().mockResolvedValueOnce(good).mockResolvedValue(empty);
+    const out = await askVoted(ask, parse, 3);
+    expect(ask).toHaveBeenCalledTimes(5);
+    expect(out.text).toBe("");
+    expect(out.note).toBe("judge answer unreadable after a retry (1 of 3 votes readable; unreadable: empty, finish_reason length; empty, finish_reason length)");
+  });
+
+  it("does not retry with one vote", async () => {
+    const ask = vi.fn(async () => empty);
+    await askVoted(ask, parse, 1);
+    expect(ask).toHaveBeenCalledTimes(1);
+  });
+
   it("passes on a failed call", async () => {
     const ask = vi.fn().mockResolvedValueOnce({ text: "{}", endpoint: "groq", model: "m" }).mockRejectedValueOnce(new Error("judge failed"));
     await expect(askVoted(ask, parse, 3)).rejects.toThrow("judge failed");

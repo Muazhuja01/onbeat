@@ -1,4 +1,4 @@
-import type { CachedAnswer } from "./judge-cache";
+import { unreadableWhy, type CachedAnswer } from "./judge-cache";
 import type { Judgement } from "./score";
 
 /**
@@ -49,13 +49,30 @@ export function votedBy(endpoints: string[]): string {
 
 /**
  * Asks the judge `votes` times and returns one answer holding the majority judgement, in
- * the shape the judge cache stores. With one vote it is a single plain call. Throws when
- * a call fails, like a single call would.
+ * the shape the judge cache stores. A call whose answer can't be read is asked once more
+ * before it counts as unreadable. A voted judgement still needs a majority of readable
+ * calls; without one the answer is empty and its note says why. With one vote it is a
+ * single plain call. Throws when a call fails, like a single call would.
  */
 export async function askVoted(ask: () => Promise<CachedAnswer>, parse: (text: string) => Judgement | null, votes: number): Promise<CachedAnswer> {
   if (votes <= 1) return ask();
   const answers: CachedAnswer[] = [];
-  for (let i = 0; i < votes; i++) answers.push(await ask());
-  const judgement = voteJudgements(answers.map((a) => parse(a.text)), votes);
-  return { text: judgement ? judgementText(judgement) : "", endpoint: votedBy(answers.map((a) => a.endpoint)), model: answers[0].model };
+  const calls: (Judgement | null)[] = [];
+  const unreadable: string[] = [];
+  for (let i = 0; i < votes; i++) {
+    let answer = await ask();
+    let judgement = parse(answer.text);
+    if (!judgement) {
+      answer = await ask();
+      judgement = parse(answer.text);
+    }
+    answers.push(answer);
+    calls.push(judgement);
+    if (!judgement) unreadable.push(unreadableWhy(answer));
+  }
+  const judgement = voteJudgements(calls, votes);
+  const endpoint = votedBy(answers.map((a) => a.endpoint));
+  if (judgement) return { text: judgementText(judgement), endpoint, model: answers[0].model };
+  const note = `judge answer unreadable after a retry (${votes - unreadable.length} of ${votes} votes readable; unreadable: ${unreadable.join("; ")})`;
+  return { text: "", endpoint, model: answers[0].model, note };
 }

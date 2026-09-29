@@ -10,6 +10,10 @@ export interface CachedAnswer {
   /** Which judge endpoint gave the answer ("groq" or "cloudflare"). */
   endpoint: string;
   model: string;
+  /** The API's finish_reason for the answer, when it gave one ("length" means the token budget ran out). */
+  finishReason?: string;
+  /** Why no judgement could be read from this answer; set by askVoted, never cached. */
+  note?: string;
 }
 
 const isAnswer = (v: unknown): v is CachedAnswer => {
@@ -54,9 +58,16 @@ export class JudgeCache {
   }
 }
 
+/** "empty" or "not valid judge JSON", plus the finish reason when the API gave one. */
+export function unreadableWhy(answer: CachedAnswer): string {
+  const why = answer.text.trim() === "" ? "empty" : "not valid judge JSON";
+  return answer.finishReason ? `${why}, finish_reason ${answer.finishReason}` : why;
+}
+
 /**
  * Answers from the cache when it can, otherwise asks the judge. Only an answer that
- * parses is cached and named in judgedBy ("cache:<endpoint>" for a hit). A failing
+ * parses is cached and named in judgedBy ("cache:<endpoint>" for a hit); one that
+ * does not parse is reported to log with the reason. A failing
  * cache write never loses the judgement. Errors from ask() propagate.
  */
 export async function judgeWithCache(
@@ -66,6 +77,7 @@ export async function judgeWithCache(
   ask: () => Promise<CachedAnswer>,
   parse: (text: string) => Judgement | null,
   votes = 1,
+  log: (message: string) => void = () => {},
 ): Promise<{ judgement: Judgement | null; judgedBy?: string }> {
   const key = JudgeCache.key({ messages: judgeMessages(input), version, votes });
   const hit = cache.get(key);
@@ -75,7 +87,10 @@ export async function judgeWithCache(
   }
   const answer = await ask();
   const judgement = parse(answer.text);
-  if (!judgement) return { judgement: null };
+  if (!judgement) {
+    log(answer.note ?? `judge answer unreadable (${unreadableWhy(answer)})`);
+    return { judgement: null };
+  }
   try {
     cache.set(key, answer);
   } catch {

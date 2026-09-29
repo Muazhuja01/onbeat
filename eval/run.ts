@@ -116,7 +116,7 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
     const input = { ...judgeInput, candidates: shown };
     try {
       const parse = (text: string) => parseJudgement(text, shown.length);
-      ({ judgement, judgedBy } = await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, () => askVoted(() => judge(input, { endpoints, spent }), parse, votes), parse, votes));
+      ({ judgement, judgedBy } = await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, () => askVoted(() => judge(input, { endpoints, spent }), parse, votes), parse, votes, (reason) => console.warn(`  ${sc.id}: ${reason}`)));
     } catch (err) {
       console.warn(`  judge failed for ${sc.id}: ${err instanceof Error ? err.message : String(err)}`);
       judgement = null;
