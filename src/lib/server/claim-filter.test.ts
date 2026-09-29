@@ -61,6 +61,12 @@ describe("filterReplies", () => {
     expect(out.join("").includes('"reactions"')).toBe(false);
   });
 
+  it("does not let array items in a wrapper leak reply or reactions objects", async () => {
+    const source = chunks('{"replies": ["Yes.", [{"reply": "Sneaky."}], [{"reactions": ["yes"]}]]}');
+    const out = await collect(filterReplies(source, async () => "ok"));
+    expect(out).toEqual(['{"reply":"Yes.","notes":[]}\n', "invalid\n"]);
+  });
+
   it("stops reading the source when the consumer returns early", async () => {
     let closed = false;
     async function* source() {
