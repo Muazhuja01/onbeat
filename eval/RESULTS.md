@@ -46,13 +46,13 @@ Default model `qwen/qwen3.8-27b`. B5 is the final dev run and the one in `result
 | B4, after prompt round 1, no check | 78% | 23 of 172 (13%) | 327 ms |
 | B5, with the claim check | 80% | 7 of 146 (5%) | 687 ms |
 
-The default stays `qwen/qwen3.8-27b`: on B3 it had fewer invented details than `openai/gpt-oss-20b` (16% against 25%) and a higher hit rate (85% against 81%).
+The default stays `qwen/qwen3.8-27b`: on B3 it had fewer invented details than `openai/gpt-oss-20b` (16% against 25%) and a higher hit rate (85% against 81%). B3 left 1 scenario (qwen) and 6 scenarios (gpt-oss-20b) not judged.
 
 ### Against the targets
 
 Neither target is met on the held-out test set. The owner decides before deployment (parent spec section 9).
 
-Hit rate, target 90%. Without the claim check the hit rate is 87%, 3 points short; with it, 82%, 8 points short. With 60 scenarios, 5 points is 3 scenarios, so the gap between T1 and T2 is about 3 scenarios and the gap to 90% without the check is under 2.
+Hit rate, target 90%. Without the claim check the hit rate is 87%, 3 points short; with it, 82%, 8 points short. With 60 scenarios, 5 points is 3 scenarios, so the gap between T1 and T2 is 3 scenarios (52 of 60 against 49) and the gap to 90% without the check is 2 scenarios (52 of 60 against 54).
 
 Invented details, target under 5% of shown replies. The judge measured 12% without the check (20 of 168) and 9% with it (13 of 143). The dev set reached 5% (7 of 146) with the check, and the test set did not follow. The judge flags plain answers too often (see above); a manual read of T1's flags put the true rate near 7%, which would still miss the target without the check.
 
@@ -66,7 +66,7 @@ Time from the other person's last word until replies are on screen, measured by 
 
 ### Known gaps
 
-Quoted from T2's judge output (13 flagged replies in 11 scenarios) and from its misses. The judge is not perfect: some of these, such as "I'll write it down." and "Sure, works for me.", read as plain answers.
+Quoted from T2's judge output (13 flagged replies in 11 scenarios) and from its misses. The judge is not perfect: some of these, such as "I'll write it down.", read as plain answers.
 
 - Events, states or plans stated without a source: "No, I am staying here.", "He loves chewing things.", "One second, I'm typing.", "I have cash on me.", "Sure, I'm just grabbing my coffee.", "I'm at my desk right now.", "Yes, I have the notes ready."
 - Commitments or facts about the user that the notes don't give: "I would love to, but I can't travel.", "I'll write it down.", "No, I'll handle it.", "I'll tell Marco you'll be late.", "He's a good golden retriever, as usual."

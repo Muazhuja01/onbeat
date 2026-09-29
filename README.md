@@ -29,7 +29,7 @@ Results on the held-out test set (60 scenarios written before any tuning) for th
 | off | 87% | 20 of 168 (12%) | 344 ms |
 | on | 82% | 13 of 143 (9%) | 783 ms |
 
-The judge flags plain answers too often, so the invented rates run high. `CLAIM_CHECK=on` makes the server check each reply with a second small model and hide the ones it calls invented. It lowers the invented rate and the hit rate, and adds about 440 ms to the first reply in the eval.
+The judge flags plain answers too often, so the invented rates run high. `.env.example` sets `CLAIM_CHECK=on`; leaving it unset turns the check off. With it on, the server checks each reply with a second small model and hides the ones it calls invented. It lowers the invented rate and the hit rate, and adds about 440 ms to the first reply in the eval.
 
 ## Planned stack
 
