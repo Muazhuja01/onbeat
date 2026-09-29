@@ -305,7 +305,7 @@ Versions at time of writing: Next.js 16.3, React 19, Tailwind 4.3, Orama 3.1, Tr
 - keystrokes saved compared with typing the full sentence
 - latency p50 and p95 for the API call; in-app timing for turn end to suggestions visible
 
-Results go into a table in the README. Before deployment, a quality pass has to reach a top-3 hit rate of 90% and invented details in under 5% of shown replies, or the owner has to accept the measured numbers (see eval/RESULTS.md).
+Results go into a table in the README. Before deployment, a quality pass has to reach a top-3 hit rate of 90% and invented details in under 5% of shown replies, or the owner has to accept the measured numbers (see eval/RESULTS.md). The quality pass measured a top-3 hit rate of 82% and invented details in 9% of shown replies on the held-out test set with the claim check on (87% and 12% with it off), so neither target is met and the owner decides; see eval/RESULTS.md.
 
 **Demo video (120 s).** Outline: the problem in one line (10 s); Maya at the café with a live conversation, reactions landing while the barista talks, replies ready when she stops, a visible timer (60 s); Tom at the pharmacy showing captions and the visual speaking signal (30 s); eval table and privacy note (20 s).
 

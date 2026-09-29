@@ -22,8 +22,8 @@ test("hears the partner, captions them and times the replies", async ({ page }) 
   await expect(page.getByRole("region", { name: "Conversation" })).toContainText(/size/i, { timeout: 60_000 });
   // The fixture loops, so the partner keeps asking; collect a few turns.
   await expect
-    .poll(() => page.evaluate(() => (JSON.parse(localStorage.getItem("onbeat:gaps") ?? "[]") as number[]).length), { timeout: 90_000 })
-    .toBeGreaterThanOrEqual(5);
+    .poll(() => page.evaluate(() => (JSON.parse(localStorage.getItem("onbeat:gaps") ?? "[]") as number[]).length), { timeout: 180_000 })
+    .toBeGreaterThanOrEqual(10);
   const gaps = await page.evaluate(() => JSON.parse(localStorage.getItem("onbeat:gaps") ?? "[]") as number[]);
   const captions = await page.getByRole("region", { name: "Conversation" }).innerText();
   console.log(`response gaps (ms): ${gaps.join(", ")}`);
