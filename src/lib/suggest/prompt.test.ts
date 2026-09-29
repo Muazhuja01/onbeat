@@ -38,8 +38,26 @@ describe("buildMessages", () => {
     const [, user] = buildMessages(body);
     expect(user.content).toContain("Reply 1 answers directly.");
     expect(user.content).toContain("Reply 2 answers with one detail from the notes or the conversation.");
-    expect(user.content).toContain("Reply 3 gives the opposite or a neutral answer");
+    expect(user.content).toContain("Reply 3 gives the opposite (declining, or no) or a short neutral reply");
     expect(user.content).not.toMatch(/alternative/i);
+  });
+
+  it("keeps the neutral reply free of invented plans", () => {
+    const [, user] = buildMessages(body);
+    expect(user.content).toContain('"Not sure." or "One moment, please."');
+    expect(user.content).toContain("It never says what they will check, do or look at.");
+    expect(user.content).not.toContain("saying they will check");
+  });
+
+  it("never lets a reply contradict a note", () => {
+    const [, user] = buildMessages(body);
+    expect(user.content).toContain("Never contradict the notes.");
+    expect(user.content).toContain("no reply may say or imply the opposite");
+  });
+
+  it("does not place the person anywhere the sources don't", () => {
+    const [, user] = buildMessages(body);
+    expect(user.content).toContain("where they are, what they are doing right now, what they have with them");
   });
 
   it("forbids anything about the person the sources don't say, with examples", () => {
