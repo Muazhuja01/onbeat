@@ -36,8 +36,9 @@ describe("parseObject", () => {
   it("rejects a wrapper with too many reactions", () => {
     expect(parseObject('{"replies": ["Yes."], "reactions": ["a", "b", "c", "d", "e"]}')[0].kind).toBe("invalid");
   });
-  it("returns no entries for an empty replies list", () => {
-    expect(parseObject('{"replies": []}')).toEqual([]);
+  it("treats an empty replies list as invalid, or just the reactions if present", () => {
+    expect(parseObject('{"replies": []}')).toEqual([{ kind: "invalid", raw: '{"replies": []}' }]);
+    expect(parseObject('{"replies": [], "reactions": ["ha"]}')).toEqual([{ kind: "reactions", ids: ["ha"] }]);
   });
 });
 

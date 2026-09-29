@@ -56,7 +56,8 @@ export function parseObject(raw: string): ParsedLine[] {
         : { kind: "invalid" as const, raw: JSON.stringify(item) };
     });
     if (wrapper.data.reactions) out.push({ kind: "reactions", ids: wrapper.data.reactions });
-    return out;
+    // An empty wrapper is junk, so the client can retry, unless it still carries reactions.
+    return out.length ? out : [{ kind: "invalid", raw: line }];
   }
   const reactions = ReactionsLine.safeParse(json);
   if (reactions.success) return [{ kind: "reactions", ids: reactions.data.reactions }];

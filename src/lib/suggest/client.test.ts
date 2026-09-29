@@ -128,6 +128,19 @@ describe("SuggestClient", () => {
     expect(final?.provider).toBe("cloudflare");
   });
 
+  it("retries on the other provider when a wrapper holds only bad items or no replies", async () => {
+    for (const bad of ['{"replies": [5, {"other": 1}]}', '{"replies": []}']) {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(streamResponse([bad], { provider: "groq" }))
+        .mockResolvedValueOnce(streamResponse(['{"reply": "Large, please."}'], { provider: "cloudflare" }));
+      const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl });
+      const final = await client.request(input, () => {});
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(final?.replies.map((r) => r.text)).toEqual(["Large, please."]);
+    }
+  });
+
   it("keeps partial results on mid-stream failure", async () => {
     const fetchImpl = vi.fn(async () => streamResponse(['{"reply": "Large, please."}', '{"reply": "Medium."}'], { failAfter: 1 }));
     const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl });
