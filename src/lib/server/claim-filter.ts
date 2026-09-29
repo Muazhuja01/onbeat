@@ -56,7 +56,8 @@ export async function* filterReplies(deltas: AsyncIterable<string>, check: (repl
           yield `${JSON.stringify({ reactions: entry.ids })}\n`;
         } else if (!invalidSent) {
           invalidSent = true;
-          yield `${entry.raw}\n`;
+          // Never re-emit an object: the client would parse it again and could accept it unchecked.
+          yield `${entry.raw.startsWith("{") ? "invalid" : entry.raw}\n`;
         }
       }
     }

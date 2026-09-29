@@ -49,4 +49,31 @@ describe("filterReplies", () => {
     const out = await collect(filterReplies(chunks('{"replies": []}'), async () => "ok"));
     expect(out).toEqual(['{"replies": []}\n']);
   });
+
+  it("never lets an invalid wrapper entry come back as a reply or reactions line", async () => {
+    const source = chunks(
+      '{"replies": ["Yes.", {"replies": ["Sneaky."]}, {"reactions": ["yes"]}, {"reply": "  "}]}',
+      '{"replies": [{"replies": ["Alone."]}]}',
+    );
+    const out = await collect(filterReplies(source, async () => "ok"));
+    expect(out).toEqual(['{"reply":"Yes.","notes":[]}\n', "invalid\n", '{"replies": [{"replies": ["Alone."]}]}\n']);
+    expect(out.join("").includes("Sneaky")).toBe(false);
+    expect(out.join("").includes('"reactions"')).toBe(false);
+  });
+
+  it("stops reading the source when the consumer returns early", async () => {
+    let closed = false;
+    async function* source() {
+      try {
+        yield '{"reply": "One.", "notes": []}\n';
+        yield '{"reply": "Two.", "notes": []}\n';
+      } finally {
+        closed = true;
+      }
+    }
+    const it = filterReplies(source(), async () => "ok");
+    await it.next();
+    await it.return(undefined);
+    expect(closed).toBe(true);
+  });
 });
