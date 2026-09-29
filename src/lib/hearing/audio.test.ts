@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FRAME, Framer, levelOf, Resampler } from "./audio";
+import { FRAME, Framer, levelOf, maxTranscriptTokens, Resampler, SAMPLE_RATE } from "./audio";
 
 describe("Framer", () => {
   it("cuts chunks of any size into 512-sample frames, in order", () => {
@@ -52,5 +52,23 @@ describe("levelOf", () => {
     expect(levelOf(new Float32Array(512).fill(1))).toBe(1);
     expect(levelOf(new Float32Array(512).fill(0.1))).toBeCloseTo(0.5);
     expect(levelOf(new Float32Array(0))).toBe(0);
+  });
+});
+
+describe("maxTranscriptTokens", () => {
+  const seconds = (s: number) => Math.round(s * SAMPLE_RATE);
+
+  // Transformers.js caps Moonshine at floor(seconds) * 6 tokens: 0 under a
+  // second ("Give me your name." came out as "Give") and 6 under two seconds.
+  it("leaves room for a whole short question", () => {
+    // "What's your name?" said quickly: about 0.9 s, 5 tokens.
+    expect(maxTranscriptTokens(seconds(0.93))).toBeGreaterThanOrEqual(12);
+    // "Okay, can I have your name written on it?": about 2 s, 11 tokens.
+    expect(maxTranscriptTokens(seconds(1.98))).toBeGreaterThanOrEqual(20);
+  });
+
+  it("grows with the audio but stays bounded, so a looping decode stops", () => {
+    expect(maxTranscriptTokens(seconds(8))).toBeGreaterThan(maxTranscriptTokens(seconds(2)));
+    expect(maxTranscriptTokens(seconds(30))).toBeLessThanOrEqual(250);
   });
 });
