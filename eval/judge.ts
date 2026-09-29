@@ -4,10 +4,10 @@ import type { ChatMessage } from "@/lib/suggest/prompt";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 /** Bump when the judge prompt changes, so cached judgements from the old prompt are not reused. */
-export const JUDGE_PROMPT_VERSION = 3;
+export const JUDGE_PROMPT_VERSION = 4;
 
 /** Both endpoints run the judge model at this effort, so a verdict does not depend on which one had quota left. */
-export const JUDGE_REASONING_EFFORT = "low";
+export const JUDGE_REASONING_EFFORT = "medium";
 
 /** gpt-oss models take the shared reasoning setting; any other judge model keeps its endpoint's default body. */
 function judgeExtraBody(model: string, otherwise: Record<string, unknown>): Record<string, unknown> {
@@ -75,10 +75,12 @@ export function judgeMessages(j: JudgeInput): ChatMessage[] {
     "Give two things:",
     "match: the number of the first reply that says what the person meant closely enough that they would pick it (same meaning, wording may differ), or 0 if none does.",
     "replies: for each reply, the facts it states about the person, their life or the situation (what they did, have, feel, want, plan or prefer, and any name, place, number, day or time). For each fact give its source:",
-    '"note" (the facts above), "situation", "partner" (what the other person said), "typed", "phrase" (something the person has said before), or "none" if nothing above backs it.',
-    'These are not facts, so list nothing for them: courtesy, greetings and thanks; yes or no; agreeing, accepting or declining; saying something is fine or okay; saying they will wait or will do what the other person asked or offered; asking a question; repeating what the other person said; and a direct answer to the other person\'s question that adds no specifics ("She\'s doing well." to "How\'s Leila?", "No, no side effects." to "Any side effects?", "It\'s been busy." to "How\'s your week?").',
-    "These are facts: any specific a reply adds beyond such an answer, like an event, activity, symptom, possession, place, name, number, day or time, a choice or preference, or a plan the other person did not raise.",
-    'A reply that contradicts the facts above or the situation (for example, names a different doctor than a note does) states a fact with source "none".',
+    '"note" (the facts above), "situation", "partner" (what the other person said or asked, including a plain answer to it), "typed", "phrase" (something the person has said before), or "none" if nothing above backs it.',
+    "The person has to answer the other person somehow, so a plain answer is never an invented detail, even though no note says what they would answer.",
+    'These are not facts, so list nothing for them (if you list one anyway, its source is "partner", never "none"): courtesy, greetings and thanks; yes or no, including saying there is nothing else or nothing more; agreeing, accepting or declining; choosing one of the options the other person gave; saying something is fine or okay; saying they will wait or will do what the other person asked or offered; asking a question or making a request; being unsure, asking for a moment, or saying they will check and get back to the other person when that names nothing new; repeating what the other person said; and a direct answer to the other person\'s question that adds no specifics, such as a general word on how the person or someone else is doing, feeling or getting on ("She\'s doing well." to "How\'s Leila?", "No, no side effects." to "Any side effects?", "It\'s been busy." to "How\'s your week?").',
+    "These are facts: any specific a reply adds beyond such an answer, like an event, activity, symptom, possession, place, name, number, day or time, a choice or preference, or a plan the other person did not raise (offering to do something themselves that the other person said they would do is a new plan).",
+    "A question raising a topic does not back a specific answer to it: if the other person asks what the person is doing, has or feels and the reply names a particular thing (an activity, an object, a symptom), that thing is a fact that needs its own source.",
+    'Check every reply against the notes, even a plain answer: a reply that contradicts the facts above or the situation (for example, says the person can do something a note says they cannot, or names a different doctor than a note does) states a fact with source "none".',
     'Answer with one JSON object and nothing else, like {"match": 1, "replies": [{"n": 1, "facts": [{"fact": "usual is an oat latte", "source": "note"}]}, {"n": 2, "facts": []}]}',
   ];
   return [

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 import { judge, judgeEndpoints, judgeMessages, JUDGE_PROMPT_VERSION, JUDGE_REASONING_EFFORT, type JudgeEndpoint, type JudgeInput } from "./judge";
+import { judgeGold } from "./judge-gold";
 
 const input: JudgeInput = {
   intended: "Large, please.",
@@ -42,10 +43,19 @@ describe("judgeMessages", () => {
       "These are facts",
       "an event, activity, symptom, possession, place, name, number, day or time, a choice or preference, or a plan the other person did not raise",
       "contradicts",
+      "choosing one of the options the other person gave",
+      'its source is "partner", never "none"',
+      "A question raising a topic does not back a specific answer to it",
+      "Check every reply against the notes, even a plain answer",
     ])
       expect(user.content).toContain(s);
     expect(user.content).not.toContain("Politeness, yes or no");
     expect(user.content).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  it("never quotes a gold reply, so the judge check measures the rules and not memorised answers", () => {
+    const [, user] = judgeMessages({ ...input, candidates: [] });
+    for (const g of judgeGold) for (const c of g.candidates) expect(user.content, `${g.id}: ${c}`).not.toContain(c);
   });
 
   it("lists saved phrases only when there are some", () => {
@@ -54,7 +64,7 @@ describe("judgeMessages", () => {
   });
 
   it("has a prompt version", () => {
-    expect(JUDGE_PROMPT_VERSION).toBe(3);
+    expect(JUDGE_PROMPT_VERSION).toBe(4);
   });
 });
 
@@ -152,6 +162,7 @@ describe("judgeEndpoints", () => {
 
   it("sends the same reasoning setting to both endpoints", () => {
     const [g, c] = judgeEndpoints({ GROQ_API_KEY: "g", CLOUDFLARE_ACCOUNT_ID: "acc", CLOUDFLARE_API_TOKEN: "c" } as unknown as NodeJS.ProcessEnv);
+    expect(JUDGE_REASONING_EFFORT).toBe("medium");
     expect(c.extraBody).toEqual({ reasoning_effort: JUDGE_REASONING_EFFORT });
     expect(g.extraBody).toEqual(c.extraBody);
   });
