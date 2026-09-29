@@ -1,15 +1,12 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { personas } from "@/data/personas";
-import { en } from "@/lib/language-packs/en";
-import { MemoryStore } from "@/lib/memory/store";
 import { checkReply } from "@/lib/server/claim-check";
 import { groqExtraBody, providerConfigs, streamCompletion, type ProviderId } from "@/lib/server/providers";
 import { buildMessages } from "@/lib/suggest/prompt";
 import { createObjectSplitter, parseLine } from "@/lib/suggest/protocol";
-import { buildSuggestRequest } from "@/lib/suggest/request";
 import { isNearDuplicate, validateReply } from "@/lib/suggest/validate";
 import { judge, judgeEndpoints, JUDGE_PROMPT_VERSION, type JudgeEndpoint } from "./judge";
 import { JudgeCache, judgeWithCache } from "./judge-cache";
+import { scenarioRequest } from "./judge-input";
 import { withRetry } from "./retry";
 import { scenarios, type Scenario } from "./scenarios";
 import { testScenarios } from "./test-scenarios";
@@ -22,8 +19,6 @@ try {
 }
 
 const DEFAULT_MODELS = ["groq:qwen/qwen3.8-27b", "groq:openai/gpt-oss-20b", "cloudflare:@cf/meta/llama-3.3-70b-instruct-fp8-fast"];
-/** A Tuesday morning, so the weekday and time of day in every prompt stay the same. */
-const NOW = new Date(2026, 8, 29, 9, 0);
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -33,21 +28,8 @@ function arg(name: string): string | undefined {
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 async function runScenario(sc: Scenario, provider: ProviderId, model: string, endpoints: JudgeEndpoint[], cache: JudgeCache, spent: Set<string>, claimCheck: boolean): Promise<ScenarioResult> {
-  const persona = personas.find((p) => p.id === sc.persona)!;
-  const memory = await MemoryStore.create();
-  await memory.replaceAll(persona.notes, persona.phrases);
-  const typed = sc.typed ?? "";
-  const context = {
-    now: NOW,
-    placeId: sc.placeId === null ? undefined : (sc.placeId ?? persona.defaultPlaceId),
-    partnerId: sc.partnerId === null ? undefined : (sc.partnerId ?? persona.defaultPartnerId),
-  };
-  const { body, sources } = await buildSuggestRequest({
-    memory,
-    pack: en,
-    input: { mode: "replies+reactions", typed, partnerSaid: sc.partnerSaid, context },
-    simple: false,
-  });
+  const { body, sources, judgeInput } = await scenarioRequest(sc);
+  const typed = judgeInput.typed;
 
   const base = providerConfigs();
   const configs = {
@@ -130,7 +112,7 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
   let judgement: Judgement | null = { match: 0, invented: [], unbacked: [] };
   let judgedBy: string | undefined;
   if (shown.length) {
-    const input = { intended: sc.intended, partnerSaid: sc.partnerSaid, typed, contextLine: body.contextLine, notes: body.notes.map((n) => n.text), phrases: body.examples, candidates: shown };
+    const input = { ...judgeInput, candidates: shown };
     try {
       ({ judgement, judgedBy } = await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, () => judge(input, { endpoints, spent }), (text) => parseJudgement(text, shown.length)));
     } catch (err) {

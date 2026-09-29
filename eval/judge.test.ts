@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
-import { judge, judgeEndpoints, judgeMessages, JUDGE_PROMPT_VERSION, type JudgeEndpoint, type JudgeInput } from "./judge";
+import { judge, judgeEndpoints, judgeMessages, JUDGE_PROMPT_VERSION, JUDGE_REASONING_EFFORT, type JudgeEndpoint, type JudgeInput } from "./judge";
 
 const input: JudgeInput = {
   intended: "Large, please.",
@@ -25,7 +25,27 @@ describe("judgeMessages", () => {
     expect(user.content).toContain("1. Large, please.");
     expect(user.content).toContain("2. Small today.");
     for (const s of ['"note"', '"situation"', '"partner"', '"typed"', '"phrase"', '"none"', '"replies"']) expect(user.content).toContain(s);
-    expect(user.content).toContain("are not facts");
+  });
+
+  it("states what is not a fact and what is, including contradictions", () => {
+    const [, user] = judgeMessages(input);
+    for (const s of [
+      "These are not facts",
+      "courtesy, greetings and thanks",
+      "yes or no",
+      "agreeing, accepting or declining",
+      "saying something is fine or okay",
+      "saying they will wait or will do what the other person asked or offered",
+      "asking a question",
+      "repeating what the other person said",
+      "a direct answer to the other person's question that adds no specifics",
+      "These are facts",
+      "an event, activity, symptom, possession, place, name, number, day or time, a choice or preference, or a plan the other person did not raise",
+      "contradicts",
+    ])
+      expect(user.content).toContain(s);
+    expect(user.content).not.toContain("Politeness, yes or no");
+    expect(user.content).not.toMatch(/[\u2013\u2014]/);
   });
 
   it("lists saved phrases only when there are some", () => {
@@ -34,7 +54,7 @@ describe("judgeMessages", () => {
   });
 
   it("has a prompt version", () => {
-    expect(JUDGE_PROMPT_VERSION).toBe(2);
+    expect(JUDGE_PROMPT_VERSION).toBe(3);
   });
 });
 
@@ -128,5 +148,11 @@ describe("judgeEndpoints", () => {
     expect(all[1]).toMatchObject({ model: "@cf/openai/gpt-oss-120b", apiKey: "c", url: "https://api.cloudflare.com/client/v4/accounts/acc/ai/v1/chat/completions" });
     expect(judgeEndpoints({ GROQ_API_KEY: "g" } as unknown as NodeJS.ProcessEnv).map((e) => e.name)).toEqual(["groq"]);
     expect(judgeEndpoints({ GROQ_API_KEY: "g", EVAL_JUDGE_MODEL: "x", EVAL_JUDGE_CF_MODEL: "y", CLOUDFLARE_ACCOUNT_ID: "a", CLOUDFLARE_API_TOKEN: "c" } as unknown as NodeJS.ProcessEnv).map((e) => e.model)).toEqual(["x", "y"]);
+  });
+
+  it("sends the same reasoning setting to both endpoints", () => {
+    const [g, c] = judgeEndpoints({ GROQ_API_KEY: "g", CLOUDFLARE_ACCOUNT_ID: "acc", CLOUDFLARE_API_TOKEN: "c" } as unknown as NodeJS.ProcessEnv);
+    expect(c.extraBody).toEqual({ reasoning_effort: JUDGE_REASONING_EFFORT });
+    expect(g.extraBody).toEqual(c.extraBody);
   });
 });
