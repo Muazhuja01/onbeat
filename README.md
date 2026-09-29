@@ -22,9 +22,9 @@ Phones already offer captions and type-to-speak. OnBeat tries to shorten the gap
 
 ## Status
 
-Listening works: the other person's speech is captioned in the browser and replies are prepared while they talk. Settings, notes editing and the first-run flow are next.
+Listening works: the other person's speech is captioned in the browser and replies are prepared while they talk. The app passes axe checks in light, dark and high-contrast themes and works with a keyboard alone. A small settings panel sets the theme (it follows the device's contrast setting by default) and turns the number-key shortcuts off for voice control users. Voice and caption settings, notes editing and the first-run flow are next.
 
-Results on the held-out test set (60 scenarios written before any tuning) for the default model `qwen/qwen3.8-27b`. Neither target (90% top-3 hit rate, under 5% invented details) is met; the owner decides before deployment. Details, method and known gaps are in [eval/RESULTS.md](eval/RESULTS.md).
+Results on the held-out test set (60 scenarios written before any tuning) for the default model `qwen/qwen3.8-27b`. Neither target (90% top-3 hit rate, under 5% invented details) is met; the owner accepted these numbers for the deploy. Details, method and known gaps are in [eval/RESULTS.md](eval/RESULTS.md).
 
 | Claim check | Top-3 hit rate | Invented details | First reply p50 |
 |---|---|---|---|

@@ -17,7 +17,7 @@ export function PartnerInput({ onSubmit }: { onSubmit: (text: string) => void })
       <label htmlFor="partner-input" className="text-label text-muted">
         What they said
       </label>
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
         <input
           id="partner-input"
           name="partner"
@@ -26,7 +26,7 @@ export function PartnerInput({ onSubmit }: { onSubmit: (text: string) => void })
           placeholder="Type what the other person said…"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          className="min-h-14 min-w-0 flex-1 rounded-control border-2 border-ink/30 bg-surface px-4 text-body text-ink placeholder:text-muted"
+          className="min-h-14 min-w-32 flex-1 rounded-control border-2 border-ink/30 bg-surface px-4 text-body text-ink placeholder:text-muted"
         />
         <button
           type="submit"

@@ -47,6 +47,20 @@
   color-scheme: dark;
 }
 
+/* Follow the device's "more contrast" setting until the user picks a theme. */
+@media (prefers-contrast: more) {
+  :root:not([data-theme]) {
+    --ground: #000000;
+    --surface: #000000;
+    --ink: #ffffff;
+    --muted: #ffffff;
+    --cue: #ffd166;
+    --on-cue: #000000;
+    --partner: #ffffff;
+    color-scheme: dark;
+  }
+}
+
 @theme inline {
   --color-ground: var(--ground);
   --color-surface: var(--surface);
@@ -88,9 +102,15 @@ body {
   box-shadow: 0 0 0 2px var(--ink);
 }
 
-[data-theme="contrast"] :is(button, a, input, select, textarea) {
+[data-theme="contrast"] :is(button, a, input, select, textarea, summary) {
   outline: 3px solid var(--cue);
   outline-offset: 2px;
+}
+@media (prefers-contrast: more) {
+  :root:not([data-theme]) :is(button, a, input, select, textarea, summary) {
+    outline: 3px solid var(--cue);
+    outline-offset: 2px;
+  }
 }
 
 .skip-link {
@@ -116,7 +136,8 @@ body {
   }
   @media (min-width: 64rem) {
     .conv-grid {
-      grid-template-columns: minmax(0, 1fr) minmax(0, 36rem);
+      /* min(): a root font enlarged by a user style sheet grows 36rem but not the 64rem breakpoint. */
+      grid-template-columns: minmax(0, 1fr) minmax(0, min(36rem, 50%));
       grid-template-rows: auto 1fr;
       grid-template-areas: "log context" "log side";
     }
