@@ -12,6 +12,7 @@ import type { Hearing, HearingStatus } from "@/lib/hearing/engine";
 import { en } from "@/lib/language-packs/en";
 import { getBrowserMemory } from "@/lib/memory/browser";
 import { MemoryStore } from "@/lib/memory/store";
+import { getServerSettings, getSettings, setDigitKeys, setTheme, subscribeSettings } from "@/lib/settings";
 import { SuggestClient } from "@/lib/suggest/client";
 import { getBrowserVoice } from "@/lib/voice/browser";
 import type { VoiceEngine, VoiceMode } from "@/lib/voice/engine";
@@ -24,6 +25,7 @@ import { PartnerInput } from "./partner-input";
 import { ProfilePicker } from "./profile-picker";
 import { ReactionBar } from "./reaction-bar";
 import { ReplyList } from "./reply-list";
+import { SettingsPanel } from "./settings-panel";
 import { ResponseGap } from "./response-gap";
 import { SpokenCaption } from "./spoken-caption";
 import { VoiceStatus } from "./voice-status";
@@ -85,6 +87,7 @@ function Screen() {
   const hearingStatus = useSyncExternalStore<HearingStatus>(subscribeHearing, () => hearing?.status ?? "off", () => "off");
   const [hearingProgress, setHearingProgress] = useState(0);
   const showTimer = useSyncExternalStore(subscribeNever, hasTimerFlag, () => false);
+  const settings = useSyncExternalStore(subscribeSettings, getSettings, getServerSettings);
   const [gaps, setGaps] = useState<number[]>(() => (typeof window === "undefined" ? [] : loadGaps()));
   const [gapTimer] = useState(() => new GapTimer((ms) => setGaps(saveGap(ms))));
 
@@ -199,6 +202,7 @@ function Screen() {
 
   useReplyShortcuts({
     enabled: !conversationHidden,
+    digitKeys: settings.digitKeys,
     replyCount: state.replies.length,
     reactionCount: state.reactions.length,
     onReply: (i) => speak(state.replies[i]?.text ?? ""),
@@ -264,7 +268,7 @@ function Screen() {
           type="button"
           onClick={openOrCloseProfiles}
           aria-expanded={needsProfile}
-          className="min-h-12 rounded-control border-2 border-ink/30 px-4 text-label font-bold whitespace-nowrap transition-[border-color] duration-150 hover:border-ink sm:text-body"
+          className="min-h-12 rounded-control border-2 border-ink/30 px-4 text-label font-bold transition-[border-color] duration-150 hover:border-ink sm:text-body"
         >
           Example profiles
         </button>
@@ -304,6 +308,9 @@ function Screen() {
             <VoiceStatus mode={voiceMode} progress={voiceProgress} />
             {showTimer && <ResponseGap gaps={gaps} />}
           </div>
+        </div>
+        <div className="mt-10 max-w-xl">
+          <SettingsPanel theme={settings.theme} digitKeys={settings.digitKeys} onTheme={setTheme} onDigitKeys={setDigitKeys} />
         </div>
       </main>
     </>

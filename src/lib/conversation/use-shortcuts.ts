@@ -7,6 +7,8 @@ interface Args {
   onReaction: (index: number) => void;
   onEscape: () => void;
   enabled?: boolean;
+  /** Plain 1 to 9 for replies. Single-key shortcuts must be switchable off (WCAG 2.1.4): speech input can type them. */
+  digitKeys?: boolean;
 }
 
 function inTextField(target: EventTarget | null): boolean {
@@ -45,7 +47,7 @@ export function useReplyShortcuts(args: Args): void {
         }
         return;
       }
-      if (inTextField(e.target)) return;
+      if (a.digitKeys === false || inTextField(e.target)) return;
       if (index < a.replyCount) {
         e.preventDefault();
         a.onReply(index);

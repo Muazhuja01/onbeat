@@ -68,4 +68,13 @@ describe("useReplyShortcuts", () => {
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(handlers.onEscape).toHaveBeenCalledTimes(1);
   });
+
+  it("can turn off the single-key reply shortcuts but keep Alt reactions", () => {
+    const handlers = { onReply: vi.fn(), onReaction: vi.fn(), onEscape: vi.fn() };
+    render(<Harness replyCount={3} reactionCount={2} digitKeys={false} {...handlers} />);
+    fireEvent.keyDown(document.body, { key: "1", code: "Digit1" });
+    expect(handlers.onReply).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.body, { key: "1", code: "Digit1", altKey: true });
+    expect(handlers.onReaction).toHaveBeenCalledWith(0);
+  });
 });

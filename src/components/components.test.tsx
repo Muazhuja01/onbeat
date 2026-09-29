@@ -8,6 +8,7 @@ import { CaptionLog } from "./caption-log";
 import { AnnouncerProvider, useAnnounce } from "./announcer";
 import { ListenControl } from "./listen-control";
 import { ResponseGap } from "./response-gap";
+import { SettingsPanel } from "./settings-panel";
 import type { Reply } from "@/lib/types";
 
 const replies: Reply[] = [
@@ -220,5 +221,27 @@ describe("ResponseGap", () => {
   it("shows the last and the median gap", () => {
     render(<ResponseGap gaps={[400, 1200, 800]} />);
     expect(screen.getByText("Replies were ready 0.8 s after they stopped. Median 0.8 s over 3 turns.")).toBeInTheDocument();
+  });
+});
+
+describe("SettingsPanel", () => {
+  it("chooses a theme and turns the number keys off", async () => {
+    const onTheme = vi.fn();
+    const onDigitKeys = vi.fn();
+    render(<SettingsPanel theme="system" digitKeys={true} onTheme={onTheme} onDigitKeys={onDigitKeys} />);
+    await userEvent.click(screen.getByText("Settings"));
+    expect(screen.getByRole("radio", { name: "Match this device" })).toBeChecked();
+    await userEvent.click(screen.getByRole("radio", { name: "High contrast" }));
+    expect(onTheme).toHaveBeenCalledWith("contrast");
+    await userEvent.click(screen.getByRole("checkbox", { name: /Number keys speak replies/ }));
+    expect(onDigitKeys).toHaveBeenCalledWith(false);
+  });
+
+  it("lists the keyboard shortcuts", async () => {
+    render(<SettingsPanel theme="dark" digitKeys={false} onTheme={() => {}} onDigitKeys={() => {}} />);
+    await userEvent.click(screen.getByText("Settings"));
+    expect(screen.getByRole("radio", { name: "Dark" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /Number keys speak replies/ })).not.toBeChecked();
+    for (const key of ["1, 2, 3", "Alt+1, Alt+2", "Enter", "Up arrow", "Esc"]) expect(screen.getByText(key)).toBeInTheDocument();
   });
 });
