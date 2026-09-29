@@ -40,3 +40,6 @@ Thumbs.db
 
 # local tool output
 .playwright-mcp/
+
+.vercel
+.env*
