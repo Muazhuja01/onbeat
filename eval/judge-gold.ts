@@ -145,13 +145,13 @@ export const judgeGold: GoldEntry[] = [
     id: "aisha-11",
     candidates: ["Yes, I saw it.", "Yes, just before stand-up.", "Let me check and get back to you."],
     invented: [2],
-    why: "2 when she read it (just before stand-up)",
+    why: "2 says when she read the email (just before stand-up)",
   },
   {
     // B0, gpt-oss-20b
     id: "aisha-15",
     candidates: ["Yes, I can cover Jen's review this afternoon.", "I\u2019ll be at the third floor office, ready after stand\u2011up.", "If anything changes, let me know before the meeting starts."],
     invented: [2],
-    why: "2 a plan to be ready after stand-up (no stand-up note is sent here)",
+    why: "2 adds a plan and time the partner did not raise (at the office, ready after stand-up)",
   },
 ];
