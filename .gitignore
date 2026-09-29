@@ -22,6 +22,8 @@ coverage/
 playwright-report/
 test-results/
 eval/results/*.json
+eval/hearing/.cache/
+eval/results/hearing-*.md
 
 # downloaded model weights (cached by the browser, never committed)
 models/
