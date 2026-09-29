@@ -4,7 +4,7 @@ import type { MemoryStore } from "@/lib/memory/store";
 import { normalize } from "@/lib/text";
 import type { Reply } from "@/lib/types";
 import { RequestBudget, type RequestPriority } from "./budget";
-import { createObjectSplitter, parseLine, type ParsedLine, type SuggestRequestBody } from "./protocol";
+import { createObjectSplitter, parseObject, type ParsedLine, type SuggestRequestBody } from "./protocol";
 import { buildSuggestRequest, clampInput, type RequestInput } from "./request";
 import { isNearDuplicate, validateReply, type ValidationSources } from "./validate";
 
@@ -176,8 +176,7 @@ export class SuggestClient {
     };
     const splitter = createObjectSplitter(
       (obj) => {
-        const parsed = parseLine(obj);
-        if (parsed) handle(parsed);
+        for (const parsed of parseObject(obj)) handle(parsed);
       },
       // Prose instead of JSON counts as invalid output, so an all-junk answer is retried.
       () => {

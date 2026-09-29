@@ -89,6 +89,33 @@ describe("SuggestClient", () => {
     expect((await client.request(input, () => {}))?.replies.map((r) => r.text)).toEqual(["Large, please."]);
   });
 
+  it("shows the replies of a pretty-printed {\"replies\": [...]} wrapper, split at any chunk boundary", async () => {
+    const text = JSON.stringify(
+      {
+        replies: [{ text: "Large, please.", notes: [] }, "A medium one, thanks.", { reply: "Small is fine.", notes: [] }, "Large, please."],
+        reactions: ["ha"],
+      },
+      null,
+      2,
+    );
+    for (const size of [1, 3, 7, 64]) {
+      const enc = new TextEncoder();
+      const chunks = Array.from({ length: Math.ceil(text.length / size) }, (_, i) => text.slice(i * size, (i + 1) * size));
+      const body = new ReadableStream<Uint8Array>({
+        start(c) {
+          for (const ch of chunks) c.enqueue(enc.encode(ch));
+          c.close();
+        },
+      });
+      const fetchImpl = vi.fn(async () => new Response(body, { status: 200 }));
+      const client = new SuggestClient({ memory: await memory(), pack: en, fetchImpl });
+      const updates: string[][] = [];
+      const result = await client.request(input, (u) => updates.push(u.replies.map((r) => r.text)));
+      expect(result?.replies.map((r) => r.text)).toEqual(["Large, please.", "A medium one, thanks.", "Small is fine."]);
+      expect(updates[0]).toEqual(["Large, please."]);
+    }
+  });
+
   it("retries once on the other provider when output is all junk", async () => {
     const fetchImpl = vi
       .fn()

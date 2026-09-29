@@ -1,5 +1,45 @@
 import { describe, expect, it } from "vitest";
-import { createObjectSplitter, parseLine, SuggestRequestSchema } from "./protocol";
+import { createObjectSplitter, parseLine, parseObject, SuggestRequestSchema } from "./protocol";
+
+describe("parseObject", () => {
+  it("gives the same single result as parseLine for everything parseLine accepts", () => {
+    for (const line of ['{"reply": "Large, please.", "notes": ["n1"]}', '{"reply": "Hi"}', '{"reactions": ["ha", "really"]}', "```json", '{"reply": ', '{"other": 1}']) {
+      expect(parseObject(line)).toEqual([parseLine(line)]);
+    }
+    expect(parseObject("   ")).toEqual([]);
+  });
+  it("expands a wrapper of objects with text", () => {
+    expect(parseObject('{"replies": [{"text": "One thing.", "notes": ["a"]}, {"text": "Another.", "notes": []}]}')).toEqual([
+      { kind: "reply", text: "One thing.", noteIds: ["a"] },
+      { kind: "reply", text: "Another.", noteIds: [] },
+    ]);
+  });
+  it("expands a wrapper of objects with reply and defaults missing notes", () => {
+    expect(parseObject('{"replies": [{"reply": "  Sure.  "}]}')).toEqual([{ kind: "reply", text: "Sure.", noteIds: [] }]);
+  });
+  it("expands a wrapper of plain strings and ignores a top-level notes array", () => {
+    expect(parseObject('{"replies": ["First.", "Second."], "notes": ["n1"]}')).toEqual([
+      { kind: "reply", text: "First.", noteIds: [] },
+      { kind: "reply", text: "Second.", noteIds: [] },
+    ]);
+  });
+  it("turns a bad item into an invalid entry and keeps the others", () => {
+    const out = parseObject(`{"replies": ["Fine.", 5, {"text": ""}, {"text": "${"x".repeat(201)}"}, {"other": 1}]}`);
+    expect(out.map((e) => e.kind)).toEqual(["reply", "invalid", "invalid", "invalid", "invalid"]);
+  });
+  it("adds a reactions entry after the replies", () => {
+    expect(parseObject('{"replies": ["Yes."], "reactions": ["ha", "mm-hmm"]}')).toEqual([
+      { kind: "reply", text: "Yes.", noteIds: [] },
+      { kind: "reactions", ids: ["ha", "mm-hmm"] },
+    ]);
+  });
+  it("rejects a wrapper with too many reactions", () => {
+    expect(parseObject('{"replies": ["Yes."], "reactions": ["a", "b", "c", "d", "e"]}')[0].kind).toBe("invalid");
+  });
+  it("returns no entries for an empty replies list", () => {
+    expect(parseObject('{"replies": []}')).toEqual([]);
+  });
+});
 
 describe("parseLine", () => {
   it("parses reply lines", () => {

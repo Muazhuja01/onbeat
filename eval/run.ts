@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { checkReply } from "@/lib/server/claim-check";
 import { groqExtraBody, providerConfigs, streamCompletion, type ProviderId } from "@/lib/server/providers";
 import { buildMessages } from "@/lib/suggest/prompt";
-import { createObjectSplitter, parseLine } from "@/lib/suggest/protocol";
+import { createObjectSplitter, parseObject } from "@/lib/suggest/protocol";
 import { isNearDuplicate, validateReply } from "@/lib/suggest/validate";
 import { judge, judgeEndpoints, JUDGE_PROMPT_VERSION, JUDGE_VOTES, type JudgeEndpoint } from "./judge";
 import { JudgeCache, judgeWithCache } from "./judge-cache";
@@ -54,14 +54,15 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
     });
     const queue: { text: string; noteIds: string[] }[] = [];
     const splitter = createObjectSplitter((obj) => {
-      const parsed = parseLine(obj);
-      if (parsed?.kind !== "reply") return;
-      rawReplies++;
-      if (!validateReply({ text: parsed.text, noteIds: parsed.noteIds }, sources).ok) {
-        blocked++;
-        return;
+      for (const parsed of parseObject(obj)) {
+        if (parsed.kind !== "reply") continue;
+        rawReplies++;
+        if (!validateReply({ text: parsed.text, noteIds: parsed.noteIds }, sources).ok) {
+          blocked++;
+          continue;
+        }
+        queue.push({ text: parsed.text, noteIds: parsed.noteIds });
       }
-      queue.push({ text: parsed.text, noteIds: parsed.noteIds });
     });
     const drain = async () => {
       while (queue.length) {

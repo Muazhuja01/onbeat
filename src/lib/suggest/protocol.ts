@@ -22,21 +22,49 @@ export type ParsedLine =
   | { kind: "reactions"; ids: string[] }
   | { kind: "invalid"; raw: string };
 
-export function parseLine(raw: string): ParsedLine | null {
+const ReplyText = z.string().trim().min(1).max(200);
+const WrapperItem = z.union([
+  ReplyText.transform((text) => ({ text, notes: [] as string[] })),
+  z.object({ reply: ReplyText, notes: z.array(z.string()).default([]) }).transform((o) => ({ text: o.reply, notes: o.notes })),
+  z.object({ text: ReplyText, notes: z.array(z.string()).default([]) }).transform((o) => ({ text: o.text, notes: o.notes })),
+]);
+const RepliesWrapper = z.object({ replies: z.array(z.unknown()), reactions: z.array(z.string()).max(4).optional() });
+
+/**
+ * Parses one JSON object from the model. A reply line, a reactions line or junk gives one
+ * entry. A {"replies": [...]} wrapper gives one entry per item, then a reactions entry if
+ * the wrapper has one. A top-level notes array is ignored: it cannot be tied to a reply.
+ */
+export function parseObject(raw: string): ParsedLine[] {
   const line = raw.trim();
-  if (!line) return null;
-  if (!line.startsWith("{")) return { kind: "invalid", raw: line };
+  if (!line) return [];
+  if (!line.startsWith("{")) return [{ kind: "invalid", raw: line }];
   let json: unknown;
   try {
     json = JSON.parse(line);
   } catch {
-    return { kind: "invalid", raw: line };
+    return [{ kind: "invalid", raw: line }];
   }
   const reply = ReplyLine.safeParse(json);
-  if (reply.success) return { kind: "reply", text: reply.data.reply.trim(), noteIds: reply.data.notes };
+  if (reply.success) return [{ kind: "reply", text: reply.data.reply.trim(), noteIds: reply.data.notes }];
+  const wrapper = RepliesWrapper.safeParse(json);
+  if (wrapper.success) {
+    const out: ParsedLine[] = wrapper.data.replies.map((item) => {
+      const parsed = WrapperItem.safeParse(item);
+      return parsed.success
+        ? { kind: "reply" as const, text: parsed.data.text, noteIds: parsed.data.notes }
+        : { kind: "invalid" as const, raw: JSON.stringify(item) };
+    });
+    if (wrapper.data.reactions) out.push({ kind: "reactions", ids: wrapper.data.reactions });
+    return out;
+  }
   const reactions = ReactionsLine.safeParse(json);
-  if (reactions.success) return { kind: "reactions", ids: reactions.data.reactions };
-  return { kind: "invalid", raw: line };
+  if (reactions.success) return [{ kind: "reactions", ids: reactions.data.reactions }];
+  return [{ kind: "invalid", raw: line }];
+}
+
+export function parseLine(raw: string): ParsedLine | null {
+  return parseObject(raw)[0] ?? null;
 }
 
 const FENCE = /^`{3}[\w-]*$/;
