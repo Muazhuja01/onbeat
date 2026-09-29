@@ -20,7 +20,8 @@ const isAnswer = (v: unknown): v is CachedAnswer => {
 
 /**
  * Judge answers on disk, keyed by everything the judge sees (the full prompt) and the
- * prompt version, so a rerun only asks the judge about input it hasn't seen.
+ * prompt version (and the vote count), so a rerun only asks the judge about input it hasn't seen.
+ * A voted entry stores the majority judgement as its text and "groq x3" style as its endpoint.
  * Written on every set, so an interrupted run keeps what it paid for.
  */
 export class JudgeCache {
@@ -37,8 +38,9 @@ export class JudgeCache {
     }
   }
 
-  static key(p: { messages: ChatMessage[]; version: number }): string {
-    return createHash("sha256").update(JSON.stringify([p.version, p.messages])).digest("hex");
+  /** Also keyed on the vote count, so a single call and a majority of several never stand in for each other. */
+  static key(p: { messages: ChatMessage[]; version: number; votes?: number }): string {
+    return createHash("sha256").update(JSON.stringify([p.version, p.votes ?? 1, p.messages])).digest("hex");
   }
 
   get(key: string): CachedAnswer | undefined {
@@ -63,8 +65,9 @@ export async function judgeWithCache(
   version: number,
   ask: () => Promise<CachedAnswer>,
   parse: (text: string) => Judgement | null,
+  votes = 1,
 ): Promise<{ judgement: Judgement | null; judgedBy?: string }> {
-  const key = JudgeCache.key({ messages: judgeMessages(input), version });
+  const key = JudgeCache.key({ messages: judgeMessages(input), version, votes });
   const hit = cache.get(key);
   if (hit) {
     const judgement = parse(hit.text);

@@ -7,7 +7,13 @@ const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 export const JUDGE_PROMPT_VERSION = 4;
 
 /** Both endpoints run the judge model at this effort, so a verdict does not depend on which one had quota left. */
-export const JUDGE_REASONING_EFFORT = "medium";
+export const JUDGE_REASONING_EFFORT = "high";
+
+/** Judge calls per scenario; above 1 the majority decides (see judge-vote.ts). Override with --votes. */
+export const JUDGE_VOTES = 3;
+
+/** Room for the reasoning as well as the answer: medium effort used about 1,100 completion tokens on one gold entry and high about 3,800, so 1,500 cut high effort off before it answered. Only tokens used are billed. */
+export const JUDGE_MAX_TOKENS = 8000;
 
 /** gpt-oss models take the shared reasoning setting; any other judge model keeps its endpoint's default body. */
 function judgeExtraBody(model: string, otherwise: Record<string, unknown>): Record<string, unknown> {
@@ -120,7 +126,7 @@ export async function judge(
           model: ep.model,
           messages: judgeMessages(input),
           temperature: 0,
-          max_tokens: 1500,
+          max_tokens: JUDGE_MAX_TOKENS,
           ...ep.extraBody,
           ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
         }),

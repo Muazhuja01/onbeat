@@ -44,6 +44,13 @@ describe("JudgeCache", () => {
     expect(key(input, 3)).not.toBe(k);
   });
 
+  it("keys on the vote count, so single-call and voted judgements never mix", () => {
+    const messages = judgeMessages(input);
+    const one = JudgeCache.key({ messages, version: 4 });
+    expect(JudgeCache.key({ messages, version: 4, votes: 1 })).toBe(one);
+    expect(JudgeCache.key({ messages, version: 4, votes: 3 })).not.toBe(one);
+  });
+
   it("stores answers on disk and reads them back in a new instance", () => {
     const file = tempFile();
     const a = new JudgeCache(file);
@@ -78,6 +85,17 @@ describe("judgeWithCache", () => {
     expect(ask).toHaveBeenCalledTimes(1);
     expect(second.judgedBy).toBe("cache:groq");
     expect(second.judgement?.match).toBe(1);
+  });
+
+  it("does not serve a single-call answer to a voted judgement, or the other way round", async () => {
+    const cache = new JudgeCache(tempFile());
+    await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, async () => answer, parse);
+    const voted = vi.fn(async () => ({ ...answer, endpoint: "groq x3" }));
+    const first = await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, voted, parse, 3);
+    expect(voted).toHaveBeenCalledTimes(1);
+    expect(first.judgedBy).toBe("groq x3");
+    expect((await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, vi.fn(), parse, 3)).judgedBy).toBe("cache:groq x3");
+    expect((await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, vi.fn(), parse)).judgedBy).toBe("cache:groq");
   });
 
   it("keeps the endpoint that answered, even when it was the fallback", async () => {

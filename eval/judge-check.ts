@@ -1,7 +1,8 @@
-import { judge, judgeEndpoints, type JudgeEndpoint } from "./judge";
+import { judge, judgeEndpoints, JUDGE_VOTES, type JudgeEndpoint } from "./judge";
 import { compareToGold, endpointAgreement, type JudgeVerdicts } from "./judge-agreement";
 import { judgeGold } from "./judge-gold";
 import { scenarioJudgeInput } from "./judge-input";
+import { askVoted } from "./judge-vote";
 import { scenarios } from "./scenarios";
 import { parseJudgement } from "./score";
 
@@ -24,7 +25,7 @@ const pct = (a: number, b: number) => (b === 0 ? "n/a" : `${Math.round((a / b) *
  * cache is neither read nor written). Null when the endpoint ran out of quota, since a
  * partial run would read as a worse judge.
  */
-async function runEndpoint(ep: JudgeEndpoint, delay: number, showFacts: boolean): Promise<JudgeVerdicts | null> {
+async function runEndpoint(ep: JudgeEndpoint, delay: number, showFacts: boolean, votes: number): Promise<JudgeVerdicts | null> {
   const spent = new Set<string>();
   const verdicts: JudgeVerdicts = new Map();
   const facts = new Map<string, { n: number; fact: string }[]>();
@@ -32,8 +33,9 @@ async function runEndpoint(ep: JudgeEndpoint, delay: number, showFacts: boolean)
     const sc = scenarios.find((s) => s.id === g.id)!;
     const input = { ...(await scenarioJudgeInput(sc)), candidates: g.candidates };
     try {
-      const { text } = await judge(input, { endpoints: [ep], spent });
-      const j = parseJudgement(text, g.candidates.length);
+      const parse = (text: string) => parseJudgement(text, g.candidates.length);
+      const { text } = await askVoted(() => judge(input, { endpoints: [ep], spent }), parse, votes);
+      const j = parse(text);
       verdicts.set(g.id, j ? j.invented : null);
       if (j) facts.set(g.id, j.unbacked);
       if (!j) console.log(`  ${g.id}: could not read the judge's answer`);
@@ -49,7 +51,7 @@ async function runEndpoint(ep: JudgeEndpoint, delay: number, showFacts: boolean)
   }
 
   const r = compareToGold(judgeGold, verdicts);
-  console.log(`${ep.name} (${ep.model}, ${JSON.stringify(ep.extraBody)})`);
+  console.log(`${ep.name} (${ep.model}, ${JSON.stringify(ep.extraBody)}, ${votes === 1 ? "one call" : `majority of ${votes} calls`} per entry)`);
   console.log(`  agreement with gold: ${r.agree} of ${r.replies} replies (${pct(r.agree, r.replies)})`);
   console.log(`  recall of invented replies: ${r.caught} of ${r.goldInvented} (${pct(r.caught, r.goldInvented)})`);
   console.log(`  false flags: ${r.falseFlags}`);
@@ -66,16 +68,21 @@ async function main() {
   if (!["groq", "cloudflare", "all"].includes(which)) throw new Error(`Unknown endpoint "${which}". Use --endpoint groq, cloudflare or all.`);
   const delay = Number(arg("delay") ?? 1000);
   const showFacts = process.argv.includes("--facts");
+  const votes = Number(arg("votes") ?? JUDGE_VOTES);
+  if (!Number.isInteger(votes) || votes < 1) throw new Error(`--votes must be a whole number of at least 1, not "${arg("votes")}".`);
+  const effort = arg("effort");
   const configured = judgeEndpoints();
   const names = which === "all" ? ["groq", "cloudflare"] : [which];
   const results = new Map<string, JudgeVerdicts>();
   for (const name of names) {
-    const ep = configured.find((e) => e.name === name);
+    const found = configured.find((e) => e.name === name);
+    // --effort overrides the reasoning setting for this check only, to compare settings before changing the default.
+    const ep = found && effort ? { ...found, extraBody: { ...found.extraBody, reasoning_effort: effort } } : found;
     if (!ep) {
       console.log(`${name}: not run (keys not set)`);
       continue;
     }
-    const verdicts = await runEndpoint(ep, delay, showFacts);
+    const verdicts = await runEndpoint(ep, delay, showFacts, votes);
     if (verdicts) results.set(name, verdicts);
   }
   const groq = results.get("groq");

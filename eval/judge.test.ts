@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
-import { judge, judgeEndpoints, judgeMessages, JUDGE_PROMPT_VERSION, JUDGE_REASONING_EFFORT, type JudgeEndpoint, type JudgeInput } from "./judge";
+import { judge, judgeEndpoints, judgeMessages, JUDGE_MAX_TOKENS, JUDGE_PROMPT_VERSION, JUDGE_REASONING_EFFORT, type JudgeEndpoint, type JudgeInput } from "./judge";
 import { judgeGold } from "./judge-gold";
 
 const input: JudgeInput = {
@@ -76,7 +76,7 @@ describe("judge", () => {
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://groq.test");
     const body = JSON.parse(init.body as string);
-    expect(body).toMatchObject({ model: "openai/gpt-oss-120b", temperature: 0, reasoning_effort: "low", response_format: { type: "json_object" } });
+    expect(body).toMatchObject({ model: "openai/gpt-oss-120b", temperature: 0, max_tokens: JUDGE_MAX_TOKENS, reasoning_effort: "low", response_format: { type: "json_object" } });
     expect((init.headers as Record<string, string>).authorization).toBe("Bearer g");
   });
 
@@ -162,7 +162,7 @@ describe("judgeEndpoints", () => {
 
   it("sends the same reasoning setting to both endpoints", () => {
     const [g, c] = judgeEndpoints({ GROQ_API_KEY: "g", CLOUDFLARE_ACCOUNT_ID: "acc", CLOUDFLARE_API_TOKEN: "c" } as unknown as NodeJS.ProcessEnv);
-    expect(JUDGE_REASONING_EFFORT).toBe("medium");
+    expect(JUDGE_REASONING_EFFORT).toBe("high");
     expect(c.extraBody).toEqual({ reasoning_effort: JUDGE_REASONING_EFFORT });
     expect(g.extraBody).toEqual(c.extraBody);
   });

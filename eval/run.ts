@@ -4,9 +4,10 @@ import { groqExtraBody, providerConfigs, streamCompletion, type ProviderId } fro
 import { buildMessages } from "@/lib/suggest/prompt";
 import { createObjectSplitter, parseLine } from "@/lib/suggest/protocol";
 import { isNearDuplicate, validateReply } from "@/lib/suggest/validate";
-import { judge, judgeEndpoints, JUDGE_PROMPT_VERSION, type JudgeEndpoint } from "./judge";
+import { judge, judgeEndpoints, JUDGE_PROMPT_VERSION, JUDGE_VOTES, type JudgeEndpoint } from "./judge";
 import { JudgeCache, judgeWithCache } from "./judge-cache";
 import { scenarioRequest } from "./judge-input";
+import { askVoted } from "./judge-vote";
 import { withRetry } from "./retry";
 import { scenarios, type Scenario } from "./scenarios";
 import { testScenarios } from "./test-scenarios";
@@ -27,7 +28,7 @@ function arg(name: string): string | undefined {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-async function runScenario(sc: Scenario, provider: ProviderId, model: string, endpoints: JudgeEndpoint[], cache: JudgeCache, spent: Set<string>, claimCheck: boolean): Promise<ScenarioResult> {
+async function runScenario(sc: Scenario, provider: ProviderId, model: string, endpoints: JudgeEndpoint[], cache: JudgeCache, spent: Set<string>, claimCheck: boolean, votes: number): Promise<ScenarioResult> {
   const { body, sources, judgeInput } = await scenarioRequest(sc);
   const typed = judgeInput.typed;
 
@@ -114,7 +115,8 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
   if (shown.length) {
     const input = { ...judgeInput, candidates: shown };
     try {
-      ({ judgement, judgedBy } = await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, () => judge(input, { endpoints, spent }), (text) => parseJudgement(text, shown.length)));
+      const parse = (text: string) => parseJudgement(text, shown.length);
+      ({ judgement, judgedBy } = await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, () => askVoted(() => judge(input, { endpoints, spent }), parse, votes), parse, votes));
     } catch (err) {
       console.warn(`  judge failed for ${sc.id}: ${err instanceof Error ? err.message : String(err)}`);
       judgement = null;
@@ -149,6 +151,8 @@ async function main() {
   const persona = arg("persona");
   const limit = Number(arg("limit") ?? Infinity);
   const delay = Number(arg("delay") ?? 2500);
+  const votes = Number(arg("votes") ?? JUDGE_VOTES);
+  if (!Number.isInteger(votes) || votes < 1) throw new Error(`--votes must be a whole number of at least 1, not "${arg("votes")}".`);
   const judgeModel = process.env.EVAL_JUDGE_MODEL ?? "openai/gpt-oss-120b";
   const endpoints = judgeEndpoints();
   if (endpoints.length === 0) throw new Error("No judge endpoint: set GROQ_API_KEY (and optionally the Cloudflare keys) in .env.local.");
@@ -171,7 +175,7 @@ async function main() {
     const list: ScenarioResult[] = [];
     for (const sc of chosen) {
       const spentBefore = new Set(spent);
-      const r = await runScenario(sc, provider, model, endpoints, cache, spent, claimCheck);
+      const r = await runScenario(sc, provider, model, endpoints, cache, spent, claimCheck, votes);
       list.push(r);
       for (const ep of spent) {
         if (!spentBefore.has(ep)) console.log(`  judge: ${ep} is out of quota, using the next judge for the rest of the run`);
