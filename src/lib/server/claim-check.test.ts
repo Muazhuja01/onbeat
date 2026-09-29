@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
-import { checkReply, claimCheckMessages, type ClaimCheckInput } from "./claim-check";
+import { checkReply, claimCheckMaxTokens, claimCheckMessages, DEFAULT_CLAIM_CHECK_MODEL, type ClaimCheckInput } from "./claim-check";
 
 const input: ClaimCheckInput = {
   reply: "I went to the park.",
@@ -33,7 +33,26 @@ describe("checkReply", () => {
     await checkReply(input, { apiKey: "k", model: "m", fetchImpl });
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://api.groq.com/openai/v1/chat/completions");
-    expect(JSON.parse(init.body as string)).toMatchObject({ model: "m", temperature: 0, max_tokens: 3 });
+    expect(JSON.parse(init.body as string)).toMatchObject({ model: "m", temperature: 0, max_tokens: 3, reasoning_effort: "none" });
+  });
+
+  it.each([
+    ["qwen/qwen3.8-27b", "none", 3],
+    ["openai/gpt-oss-20b", "low", 64],
+  ])("sends the provider settings for %s", async (model, effort, maxTokens) => {
+    const fetchImpl = vi.fn(async () => answer("ok"));
+    await checkReply(input, { apiKey: "k", model, fetchImpl });
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({ model, reasoning_effort: effort, max_tokens: maxTokens });
+    expect(claimCheckMaxTokens(model)).toBe(maxTokens);
+  });
+
+  it("uses the default model when none is given", async () => {
+    const fetchImpl = vi.fn(async () => answer("ok"));
+    await checkReply(input, { apiKey: "k", fetchImpl });
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string).model).toBe(DEFAULT_CLAIM_CHECK_MODEL);
+    expect(DEFAULT_CLAIM_CHECK_MODEL).toBe("openai/gpt-oss-20b");
   });
 
   it("returns unknown on an unclear answer, an HTTP error, a network error or no key", async () => {

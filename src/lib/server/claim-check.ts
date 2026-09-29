@@ -1,4 +1,5 @@
 import type { ChatMessage } from "@/lib/suggest/prompt";
+import { groqExtraBody } from "./providers";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
@@ -9,6 +10,13 @@ export interface ClaimCheckInput {
   typed: string;
   contextLine: string;
   phrases: string[];
+}
+
+export const DEFAULT_CLAIM_CHECK_MODEL = "openai/gpt-oss-20b";
+
+/** One word fits in 3 tokens when reasoning is off; gpt-oss always reasons a little first. */
+export function claimCheckMaxTokens(model: string): number {
+  return model.startsWith("openai/gpt-oss") ? 64 : 3;
 }
 
 export type ClaimVerdict = "ok" | "invented" | "unknown";
@@ -46,6 +54,7 @@ export async function checkReply(
 ): Promise<ClaimVerdict> {
   if (!opts.apiKey) return "unknown";
   const fetchImpl = opts.fetchImpl ?? fetch;
+  const model = opts.model ?? process.env.CLAIM_CHECK_MODEL ?? DEFAULT_CLAIM_CHECK_MODEL;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 600);
   try {
@@ -53,10 +62,11 @@ export async function checkReply(
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${opts.apiKey}` },
       body: JSON.stringify({
-        model: opts.model ?? process.env.CLAIM_CHECK_MODEL ?? "llama-3.1-8b-instant",
+        model,
         messages: claimCheckMessages(input),
         temperature: 0,
-        max_tokens: 3,
+        max_tokens: claimCheckMaxTokens(model),
+        ...groqExtraBody(model),
       }),
       signal: controller.signal,
     });
