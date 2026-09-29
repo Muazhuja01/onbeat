@@ -17,7 +17,7 @@ interface Props {
 export const ReplyList = forwardRef<HTMLElement, Props>(function ReplyList({ replies, speaking, status, onSpeak, onStop }, ref) {
   return (
     <section ref={ref} id="replies" tabIndex={-1} aria-labelledby="replies-heading" className="flex flex-col gap-3 outline-none">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <h2 id="replies-heading" className="text-body font-bold">
           Replies
         </h2>
