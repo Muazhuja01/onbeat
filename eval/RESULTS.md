@@ -2,7 +2,7 @@
 
 Scenarios: 60 in the dev set (`eval/scenarios.ts`, used for tuning) and 60 in the held-out test set (`eval/test-scenarios.ts`, written before tuning and not changed afterwards). They cover three example profiles: Maya at the café, Tom at the pharmacy, Aisha at work. Each scenario has what the other person said, sometimes a few typed letters, and the sentence the user meant. Replies go through the same request builder, prompt and validator as the app. A second model (the judge) decides whether any shown reply says what the user meant and whether a shown reply states a fact that isn't in the notes, the conversation or the saved phrases.
 
-Run it with `npm run eval` (needs the keys in `.env.local`). The raw output of the last runs is in `results/latest-dev.md` and `results/latest-test.md`. Both use the claim check.
+Run it with `npm run eval` (needs the keys in `.env.local`). The raw output of the runs of record is in `results/latest-dev.md` (dev run B4) and `results/latest-test.md` (test run T1). Both are without the claim check, which is how the app ships.
 
 ## Quality pass (2026-09-29)
 
@@ -12,7 +12,7 @@ What changed:
 - Prompt: tuned on the dev set. The prompt states that a reply may only use facts from the notes, the conversation or the saved phrases, no longer invites new facts about the person, keeps the neutral reply free of invented plans, never contradicts a note, and does not place the person anywhere the sources don't.
 - Pinned about-me note: the note that says who the user is and how they communicate is always sent.
 - Validator: names at the start of a sentence, names after a title, and relative time phrases are now checked; everyday openers and titles no longer count as names.
-- Claim check: a second, small model (`openai/gpt-oss-20b` on Groq by default) reads each reply against the notes and the conversation and hides the ones it calls invented. It is on by owner decision (`CLAIM_CHECK=on`), made after dev run B5 showed 5% invented. It costs hit rate and time (see the targets below). It is off when `CLAIM_CHECK` is unset.
+- Claim check: a second, small model (`openai/gpt-oss-20b` on Groq by default) reads each reply against the notes and the conversation and hides the ones it calls invented. It was turned on after dev run B5 showed 5% invented, then turned off by owner decision after the test runs: on the test set it cost 5 points of hit rate and about 440 ms for 3 points fewer invented details (see the targets below). The code stays; set `CLAIM_CHECK=on` to enable it.
 - Judge and scoring: the judge lists each fact and its source, sees the saved phrases, grades plain answers as answers, and takes a majority of 3 calls per scenario. Scoring counts invented details over judged replies and reports empty answers, replies dropped by the claim check and checks that could not decide. Judge answers are cached, keyed on the judge settings.
 
 ### How to read these numbers
@@ -56,13 +56,13 @@ Hit rate, target 90%. Without the claim check the hit rate is 87%, 3 points shor
 
 Invented details, target under 5% of shown replies. The judge measured 12% without the check (20 of 168) and 9% with it (13 of 143). The dev set reached 5% (7 of 146) with the check, and the test set did not follow. The judge flags plain answers too often (see above); a manual read of T1's flags put the true rate near 7%, which would still miss the target without the check.
 
-The claim check trades hit rate for fewer invented details: on the test set it lowered invented from 12% to 9% and the hit rate from 87% to 82%. It dropped 33 replies and could not decide on 68.
+The claim check trades hit rate for fewer invented details: on the test set it lowered invented from 12% to 9% and the hit rate from 87% to 82%. It dropped 33 replies and could not decide on 68. The app ships with the check off, so T1 is the result of record.
 
 First reply p50 against the plan 2 baseline (254 ms for this model, target: at most 150 ms more). Without the check it is 344 ms, 90 ms above the baseline and inside the limit. With the check it is 783 ms, 529 ms above, outside the limit. The check adds about 440 ms to the first reply in the eval.
 
 ### In-app timing
 
-Time from the other person's last word until replies are on screen, measured by the live browser check (`tests/e2e/live-hearing.spec.ts`, Chromium on an AMD Ryzen 7 6800HS with Windows 11 Home, claim check on via `CLAIM_CHECK=on`, 10 turns): gaps of 1606, 1310, 1093, 1177, 644, 679, 691, 647, 0 and 646 ms, median 679 ms, p95 1606 ms (nearest rank). The 0 ms turn is a reply that was prepared while the partner was still talking. This is one run of one fake-microphone fixture that loops a single question, so it says little about real conversations. The plan 2 run (5 turns, no claim check) had a median of 1159 ms and a p95 of 3665 ms; the two runs are not a like-for-like comparison, since the fixture, the network and the model load differ.
+Time from the other person's last word until replies are on screen, measured by the live browser check (`tests/e2e/live-hearing.spec.ts`, Chromium on an AMD Ryzen 7 6800HS with Windows 11 Home, claim check on via `CLAIM_CHECK=on`, 10 turns): gaps of 1606, 1310, 1093, 1177, 644, 679, 691, 647, 0 and 646 ms, median 679 ms, p95 1606 ms (nearest rank). The 0 ms turn is a reply that was prepared while the partner was still talking. This run had the claim check on; the app now ships with it off, so these gaps overstate the default. This is one run of one fake-microphone fixture that loops a single question, so it says little about real conversations. The plan 2 run (5 turns, no claim check) had a median of 1159 ms and a p95 of 3665 ms; the two runs are not a like-for-like comparison, since the fixture, the network and the model load differ.
 
 ### Known gaps
 
