@@ -64,6 +64,8 @@ describe("askVoted", () => {
     expect(ask).toHaveBeenCalledTimes(4);
     expect(parse(out.text)).toEqual({ match: 1, invented: [], unbacked: [] });
     expect(out.note).toBeUndefined();
+    expect(out.readableVotes).toBe(3);
+    expect(out.endpoint).toBe("groq x3");
   });
 
   it("still judges when 2 of 3 votes are readable after retries", async () => {
@@ -71,6 +73,8 @@ describe("askVoted", () => {
     const out = await askVoted(ask, parse, 3);
     expect(ask).toHaveBeenCalledTimes(4);
     expect(parse(out.text)).not.toBeNull();
+    expect(out.readableVotes).toBe(2);
+    expect(out.endpoint).toBe("groq x3 (2 readable)");
   });
 
   it("gives an empty answer with a reason when only 1 of 3 votes is readable", async () => {

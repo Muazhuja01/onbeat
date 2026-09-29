@@ -40,11 +40,12 @@ export function judgementText(j: Judgement): string {
   return JSON.stringify({ match: j.match, invented: j.invented, replies });
 }
 
-/** "groq x3", or "groq x2+cloudflare x1" when a spent endpoint handed over part way. */
-export function votedBy(endpoints: string[]): string {
+/** "groq x3", or "groq x2+cloudflare x1" when a spent endpoint handed over part way, plus " (2 readable)" when some votes could not be read. */
+export function votedBy(endpoints: string[], readable = endpoints.length): string {
   const counts = new Map<string, number>();
   for (const e of endpoints) counts.set(e, (counts.get(e) ?? 0) + 1);
-  return [...counts].map(([e, k]) => `${e} x${k}`).join("+");
+  const named = [...counts].map(([e, k]) => `${e} x${k}`).join("+");
+  return readable < endpoints.length ? `${named} (${readable} readable)` : named;
 }
 
 /**
@@ -71,8 +72,9 @@ export async function askVoted(ask: () => Promise<CachedAnswer>, parse: (text: s
     if (!judgement) unreadable.push(unreadableWhy(answer));
   }
   const judgement = voteJudgements(calls, votes);
-  const endpoint = votedBy(answers.map((a) => a.endpoint));
-  if (judgement) return { text: judgementText(judgement), endpoint, model: answers[0].model };
+  const readableVotes = calls.filter((c) => c !== null).length;
+  const endpoint = votedBy(answers.map((a) => a.endpoint), readableVotes);
+  if (judgement) return { text: judgementText(judgement), endpoint, model: answers[0].model, readableVotes };
   const note = `judge answer unreadable after a retry (${votes - unreadable.length} of ${votes} votes readable; unreadable: ${unreadable.join("; ")})`;
   return { text: "", endpoint, model: answers[0].model, note };
 }

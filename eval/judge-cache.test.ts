@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -51,6 +51,27 @@ describe("JudgeCache", () => {
     expect(JudgeCache.key({ messages, version: 4, votes: 3 })).not.toBe(one);
   });
 
+  it("keys on the judge models, reasoning effort and max tokens", () => {
+    const messages = judgeMessages(input);
+    const cfg = { models: ["openai/gpt-oss-120b", "@cf/openai/gpt-oss-120b"], reasoningEffort: "high", maxTokens: 8000 };
+    const k = JudgeCache.key({ messages, version: 4, votes: 3, ...cfg });
+    expect(JudgeCache.key({ messages, version: 4, votes: 3, ...cfg, models: [...cfg.models] })).toBe(k);
+    expect(JudgeCache.key({ messages, version: 4, votes: 3, ...cfg, models: ["other/model", cfg.models[1]] })).not.toBe(k);
+    expect(JudgeCache.key({ messages, version: 4, votes: 3, ...cfg, models: [cfg.models[0]] })).not.toBe(k);
+    expect(JudgeCache.key({ messages, version: 4, votes: 3, ...cfg, models: [cfg.models[1], cfg.models[0]] })).not.toBe(k);
+    expect(JudgeCache.key({ messages, version: 4, votes: 3, ...cfg, reasoningEffort: "medium" })).not.toBe(k);
+    expect(JudgeCache.key({ messages, version: 4, votes: 3, ...cfg, maxTokens: 1500 })).not.toBe(k);
+  });
+
+  it("writes through a temp file and leaves only the cache file behind", () => {
+    const file = tempFile();
+    const c = new JudgeCache(file);
+    c.set("a", answer);
+    c.set("b", answer);
+    expect(readdirSync(dirname(file))).toEqual(["cache.json"]);
+    expect(new JudgeCache(file).get("b")).toEqual(answer);
+  });
+
   it("stores answers on disk and reads them back in a new instance", () => {
     const file = tempFile();
     const a = new JudgeCache(file);
@@ -96,6 +117,21 @@ describe("judgeWithCache", () => {
     expect(first.judgedBy).toBe("groq x3");
     expect((await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, vi.fn(), parse, 3)).judgedBy).toBe("cache:groq x3");
     expect((await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, vi.fn(), parse)).judgedBy).toBe("cache:groq");
+  });
+
+  it("misses the cache when the judge config differs and hits when it is the same", async () => {
+    const cache = new JudgeCache(tempFile());
+    const cfg = { models: ["m1"], reasoningEffort: "high", maxTokens: 8000 };
+    const run = (config: typeof cfg, ask: () => Promise<typeof answer>) => judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, ask, parse, 1, undefined, config);
+    await run(cfg, async () => answer);
+    const same = vi.fn(async () => answer);
+    expect((await run({ ...cfg }, same)).judgedBy).toBe("cache:groq");
+    expect(same).not.toHaveBeenCalled();
+    for (const other of [{ ...cfg, models: ["m2"] }, { ...cfg, reasoningEffort: "low" }, { ...cfg, maxTokens: 100 }]) {
+      const ask = vi.fn(async () => answer);
+      expect((await run(other, ask)).judgedBy).toBe("groq");
+      expect(ask).toHaveBeenCalledTimes(1);
+    }
   });
 
   it("keeps the endpoint that answered, even when it was the fallback", async () => {

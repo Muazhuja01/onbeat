@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { ChatMessage } from "@/lib/suggest/prompt";
 import { judgeMessages, type JudgeInput } from "./judge";
@@ -12,6 +12,8 @@ export interface CachedAnswer {
   model: string;
   /** The API's finish_reason for the answer, when it gave one ("length" means the token budget ran out). */
   finishReason?: string;
+  /** For a voted answer: how many of the votes could be read. */
+  readableVotes?: number;
   /** Why no judgement could be read from this answer; set by askVoted, never cached. */
   note?: string;
 }
@@ -21,6 +23,14 @@ const isAnswer = (v: unknown): v is CachedAnswer => {
   const a = v as Record<string, unknown>;
   return typeof a.text === "string" && typeof a.endpoint === "string" && typeof a.model === "string";
 };
+
+/** The judge settings that shape an answer besides the prompt: without them in the key, a changed model or effort would reuse old answers. */
+export interface JudgeConfig {
+  /** Model id of every endpoint the run may use, in order. */
+  models?: string[];
+  reasoningEffort?: string;
+  maxTokens?: number;
+}
 
 /**
  * Judge answers on disk, keyed by everything the judge sees (the full prompt) and the
@@ -42,9 +52,11 @@ export class JudgeCache {
     }
   }
 
-  /** Also keyed on the vote count, so a single call and a majority of several never stand in for each other. */
-  static key(p: { messages: ChatMessage[]; version: number; votes?: number }): string {
-    return createHash("sha256").update(JSON.stringify([p.version, p.votes ?? 1, p.messages])).digest("hex");
+  /** Also keyed on the vote count and the judge settings, so answers from another config never stand in for each other. */
+  static key(p: { messages: ChatMessage[]; version: number; votes?: number } & JudgeConfig): string {
+    return createHash("sha256")
+      .update(JSON.stringify([p.version, p.votes ?? 1, p.models ?? [], p.reasoningEffort ?? null, p.maxTokens ?? null, p.messages]))
+      .digest("hex");
   }
 
   get(key: string): CachedAnswer | undefined {
@@ -54,7 +66,10 @@ export class JudgeCache {
   set(key: string, answer: CachedAnswer): void {
     this.entries[key] = answer;
     mkdirSync(dirname(this.file), { recursive: true });
-    writeFileSync(this.file, `${JSON.stringify(this.entries)}\n`);
+    // Write beside the cache and rename over it, so a killed run never leaves a truncated file.
+    const tmp = `${this.file}.${process.pid}.tmp`;
+    writeFileSync(tmp, `${JSON.stringify(this.entries)}\n`);
+    renameSync(tmp, this.file);
   }
 }
 
@@ -78,8 +93,9 @@ export async function judgeWithCache(
   parse: (text: string) => Judgement | null,
   votes = 1,
   log: (message: string) => void = () => {},
+  config: JudgeConfig = {},
 ): Promise<{ judgement: Judgement | null; judgedBy?: string }> {
-  const key = JudgeCache.key({ messages: judgeMessages(input), version, votes });
+  const key = JudgeCache.key({ messages: judgeMessages(input), version, votes, ...config });
   const hit = cache.get(key);
   if (hit) {
     const judgement = parse(hit.text);

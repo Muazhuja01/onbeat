@@ -4,7 +4,7 @@ import { groqExtraBody, providerConfigs, streamCompletion, type ProviderId } fro
 import { buildMessages } from "@/lib/suggest/prompt";
 import { createObjectSplitter, parseObject } from "@/lib/suggest/protocol";
 import { isNearDuplicate, validateReply } from "@/lib/suggest/validate";
-import { judge, judgeEndpoints, JUDGE_PROMPT_VERSION, JUDGE_VOTES, type JudgeEndpoint } from "./judge";
+import { judge, judgeEndpoints, JUDGE_MAX_TOKENS, JUDGE_PROMPT_VERSION, JUDGE_REASONING_EFFORT, JUDGE_VOTES, type JudgeEndpoint } from "./judge";
 import { JudgeCache, judgeWithCache } from "./judge-cache";
 import { scenarioRequest } from "./judge-input";
 import { askVoted } from "./judge-vote";
@@ -117,7 +117,7 @@ async function runScenario(sc: Scenario, provider: ProviderId, model: string, en
     const input = { ...judgeInput, candidates: shown };
     try {
       const parse = (text: string) => parseJudgement(text, shown.length);
-      ({ judgement, judgedBy } = await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, () => askVoted(() => judge(input, { endpoints, spent }), parse, votes), parse, votes, (reason) => console.warn(`  ${sc.id}: ${reason}`)));
+      ({ judgement, judgedBy } = await judgeWithCache(cache, input, JUDGE_PROMPT_VERSION, () => askVoted(() => judge(input, { endpoints, spent }), parse, votes), parse, votes, (reason) => console.warn(`  ${sc.id}: ${reason}`), { models: endpoints.map((e) => e.model), reasoningEffort: JUDGE_REASONING_EFFORT, maxTokens: JUDGE_MAX_TOKENS }));
     } catch (err) {
       console.warn(`  judge failed for ${sc.id}: ${err instanceof Error ? err.message : String(err)}`);
       judgement = null;
@@ -197,6 +197,7 @@ async function main() {
       ranAt,
       set,
       judgeModel,
+      judge: { promptVersion: JUDGE_PROMPT_VERSION, reasoningEffort: JUDGE_REASONING_EFFORT, votes, maxTokens: JUDGE_MAX_TOKENS, endpointModels: endpoints.map((e) => e.model) },
       summaries,
       results,
       scenarioCount: chosen.length,
