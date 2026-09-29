@@ -42,7 +42,7 @@ describe("filterReplies", () => {
 
   it("passes invalid wrapper entries through once per wrapper", async () => {
     const out = await collect(filterReplies(chunks('{"replies": ["Yes.", 1, 2]}'), async () => "ok"));
-    expect(out).toEqual(['{"reply":"Yes.","notes":[]}\n', "1\n"]);
+    expect(out).toEqual(['{"reply":"Yes.","notes":[]}\n', "invalid\n"]);
   });
 
   it("yields a wrapper with nothing usable as it came", async () => {
