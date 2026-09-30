@@ -147,3 +147,81 @@ describe("MemoryStore", () => {
     expect((await m.searchNotes("", ctx)).map((n) => n.id)).toEqual([]);
   });
 });
+
+describe("quick phrases", () => {
+  const person = { id: "sam", kind: "person" as const, text: "Sam is the barista.", entities: ["Sam"], updatedAt: 0 };
+  const place = { id: "cafe", kind: "place" as const, text: "Blue Door Café.", entities: ["Blue Door Café"], updatedAt: 0 };
+
+  async function store() {
+    let t = 1_000;
+    const s = await MemoryStore.create({ now: () => (t += 1000) });
+    await s.replaceAll([person, place], []);
+    return s;
+  }
+
+  it("shows phrases for the person first, then the place, else general ones", async () => {
+    const s = await store();
+    await s.addQuickPhrase("My usual, please.", { partnerId: "sam" });
+    await s.addQuickPhrase("Can I sit by the window?", { placeId: "cafe" });
+    await s.addQuickPhrase("I type to talk.", {});
+    expect(s.quickPhrases({ partnerId: "sam", placeId: "cafe" }).map((p) => p.text)).toEqual(["My usual, please.", "Can I sit by the window?"]);
+    expect(s.quickPhrases({}).map((p) => p.text)).toEqual(["I type to talk."]);
+    expect(s.quickPhrases({ partnerId: "someone-else" }).map((p) => p.text)).toEqual(["I type to talk."]);
+  });
+
+  it("never shows everyday phrases and caps the row at 4", async () => {
+    const s = await store();
+    await s.addPhrase("Morning!", { now: new Date() });
+    for (const t of ["One.", "Two.", "Three.", "Four.", "Five."]) await s.addQuickPhrase(t, {});
+    const row = s.quickPhrases({});
+    expect(row).toHaveLength(4);
+    expect(row.map((p) => p.text)).not.toContain("Morning!");
+  });
+
+  it("orders by use, then newest", async () => {
+    const s = await store();
+    await s.addQuickPhrase("Old.", {});
+    await s.addQuickPhrase("New.", {});
+    expect(s.quickPhrases({}).map((p) => p.text)).toEqual(["New.", "Old."]);
+    await s.addPhrase("Old.", { now: new Date() });
+    expect(s.quickPhrases({}).map((p) => p.text)).toEqual(["Old.", "New."]);
+  });
+
+  it("keeps a quick phrase tied to its person when it is spoken elsewhere", async () => {
+    const s = await store();
+    await s.addQuickPhrase("My usual, please.", { partnerId: "sam" });
+    await s.addPhrase("My usual, please.", { now: new Date(), partnerId: undefined, placeId: undefined });
+    const [p] = s.allQuickPhrases();
+    expect(p.context.partnerId).toBe("sam");
+    expect(p.timesUsed).toBe(1);
+  });
+
+  it("refuses a duplicate, and turns an everyday phrase with the same words into a quick one", async () => {
+    const s = await store();
+    expect(await s.addQuickPhrase("My usual, please.", {})).not.toBeNull();
+    expect(await s.addQuickPhrase("my usual please", {})).toBeNull();
+    await s.addPhrase("See you tomorrow.", { now: new Date() });
+    const made = await s.addQuickPhrase("See you tomorrow.", { partnerId: "sam" });
+    expect(made?.quick).toBe(true);
+    expect(s.phrases().filter((p) => p.text === "See you tomorrow.")).toHaveLength(1);
+  });
+
+  it("unties phrases from a deleted note", async () => {
+    const s = await store();
+    await s.addQuickPhrase("My usual, please.", { partnerId: "sam" });
+    await s.removeNote("sam");
+    expect(s.quickPhrases({}).map((p) => p.text)).toEqual(["My usual, please."]);
+    expect(s.allQuickPhrases()[0].context.partnerId).toBeUndefined();
+  });
+
+  it("edits and removes a quick phrase", async () => {
+    const s = await store();
+    const a = (await s.addQuickPhrase("One.", {}))!;
+    await s.addQuickPhrase("Two.", {});
+    expect(await s.updateQuickPhrase(a.id, "Two.", {})).toBe(false);
+    expect(await s.updateQuickPhrase(a.id, "Uno.", { placeId: "cafe" })).toBe(true);
+    expect(s.allQuickPhrases().find((p) => p.id === a.id)?.context.placeId).toBe("cafe");
+    await s.removePhrase(a.id);
+    expect(s.allQuickPhrases().map((p) => p.text)).toEqual(["Two."]);
+  });
+});
