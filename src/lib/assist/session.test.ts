@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "@/lib/memory/store";
 import type { Note } from "@/lib/types";
 import type { AssistResult } from "./client";
-import type { AssistRequest } from "./protocol";
+import { NOTE_MAX, noteFields } from "@/lib/profiles/notes";
+import { ASSIST_PHRASES_MAX, AssistRequestSchema, type AssistRequest } from "./protocol";
 import { AssistSession, LIMIT_TEXT, SORRY } from "./session";
 
 const me: Note = { id: "me", kind: "about-me", text: "I'm Maya.", entities: [], updatedAt: 0, pinned: true };
@@ -169,6 +170,145 @@ describe("AssistSession", () => {
     for (let i = 0; i < 21; i++) await session.send(`Message ${i}`);
     expect(post).toHaveBeenCalledTimes(20);
     expect(session.state.lines.at(-1)?.text).toBe(LIMIT_TEXT);
+  });
+
+  it("builds a card on the note text the model was sent, not the text when the answer arrives", async () => {
+    const { session, memory, post } = await setup([]);
+    post.mockImplementationOnce(async (body) => ({
+      ok: true,
+      say: "Here.",
+      proposals: [{ action: "edit", kind: "routine", noteId: "physio", text: "I have physio on Thursdays at 10:30.", lineIds: [userId(body)] }],
+    }));
+    await session.send("Physio moved to Thursdays.");
+    const first = session.state.cards[0];
+
+    // The next request goes out with physio still on Tuesdays in its notes.
+    let release!: (r: AssistResult) => void;
+    let sent!: AssistRequest;
+    post.mockImplementationOnce((body) => {
+      sent = body;
+      return new Promise((r) => (release = r));
+    });
+    const turn = session.send("And it's at 11 now.");
+    await vi.waitFor(() => expect(release).toBeDefined());
+    expect(sent.notes.find((n) => n.id === "physio")?.text).toBe(physio.text);
+    // While waiting, the user keeps the earlier card.
+    expect(await session.keep(first.id)).toBe("kept");
+    // The answer proposes an edit built on the Tuesdays text it was sent.
+    release({ ok: true, say: "Here.", proposals: [{ action: "edit", kind: "routine", noteId: "physio", text: "I have physio on Tuesdays at 11:00.", lineIds: [userId(sent, 1)] }] });
+    await turn;
+
+    const late = session.state.cards[1];
+    expect(late).toMatchObject({ action: "edit", oldText: physio.text, changed: true });
+    expect(await session.keep(late.id)).toBe("changed");
+    expect(memory.getNote("physio")?.text).toBe("I have physio on Thursdays at 10:30.");
+  });
+
+  it("keeps a person or place's stored name when an edit sends none", async () => {
+    const { session, memory, post } = await setup([]);
+    await memory.upsertNote({ id: "cafe", kind: "place", text: "Blue Door Café: my local café.", entities: ["Blue Door Café"], updatedAt: 0 });
+    post.mockImplementationOnce(async (body) => ({
+      ok: true,
+      say: "Here.",
+      proposals: [{ action: "edit", kind: "place", noteId: "cafe", text: "My local café. I go on Sundays.", lineIds: [userId(body)] }],
+    }));
+    await session.send("I go to Blue Door on Sundays.");
+    const [card] = session.state.cards;
+    expect(card.draft).toEqual({ kind: "place", name: "Blue Door Café", text: "My local café. I go on Sundays." });
+    expect(await session.keep(card.id)).toBe("kept");
+    const saved = memory.getNote("cafe")!;
+    expect(saved.text).toBe("Blue Door Café: My local café. I go on Sundays.");
+    expect(noteFields(saved).name).toBe("Blue Door Café");
+  });
+
+  it("builds a request the route accepts from long imported notes and many quick phrases", async () => {
+    const { session, memory, bodies, post } = await setup([]);
+    const long: Note = { id: "long", kind: "person", text: `Priya: ${"She is my pharmacist. ".repeat(24)}`.slice(0, 500), entities: ["P".repeat(200)], updatedAt: 0 };
+    const many: Note[] = Array.from({ length: 60 }, (_, i) => ({ id: `n${i}`, kind: "routine", text: `Routine ${i}: ${"y".repeat(490)}`, entities: [], updatedAt: 0 }));
+    const phrases = Array.from({ length: 150 }, (_, i) => ({
+      id: `p${i}`,
+      text: i % 10 === 0 ? `Phrase ${i} ${"z".repeat(1990)}` : `Phrase ${i}.`,
+      context: { timeOfDay: "morning" as const, ...(i % 3 === 0 ? { partnerId: "long" } : {}) },
+      timesUsed: 0,
+      lastUsed: i,
+      quick: true as const,
+    }));
+    await memory.replaceAll([me, physio, sam, long, ...many], phrases);
+    post.mockImplementationOnce(async (body) => ({ ok: true, say: "Remove?", proposals: [{ action: "remove", noteId: "long", lineIds: [userId(body)] }] }));
+    await session.send("Priya left the pharmacy.");
+    await session.send("Yes.");
+    for (const body of bodies) {
+      const parsed = AssistRequestSchema.safeParse(body);
+      expect(parsed.error?.issues ?? []).toEqual([]);
+    }
+    expect(bodies[0].notes.find((n) => n.id === "long")?.text).toHaveLength(NOTE_MAX);
+    expect(bodies[0].phrases).toHaveLength(ASSIST_PHRASES_MAX);
+    // The card keeps the whole note text, so Keep still sees the note as unchanged.
+    expect(session.state.cards[0].oldText).toBe(long.text);
+  });
+
+  it("marks the line failed when building or sending the request throws", async () => {
+    const { session, post } = await setup([]);
+    post.mockRejectedValueOnce(new Error("offline"));
+    await expect(session.send("Hello")).resolves.toBeUndefined();
+    expect(session.state.lines).toEqual([expect.objectContaining({ text: "Hello", failed: true })]);
+    expect(session.state.status).toBe("idle");
+    await session.retry();
+    expect(session.state.lines.map((l) => l.text)).toEqual(["Hello", "Anything else?"]);
+  });
+
+  it("marks the line failed when picking notes throws (the embedder offline)", async () => {
+    const { session, memory, post } = await setup([]);
+    vi.spyOn(memory, "searchNotes").mockRejectedValue(new Error("model not loaded"));
+    await memory.replaceAll([me, ...Array.from({ length: 50 }, (_, i): Note => ({ id: `n${i}`, kind: "routine", text: "x".repeat(300), entities: [], updatedAt: 0 }))], []);
+    await expect(session.send("My physio moved to Thursdays.")).resolves.toBeUndefined();
+    expect(post).not.toHaveBeenCalled();
+    expect(session.state).toMatchObject({ status: "idle", lines: [expect.objectContaining({ failed: true })] });
+  });
+
+  it("clears an earlier failed line once a later turn gets through", async () => {
+    const { session } = await setup([{ ok: false, reason: "unavailable" }, { ok: true, say: "Got both.", proposals: [] }]);
+    await session.send("Hello");
+    await session.send("Are you there?");
+    expect(session.state.lines.some((l) => l.failed)).toBe(false);
+  });
+
+  it("asks again when an edited draft would overwrite a note that changed since", async () => {
+    const { session, memory, post } = await setup([]);
+    post.mockImplementationOnce(async (body) => ({
+      ok: true,
+      say: "Here.",
+      proposals: [{ action: "edit", kind: "routine", noteId: "physio", text: "I have physio on Thursdays at 10:30.", lineIds: [userId(body)] }],
+    }));
+    await session.send("Physio is Thursdays now.");
+    await memory.upsertNote({ ...physio, text: "I have physio on Wednesdays at 9:00." });
+    const [card] = session.state.cards;
+    const draft = { kind: "routine" as const, text: "I have physio on Thursdays at 11:00." };
+    expect(await session.keep(card.id, { draft })).toBe("changed");
+    expect(memory.getNote("physio")?.text).toBe("I have physio on Wednesdays at 9:00.");
+    // The user has now seen the notice; a second Keep of an edit saves it.
+    expect(await session.keep(card.id, { draft })).toBe("kept");
+    expect(memory.getNote("physio")?.text).toBe("I have physio on Thursdays at 11:00.");
+  });
+
+  it("ties a phrase to a name written with or without a full stop, and says when it isn't tied", async () => {
+    const { session, memory, post } = await setup([]);
+    await memory.upsertNote({ id: "chen", kind: "person", text: "Dr. Chen: my family doctor.", entities: ["Dr. Chen"], updatedAt: 0 });
+    post.mockImplementationOnce(async (body) => ({
+      ok: true,
+      say: "Here.",
+      proposals: [
+        { action: "phrase", text: "Please write it down.", for: "Dr Chen", lineIds: [userId(body)] },
+        { action: "phrase", text: "I get dizzy.", for: "Dr Nobody", lineIds: [userId(body)] },
+      ],
+    }));
+    await session.send("Phrases for Dr Chen.");
+    const [tied, untied] = session.state.cards;
+    expect(await session.keep(tied.id)).toBe("kept");
+    expect(memory.allQuickPhrases().find((p) => p.text === "Please write it down.")?.context.partnerId).toBe("chen");
+    expect(session.state.cards[0].forAnyone).toBeUndefined();
+    expect(await session.keep(untied.id)).toBe("kept");
+    expect(session.state.cards[1].forAnyone).toBe(true);
   });
 
   it("drops a card identical to an earlier one", async () => {
