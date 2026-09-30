@@ -62,7 +62,7 @@ const h = vi.hoisted(() => {
   return { voice, emit, requests, hearing, hear, learnBodies, setLearnAnswer, postLearn };
 });
 
-vi.mock("@/lib/voice/browser", () => ({ getBrowserVoice: () => h.voice }));
+vi.mock("@/lib/voice/browser", () => ({ getBrowserVoice: () => h.voice, setCurrentVoice: vi.fn() }));
 vi.mock("@/lib/hearing/browser", () => ({ getBrowserHearing: () => h.hearing }));
 vi.mock("@/lib/learning/client", () => ({ postLearnBatch: (body: import("@/lib/learning/protocol").LearnRequest) => h.postLearn(body) }));
 

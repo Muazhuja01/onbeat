@@ -305,4 +305,19 @@ describe("ProfileMenu", () => {
     await userEvent.click(screen.getByRole("button", { name: "Set up your own profile" }));
     expect(h.onNew).toHaveBeenCalled();
   });
+
+  it("shows the voice and opens the voice screen", async () => {
+    const h = handlers();
+    const onVoice = vi.fn();
+    render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} voiceLabel="Male, American, calm" onVoice={onVoice} {...h} />);
+    await userEvent.click(screen.getByRole("button", { name: "Maya" }));
+    await userEvent.click(screen.getByRole("button", { name: "Voice: Male, American, calm" }));
+    expect(onVoice).toHaveBeenCalled();
+  });
+
+  it("has no voice item in a demo", async () => {
+    render(<ProfileMenu profiles={profiles} activeId="a" demoName="Aisha" voiceLabel="Male, American, calm" onVoice={vi.fn()} {...handlers()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Demo: Aisha" }));
+    expect(screen.queryByRole("button", { name: /^Voice:/ })).toBeNull();
+  });
 });

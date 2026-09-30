@@ -23,8 +23,8 @@ import { exportFileName, exportProfile, parseImport } from "@/lib/profiles/trans
 import { getServerSettings, getSettings, learningTold, markLearningTold, setCloudCaptions, setDigitKeys, setLearning, setTheme, subscribeSettings } from "@/lib/settings";
 import { SuggestClient } from "@/lib/suggest/client";
 import type { Note } from "@/lib/types";
-import { getBrowserVoice } from "@/lib/voice/browser";
-import type { VoiceChoice } from "@/lib/voice/choices";
+import { getBrowserVoice, setCurrentVoice } from "@/lib/voice/browser";
+import { describeVoice, type VoiceChoice } from "@/lib/voice/choices";
 import type { VoiceEngine, VoiceMode } from "@/lib/voice/engine";
 import { AnnouncerProvider, useAnnounce } from "./announcer";
 import { CaptionLog } from "./caption-log";
@@ -43,6 +43,7 @@ import { SettingsPanel } from "./settings-panel";
 import { ResponseGap } from "./response-gap";
 import { SpokenCaption } from "./spoken-caption";
 import { SuggestedNotes } from "./suggested-notes";
+import { VoiceScreen } from "./voice-picker";
 import { VoiceStatus } from "./voice-status";
 
 const subscribeNever = () => () => {};
@@ -64,7 +65,7 @@ export function ConversationScreen() {
 }
 
 /** What fills the page. The conversation stays mounted underneath the others. */
-type View = "loading" | "setup" | "demo-picker" | "notes" | "suggestions" | "conversation";
+type View = "loading" | "setup" | "demo-picker" | "notes" | "suggestions" | "voice" | "conversation";
 
 const SAVE_FAILED = "Couldn't save. Your browser's storage may be full.";
 const LEARNING_NOTICE = "New: OnBeat can suggest notes from your conversations for you to review. Turn it off in Settings.";
@@ -73,7 +74,7 @@ function Screen() {
   const announce = useAnnounce();
   const [registry, setRegistry] = useState<ProfileRegistry | null>(null);
   // The registry is mutable; this counter re-renders after it changes.
-  const [, setProfilesVersion] = useState(0);
+  const [profilesVersion, setProfilesVersion] = useState(0);
   const [view, setView] = useState<View>("loading");
   const [demo, setDemo] = useState<Persona | null>(null);
   const [memory, setMemory] = useState<MemoryStore | null>(null);
@@ -162,6 +163,11 @@ function Screen() {
   const client = useMemo(() => (memory ? new SuggestClient({ memory, pack: en }) : null), [memory]);
 
   const activeProfileId = demo ? null : (registry?.active()?.id ?? null);
+
+  // Every spoken line uses the open profile's (or demo's) voice.
+  useEffect(() => {
+    setCurrentVoice(demo ? demo.voice : profileVoice(registry?.active()));
+  }, [demo, activeProfileId, profilesVersion, registry]);
   const learning = useLearningSession({
     kv: registry?.keyValue ?? null,
     profileId: activeProfileId,
@@ -339,6 +345,8 @@ function Screen() {
   const switchTo = async (id: string) => {
     if (!registry) return;
     await registry.setActive(id);
+    // Before anything can be spoken for the new profile; the effect below keeps it in step afterwards.
+    setCurrentVoice(profileVoice(registry.active()));
     const store = await openProfileMemory(registry, id);
     setDemo(null);
     bumpProfiles();
@@ -347,6 +355,7 @@ function Screen() {
 
   const startDemo = async (persona: Persona) => {
     const store = await openDemoMemory(persona);
+    setCurrentVoice(persona.voice);
     setDemo(persona);
     showMemory(store, { placeId: persona.defaultPlaceId, partnerId: persona.defaultPartnerId });
   };
@@ -464,6 +473,23 @@ function Screen() {
     bumpProfiles();
   };
 
+  const activeProfile = demo ? null : (registry?.active() ?? null);
+  const activeVoice = activeProfile ? profileVoice(activeProfile) : null;
+  const saveVoice = async (choice: VoiceChoice) => {
+    if (!registry || !activeProfile) return;
+    try {
+      await registry.setVoice(activeProfile.id, choice);
+    } catch {
+      dispatch({ type: "notice", text: SAVE_FAILED });
+      return;
+    }
+    setCurrentVoice(choice);
+    bumpProfiles();
+    announce("Voice saved");
+    setView("conversation");
+    resetFocusToTop();
+  };
+
   const profiles = registry?.list() ?? [];
   const showMenu = view !== "loading" && (profiles.length > 0 || demo !== null);
   // Setup and the demo picker can go back only to something that is open.
@@ -482,6 +508,8 @@ function Screen() {
             demoName={demo?.name ?? null}
             onSwitch={(id) => void switchTo(id)}
             onNotes={() => leaveConversation("notes")}
+            voiceLabel={activeVoice ? describeVoice(activeVoice) : undefined}
+            onVoice={activeVoice ? () => leaveConversation("voice") : undefined}
             onNew={() => leaveConversation("setup")}
             onExport={exportActive}
             onImport={(file) => void importFile(file)}
@@ -547,6 +575,20 @@ function Screen() {
             }}
           />
         )}
+        {view === "voice" && activeProfile && activeVoice && (
+          <VoiceScreen
+            initial={activeVoice}
+            name={activeProfile.name}
+            voice={voice}
+            mode={voiceMode}
+            progress={voiceProgress}
+            onSave={(v) => void saveVoice(v)}
+            onCancel={() => {
+              setView("conversation");
+              resetFocusToTop();
+            }}
+          />
+        )}
         <div className="conv-grid" hidden={conversationHidden}>
           <div className="flex flex-col gap-4 [grid-area:context]">
             <ContextBar
@@ -582,6 +624,9 @@ function Screen() {
             digitKeys={settings.digitKeys}
             cloudCaptions={settings.cloudCaptions}
             learning={settings.learning}
+            voiceLabel={activeVoice ? describeVoice(activeVoice) : undefined}
+            voiceBasic={voiceMode === "basic"}
+            onVoice={activeVoice ? () => leaveConversation("voice") : undefined}
             onTheme={setTheme}
             onDigitKeys={setDigitKeys}
             onCloudCaptions={setCloudCaptions}

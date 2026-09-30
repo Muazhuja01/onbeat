@@ -12,6 +12,9 @@ interface Props {
   demoName: string | null;
   onSwitch: (id: string) => void;
   onNotes: () => void;
+  /** The open profile's voice, shown on its menu item. */
+  voiceLabel?: string;
+  onVoice?: () => void;
   onNew: () => void;
   onExport: () => void;
   onImport: (file: File) => void;
@@ -168,6 +171,11 @@ export function ProfileMenu(props: Props) {
                   <button type="button" onClick={() => act(props.onNotes)} className={item}>
                     Your notes
                   </button>
+                  {props.onVoice && (
+                    <button type="button" onClick={() => act(props.onVoice!)} className={item}>
+                      Voice: {props.voiceLabel}
+                    </button>
+                  )}
                   {props.onSuggestions && (
                     <button type="button" onClick={() => act(props.onSuggestions!)} className={item}>
                       Suggested notes{count > 0 ? ` (${count})` : ""}
