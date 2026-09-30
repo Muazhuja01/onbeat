@@ -16,7 +16,9 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "eval": "tsx eval/run.ts",
-    "eval:judge-check": "tsx eval/judge-check.ts"
+    "eval:judge-check": "tsx eval/judge-check.ts",
+    "eval:learning": "tsx eval/learning/run.ts",
+    "eval:learning-judge-check": "tsx eval/learning/judge-check.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "3.8.1",
