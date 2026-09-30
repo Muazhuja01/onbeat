@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { Note } from "@/lib/types";
@@ -148,6 +148,20 @@ describe("ProfileSetup", () => {
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await userEvent.click(screen.getByRole("button", { name: "Finish" }));
     expect(onDone.mock.calls[0][1].map((n: Note) => n.text)).toEqual(["I'm Tom.", "Physio on Tuesdays."]);
+  });
+
+  it("ignores a second tap on Finish while saving", async () => {
+    let finish: () => void = () => {};
+    const onDone = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+    render(<ProfileSetup onDone={onDone} />);
+    await userEvent.type(screen.getByLabelText("What's your name?"), "Tom{Enter}");
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    const done = screen.getByRole("button", { name: "Finish" });
+    await userEvent.click(done);
+    await userEvent.click(done);
+    expect(onDone).toHaveBeenCalledTimes(1);
+    await act(async () => finish());
+    expect(done).toBeEnabled();
   });
 
   it("goes back without losing what was typed", async () => {

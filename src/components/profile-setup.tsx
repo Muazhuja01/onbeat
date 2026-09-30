@@ -10,7 +10,7 @@ import { NoteForm } from "./note-form";
 import { fieldLabel, hint, linkButton, primaryButton, secondaryButton, textArea, textField } from "./ui";
 
 interface Props {
-  onDone: (name: string, notes: Note[]) => void;
+  onDone: (name: string, notes: Note[]) => void | Promise<void>;
   /** Shown on the first step when there is a demo to try. */
   onDemo?: () => void;
   /** Given when there is a profile or demo to go back to. */
@@ -46,6 +46,8 @@ export function ProfileSetup({ onDone, onDemo, onCancel, onImport, readDocument 
   const [importing, setImporting] = useState(false);
   const [people, setPeople] = useState<DraftNote[]>([]);
   const [places, setPlaces] = useState<DraftNote[]>([]);
+  // A second tap while saving would make a second profile.
+  const [finishing, setFinishing] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const moved = useRef(false);
 
@@ -219,7 +221,15 @@ export function ProfileSetup({ onDone, onDemo, onCancel, onImport, readDocument 
             </button>
             <button
               type="button"
-              onClick={() => onDone(clean, setupNotes({ name: clean, about, drafts: [...docDrafts, ...people, ...places] }, Date.now()))}
+              disabled={finishing}
+              onClick={async () => {
+                setFinishing(true);
+                try {
+                  await onDone(clean, setupNotes({ name: clean, about, drafts: [...docDrafts, ...people, ...places] }, Date.now()));
+                } finally {
+                  setFinishing(false);
+                }
+              }}
               className={primaryButton}
             >
               Finish

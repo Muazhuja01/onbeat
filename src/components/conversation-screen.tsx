@@ -347,7 +347,8 @@ function Screen() {
 
   const importFile = async (file: File) => {
     if (!registry) return;
-    const parsed = parseImport(await file.text());
+    // Exports are small; anything this big isn't one, so don't read it all into memory.
+    const parsed = file.size > 20 * 1024 * 1024 ? null : parseImport(await file.text());
     if (!parsed) {
       dispatch({ type: "notice", text: "That file isn't an OnBeat profile export, so nothing was imported." });
       return;
@@ -430,7 +431,7 @@ function Screen() {
         {demo && view === "conversation" && <DemoBar name={demo.name} onSetup={() => leaveConversation("setup")} />}
         {view === "setup" && (
           <ProfileSetup
-            onDone={(name, made) => void finishSetup(name, made)}
+            onDone={finishSetup}
             onDemo={() => setView("demo-picker")}
             onCancel={back}
             onImport={(file) => void importFile(file)}
