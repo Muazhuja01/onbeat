@@ -1,6 +1,7 @@
 import { AllProvidersFailedError, createCooldown, providerConfigs, streamCompletion, type ProviderId } from "@/lib/server/providers";
 import { checkReply } from "@/lib/server/claim-check";
 import { filterReplies } from "@/lib/server/claim-filter";
+import { clientIp, isSameOrigin, json } from "@/lib/server/guard";
 import { createRateLimiter } from "@/lib/server/rate-limit";
 import { buildMessages } from "@/lib/suggest/prompt";
 import { SuggestRequestSchema } from "@/lib/suggest/protocol";
@@ -10,24 +11,9 @@ const limiter = createRateLimiter({ limit: 30, windowMs: 60_000 });
 // Remembers which provider answered 429 so the next requests skip it until it recovers.
 const cooldown = createCooldown();
 
-function json(data: unknown, status: number): Response {
-  return Response.json(data, { status, headers: { "cache-control": "no-store" } });
-}
-
 export async function POST(request: Request): Promise<Response> {
-  const origin = request.headers.get("origin");
-  const host = request.headers.get("host");
-  if (origin && host) {
-    try {
-      if (new URL(origin).host !== host) return json({ error: "forbidden" }, 403);
-    } catch {
-      // A malformed Origin (e.g. "null") can't be same-origin; reject rather than 500.
-      return json({ error: "forbidden" }, 403);
-    }
-  }
-
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-  if (!limiter.check(ip)) return json({ error: "rate_limited" }, 429);
+  if (!isSameOrigin(request)) return json({ error: "forbidden" }, 403);
+  if (!limiter.check(clientIp(request))) return json({ error: "rate_limited" }, 429);
 
   const raw = await request.text();
   if (raw.length > MAX_BODY_CHARS) return json({ error: "too_large" }, 413);
