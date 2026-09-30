@@ -10,9 +10,9 @@ const JOBS: Record<AssistJob, string> = {
   update:
     "Job: update their information. Ask what has changed, or offer to go through one group of notes with them (people, places, routines, likes). Propose adds, edits and removals.",
   prepare:
-    "Job: prepare for an appointment. Find out, one question at a time: who it is with, when, where, what it is about, and what they want to say or ask. Then propose a dated note, a person or place note if their notes have none for them, and one quick phrase for each thing they want to say or ask there.",
+    "Job: prepare for an appointment. Find out, one question at a time: who it is with, when, where, what it is about, and what they want to say or ask. Then propose a dated note, a person note for each person and a place note for each place they named that their notes don't have, and one quick phrase for each thing they want to say or ask there.",
   phrases:
-    "Job: make quick phrases. Ask who or where the phrases are for and what they often need to say there. Then propose one phrase for each thing they said they need to say. Propose only phrases in this job.",
+    "Job: make quick phrases. Ask who or where the phrases are for and what they often need to say there. Then propose one phrase for each thing they said they need to say. Propose only phrases in this job, and a note for a new person or place.",
 };
 
 const NO_JOB = [
@@ -45,6 +45,7 @@ export function buildAssistMessages(req: AssistRequest): ChatMessage[] {
     "- Propose a change only for something the person said in their own lines (U lines). Never use a detail from your own lines, and never guess.",
     '- List the U lines each proposal comes from in "lines".',
     `- Notes are in first person as the person, at most ${NOTE_MAX} characters. kind is one of: about-me (who they are, health, how they communicate), person (give their name), place (give its name), routine (regular or dated events), preference (likes, dislikes, usual orders).`,
+    '- A person or place they name that their notes don\'t have gets a note of its own as well, in any job, with only what they said about it ("Dr. Lee is my eye doctor.", "Elm Road Clinic is where I see Dr. Lee.").',
     '- A change to what a note says is an edit of that note: "action": "edit", its id in "note", and the whole new text, keeping every part that is still true.',
     '- Remove a note ("action": "remove") only when they say it is no longer true or ask you to.',
     '- Write a dated plan with its full date from the list above ("Thursday 8 October, 10:00: seeing Dr. Chen at Lakeview Clinic about my blood pressure."). Write a date only when they named the day. For a day further away than the list, ask them to type the date, and write it as they typed it.',
