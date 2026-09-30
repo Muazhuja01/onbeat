@@ -25,6 +25,8 @@ const PhraseSchema = z.object({
   }),
   timesUsed: z.number(),
   lastUsed: z.number(),
+  // zod drops keys it doesn't list, so without this an import would lose the flag.
+  quick: z.literal(true).optional(),
 });
 
 const SuggestionSchema = z.object({

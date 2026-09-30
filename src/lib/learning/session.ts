@@ -26,7 +26,7 @@ const RELATED_PER_LINE = 3;
  * "your", "to") match nearly every note, which pushed the note a line was about out of
  * the few sent.
  */
-function contentWords(text: string): string {
+export function contentWords(text: string): string {
   return tokenize(text)
     .filter((w) => !COMMON_WORDS.has(w))
     .join(" ");

@@ -81,6 +81,14 @@ describe("suggested notes in exports", () => {
     delete old.suggestions;
     expect(parseImport(JSON.stringify(old))!.suggestions).toEqual([]);
   });
+
+  it("keeps the quick flag and the note a quick phrase is tied to", () => {
+    const notes = [{ id: "sam", kind: "person" as const, text: "Sam is the barista.", entities: ["Sam"], updatedAt: 0 }];
+    const phrases = [{ id: "p1", text: "My usual, please.", context: { partnerId: "sam", timeOfDay: "morning" as const }, timesUsed: 0, lastUsed: 0, quick: true as const }];
+    const parsed = parseImport(exportProfile("Maya", notes, phrases, new Date()))!;
+    expect(parsed.phrases[0].quick).toBe(true);
+    expect(parsed.phrases[0].context.partnerId).toBe(parsed.notes[0].id);
+  });
 });
 
 describe("voice in export files", () => {

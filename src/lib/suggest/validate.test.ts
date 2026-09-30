@@ -43,6 +43,11 @@ describe("claimSupported", () => {
   it("matches possessives", () => {
     expect(claimSupported("Sam's", "Sam is the barista")).toBe(true);
   });
+  it("matches a day in its singular or plural form either way", () => {
+    expect(claimSupported("Tuesday", "physio on Tuesdays")).toBe(true);
+    expect(claimSupported("Thursdays", "physio moved to Thursday")).toBe(true);
+    expect(claimSupported("Thursdays", "physio moved to Tuesday")).toBe(false);
+  });
   it("matches times written with a dot or colon", () => {
     expect(claimSupported("10:30", "physio at 10.30")).toBe(true);
     expect(claimSupported("11:30", "physio at 10.30")).toBe(false);
@@ -69,6 +74,9 @@ describe("validateReply", () => {
   it("accepts details from what the partner said or what the user typed", () => {
     expect(validateReply({ text: "Yes, Friday works.", noteIds: [] }, sources({ partnerSaid: "Is Friday OK?" })).ok).toBe(true);
     expect(validateReply({ text: "See you at 4.", noteIds: [] }, sources({ typed: "4" })).ok).toBe(true);
+  });
+  it("accepts a plural day in a reply when the source has the singular", () => {
+    expect(validateReply({ text: "I see her on Thursdays.", noteIds: [] }, sources({ partnerSaid: "Do you see her on Thursday?" })).ok).toBe(true);
   });
   it("rejects an invented time", () => {
     expect(validateReply({ text: "My physio is at 11:30.", noteIds: ["physio"] }, sources()).ok).toBe(false);

@@ -24,6 +24,7 @@ interface Props {
   /** Suggested notes waiting for review. */
   suggestionCount?: number;
   onSuggestions?: () => void;
+  onAssistant?: () => void;
 }
 
 const item = `${secondaryButton} w-full text-left`;
@@ -174,6 +175,11 @@ export function ProfileMenu(props: Props) {
                   {props.onVoice && (
                     <button type="button" onClick={() => act(props.onVoice!)} className={item}>
                       Voice: {props.voiceLabel}
+                    </button>
+                  )}
+                  {props.onAssistant && (
+                    <button type="button" onClick={() => act(props.onAssistant!)} className={item}>
+                      Assistant
                     </button>
                   )}
                   {props.onSuggestions && (

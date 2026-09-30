@@ -1,6 +1,6 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as browserMemory from "@/lib/memory/browser";
 import { MemoryStore } from "@/lib/memory/store";
 import type { SuggestInput, SuggestUpdate } from "@/lib/suggest/client";
@@ -525,6 +525,37 @@ describe("ConversationScreen learning", () => {
     expect(h.learnBodies[0].lines.map((l) => l.text)).toEqual(["How was your weekend?", "Did you do anything fun?"]);
   });
 
+  it("speaks a quick phrase without learning from it or changing its tie", async () => {
+    // Setup replaces the store's contents, so add the quick phrase right after it.
+    const realReplace = MemoryStore.prototype.replaceAll;
+    const replaceAll = vi.spyOn(MemoryStore.prototype, "replaceAll").mockImplementation(async function (this: MemoryStore, ...args) {
+      await realReplace.apply(this, args);
+      await this.addQuickPhrase("My usual, please.", {});
+    });
+    const speak = vi.spyOn(h.voice, "speak");
+    const addPhrase = vi.spyOn(MemoryStore.prototype, "addPhrase");
+
+    await setUpPriya();
+    await partnerSays("Your usual order?");
+    const row = await screen.findByRole("group", { name: "Your phrases" });
+    await userEvent.click(within(row).getByRole("button", { name: "My usual, please." }));
+    expect(speak).toHaveBeenCalledWith("My usual, please.");
+    await waitFor(() => expect(addPhrase).toHaveBeenCalled());
+    await addPhrase.mock.results[0].value;
+    hidePage();
+    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 50));
+    // The partner line alone is not sent; a learned user line would have sent both.
+    expect(h.learnBodies).toHaveLength(0);
+    const stored = (addPhrase.mock.contexts[0] as MemoryStore).phrases().find((p) => p.text === "My usual, please.")!;
+    expect(stored.quick).toBe(true);
+    expect(stored.context.partnerId).toBeUndefined();
+
+    replaceAll.mockRestore();
+    speak.mockRestore();
+    addPhrase.mockRestore();
+  });
+
   it("never learns in a demo", async () => {
     await startWithMaya();
     await partnerSays("Your physio moved to Thursdays.");
@@ -547,5 +578,51 @@ describe("ConversationScreen learning", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(h.learnBodies).toHaveLength(0);
     await userEvent.click(box);
+  });
+});
+
+describe("ConversationScreen assistant", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  async function assistantWithACard() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)) as { lines: { id: string; speaker: string }[] };
+        const last = body.lines.filter((l) => l.speaker === "user").at(-1)!.id;
+        return new Response(JSON.stringify({ say: "Here.", proposals: [{ action: "phrase", text: "Thank you.", lineIds: [last] }] }), { status: 200 });
+      }),
+    );
+    await setUpPriya();
+    await userEvent.click(screen.getByRole("button", { name: "Priya" }));
+    await userEvent.click(screen.getByRole("button", { name: "Assistant" }));
+    await userEvent.click(screen.getByRole("button", { name: "Make quick phrases" }));
+    await screen.findByRole("button", { name: "Keep: Thank you." });
+  }
+
+  it("asks before the menu leaves the assistant with changes not kept", async () => {
+    await assistantWithACard();
+    await userEvent.click(screen.getByRole("button", { name: "Priya" }));
+    await userEvent.click(screen.getByRole("button", { name: "Your notes" }));
+    expect(screen.getByText("Leave without keeping 1 change?")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Keep: Thank you." })).toBeVisible();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Leave" })).toHaveFocus());
+
+    await userEvent.click(screen.getByRole("button", { name: "Stay" }));
+    await userEvent.click(screen.getByRole("button", { name: "Priya" }));
+    await userEvent.click(screen.getByRole("button", { name: "New profile" }));
+    expect(screen.getByText("Leave without keeping 1 change?")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Leave" }));
+    expect(await screen.findByLabelText("What's your name?")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Assistant" })).toBeNull();
+  });
+
+  it("leaves for the chosen screen straight away when nothing is open", async () => {
+    await assistantWithACard();
+    await userEvent.click(screen.getByRole("button", { name: "Skip: Thank you." }));
+    await userEvent.click(screen.getByRole("button", { name: "Priya" }));
+    await userEvent.click(screen.getByRole("button", { name: "Suggested notes" }));
+    expect(screen.queryByRole("heading", { name: "Assistant" })).toBeNull();
+    expect(screen.queryByText(/Leave without keeping/)).toBeNull();
   });
 });

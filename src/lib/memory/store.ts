@@ -97,6 +97,14 @@ export class MemoryStore {
     if (!this.notesById.has(id)) return;
     this.notesById.delete(id);
     await remove(this.index, id);
+    // Quick phrases made for this person or place stay, for anyone.
+    for (const p of this.phrasesById.values()) {
+      if (p.context.partnerId !== id && p.context.placeId !== id) continue;
+      this.phrasesById.set(p.id, {
+        ...p,
+        context: { ...p.context, partnerId: p.context.partnerId === id ? undefined : p.context.partnerId, placeId: p.context.placeId === id ? undefined : p.context.placeId },
+      });
+    }
     await this.save();
   }
 
@@ -105,12 +113,60 @@ export class MemoryStore {
     const key = tokenize(clean).join(" ");
     const existing = [...this.phrasesById.values()].find((p) => tokenize(p.text).join(" ") === key);
     const context = { placeId: ctx.placeId, partnerId: ctx.partnerId, timeOfDay: timeOfDay(ctx.now) };
+    // A quick phrase belongs to the person or place it was made for, wherever it is said.
     const phrase: Phrase = existing
-      ? { ...existing, timesUsed: existing.timesUsed + 1, lastUsed: this.now(), context }
+      ? { ...existing, timesUsed: existing.timesUsed + 1, lastUsed: this.now(), context: existing.quick ? existing.context : context }
       : { id: `p_${crypto.randomUUID()}`, text: clean, context, timesUsed: 1, lastUsed: this.now() };
     this.phrasesById.set(phrase.id, phrase);
     await this.save();
     return phrase;
+  }
+
+  /** Up to `k` quick phrases for who the user is talking with, then where; else those tied to no one. */
+  quickPhrases(ctx: { partnerId?: string; placeId?: string }, k = 4): Phrase[] {
+    const quick = this.allQuickPhrases().sort((a, b) => b.timesUsed - a.timesUsed || b.lastUsed - a.lastUsed);
+    const forPartner = ctx.partnerId ? quick.filter((p) => p.context.partnerId === ctx.partnerId) : [];
+    const forPlace = ctx.placeId ? quick.filter((p) => p.context.placeId === ctx.placeId && !forPartner.includes(p)) : [];
+    const matched = [...forPartner, ...forPlace];
+    const general = quick.filter((p) => !p.context.partnerId && !p.context.placeId);
+    return (matched.length ? matched : general).slice(0, k);
+  }
+
+  /** Every quick phrase, newest first. */
+  allQuickPhrases(): Phrase[] {
+    return [...this.phrasesById.values()].filter((p) => p.quick).sort((a, b) => b.lastUsed - a.lastUsed);
+  }
+
+  /** Null when a quick phrase with the same words exists. An everyday phrase with the same words becomes this quick one. */
+  async addQuickPhrase(text: string, tie: { partnerId?: string; placeId?: string }): Promise<Phrase | null> {
+    const clean = text.trim();
+    const key = tokenize(clean).join(" ");
+    const same = [...this.phrasesById.values()].find((p) => tokenize(p.text).join(" ") === key);
+    if (same?.quick) return null;
+    const context = { partnerId: tie.partnerId, placeId: tie.placeId, timeOfDay: timeOfDay(new Date(this.now())) };
+    const phrase: Phrase = same
+      ? { ...same, context, lastUsed: this.now(), quick: true }
+      : { id: `p_${crypto.randomUUID()}`, text: clean, context, timesUsed: 0, lastUsed: this.now(), quick: true };
+    this.phrasesById.set(phrase.id, phrase);
+    await this.save();
+    return phrase;
+  }
+
+  /** False when the id is unknown or another quick phrase already has these words. */
+  async updateQuickPhrase(id: string, text: string, tie: { partnerId?: string; placeId?: string }): Promise<boolean> {
+    const current = this.phrasesById.get(id);
+    if (!current?.quick) return false;
+    const clean = text.trim();
+    const key = tokenize(clean).join(" ");
+    if ([...this.phrasesById.values()].some((p) => p.id !== id && p.quick && tokenize(p.text).join(" ") === key)) return false;
+    this.phrasesById.set(id, { ...current, text: clean, context: { ...current.context, partnerId: tie.partnerId, placeId: tie.placeId } });
+    await this.save();
+    return true;
+  }
+
+  async removePhrase(id: string): Promise<void> {
+    if (!this.phrasesById.delete(id)) return;
+    await this.save();
   }
 
   async searchNotes(query: string, ctx: ConversationContext, k = 8): Promise<Note[]> {
