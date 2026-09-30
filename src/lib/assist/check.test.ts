@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkAssistProposals, withDayTimes } from "./check";
+import { checkAssistProposals, withTypedTimes } from "./check";
 import type { AssistProposal, AssistRequest } from "./protocol";
 
 const req: AssistRequest = {
@@ -73,10 +73,21 @@ describe("checkAssistProposals", () => {
     expect(twice).toHaveLength(1);
   });
 
-  it("reads an am/pm time in a line as its 24-hour form too", () => {
-    expect(withDayTimes("Wednesday at 2 pm.")).toBe("Wednesday at 2 pm. (14:00)");
-    expect(withDayTimes("3 November at 4:30pm, or 9 a.m.")).toBe("3 November at 4:30pm, or 9 a.m. (16:30, 9:00)");
-    expect(withDayTimes("Thursday at 10:00.")).toBe("Thursday at 10:00.");
+  it("checks a note's 24-hour time in the am/pm form its line typed", () => {
+    expect(withTypedTimes("Wednesday 7 October, 14:00: Marco.", "Wednesday at 2 pm.")).toBe("Wednesday 7 October, 2:00 pm: Marco.");
+    expect(withTypedTimes("16:30 or 09:00, not 17:00.", "4:30pm, or 9 a.m.")).toBe("4:30 pm or 9:00 am, not 17:00.");
+    expect(withTypedTimes("00:00: midnight feed.", "At 12 am.")).toBe("12:00 am: midnight feed.");
+    expect(withTypedTimes("Thursday 8 October, 10:00.", "Thursday at 10:00.")).toBe("Thursday 8 October, 10:00.");
+  });
+
+  it("doesn't let a line's pm time back the bare hour number elsewhere in a note", () => {
+    const pm: AssistRequest = { ...req, lines: [...req.lines, { id: "u3", speaker: "user", text: "Dentist on Thursday at 2 pm." }] };
+    const note = (text: string): AssistProposal => ({ action: "add", kind: "routine", text, lineIds: ["u3"] });
+    expect(checkAssistProposals([note("Thursday 8 October, 14:00: dentist.")], pm)).toHaveLength(1);
+    expect(checkAssistProposals([note("Thursday 8 October, 14:00: dentist in room 14.")], pm)).toEqual([]);
+    expect(checkAssistProposals([note("Thursday 8 October, 2 pm: dentist. I take 14 mg of it.")], pm)).toEqual([]);
+    const am: AssistRequest = { ...req, lines: [...req.lines, { id: "u3", speaker: "user", text: "Feed the baby on Thursday at 12 am." }] };
+    expect(checkAssistProposals([note("Thursday 8 October, 0:00: feed the baby, bottle 0.")], am)).toEqual([]);
   });
 
   it("keeps a dated note in 24-hour time for a line's pm time, and drops a different hour", () => {

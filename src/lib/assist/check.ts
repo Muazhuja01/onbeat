@@ -8,17 +8,21 @@ type NoteProposal = Extract<AssistProposal, { action: "add" | "edit" }>;
 const MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December";
 
 /**
- * A user line with the 24-hour form of each am/pm time it states added, so "2 pm" backs
- * "14:00" as well as "2:00". The model writes dated notes in 24-hour time.
+ * A note's text with each 24-hour time that its cited lines typed as am/pm written back in
+ * that form, so "2 pm" backs "14:00". The model writes dated notes in 24-hour time. Only the
+ * note is rewritten, and only a time, so a line's "2 pm" never backs a bare "14" ("room 14").
  */
-export function withDayTimes(text: string): string {
-  const times = [...text.matchAll(/\b(\d{1,2})(?::(\d{2}))?\s*([ap])\.?m\.?(?![\p{L}])/giu)].flatMap((m) => {
+export function withTypedTimes(text: string, lineText: string): string {
+  const typed = new Map<string, string>();
+  for (const m of lineText.matchAll(/\b(\d{1,2})(?::(\d{2}))?\s*([ap])\.?m\.?(?![\p{L}])/giu)) {
     const hour = Number(m[1]);
-    if (hour < 1 || hour > 12) return [];
-    const h24 = (hour % 12) + (m[3].toLowerCase() === "p" ? 12 : 0);
-    return [`${h24}:${m[2] ?? "00"}`];
-  });
-  return times.length ? `${text} (${times.join(", ")})` : text;
+    if (hour < 1 || hour > 12) continue;
+    const ap = m[3].toLowerCase();
+    const minutes = m[2] ?? "00";
+    typed.set(`${(hour % 12) + (ap === "p" ? 12 : 0)}:${minutes}`, `${hour}:${minutes} ${ap}m`);
+  }
+  if (!typed.size) return text;
+  return text.replace(/\b(\d{1,2}):(\d{2})\b/g, (time, h: string, min: string) => typed.get(`${Number(h)}:${min}`) ?? time);
 }
 
 /**
@@ -49,15 +53,17 @@ export function checkAssistProposals(proposals: AssistProposal[], req: AssistReq
 
   const learnReq: LearnRequest = {
     today: req.today,
-    lines: userLines.map((l) => ({ id: l.id, speaker: "user" as const, text: withDayTimes(l.text) })),
+    lines: userLines.map((l) => ({ id: l.id, speaker: "user" as const, text: l.text })),
     notes: req.notes,
   };
   const lineText = new Map(userLines.map((l) => [l.id, l.text]));
   const noteProposals = cited.filter((p): p is NoteProposal => p.action === "add" || p.action === "edit");
-  // The check sees each text without its typed dates; what it keeps is shown as the model wrote it.
+  // The check sees each text without its typed dates and with its times as typed; what it
+  // keeps is shown as the model wrote it.
   const shown = new Map<string, string>();
   const checkedText = (p: NoteProposal) => {
-    const t = withoutTypedDates(p.text, p.lineIds.map((id) => lineText.get(id) ?? "").join("\n"));
+    const said = p.lineIds.map((id) => lineText.get(id) ?? "").join("\n");
+    const t = withTypedTimes(withoutTypedDates(p.text, said), said);
     if (!shown.has(t)) shown.set(t, p.text);
     return t;
   };

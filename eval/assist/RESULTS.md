@@ -257,3 +257,8 @@ Two chats that expect no change never ended: in `tom-cancelled` and `aisha-meeti
 ### Where the gate stands
 
 The gate is that nothing deploys until the eval meets its targets with invented under 5%. It is not met. On the held-out test, invented is 10% (2/20) and edits right is 75% (3/4). On dev, the final code misses recall (74%) and edits right (89%). The test numbers rest on 20 cards and 4 expected edits, so one card moves invented by 5 points and one edit moves edits right by 25. They show the targets were not met on this run, not by how much the assistant is off.
+
+### Changes after the held-out run
+
+- The check's time rule changed after the test run, following a code review. D4's version appended the 24-hour form of each am/pm time to the user's line, and the learning check then read "(14:00)" as a bare "14", which backed any 14 in a note ("room 14", "14 mg"). Now only the note is rewritten: a 24-hour time the cited line typed as am/pm is checked in that form, so "2 pm" backs "14:00" and nothing else (`withTypedTimes` in `src/lib/assist/check.ts`). This only makes the check stricter, so it can drop cards the run above kept but never keep one it dropped. The eval was not run again.
+- The D6 prompt example ("Dr. Lee is my eye doctor.") is close to the setting of the held-out case `maya-optician`. That case was void in the test run, so it is in none of the numbers above.
