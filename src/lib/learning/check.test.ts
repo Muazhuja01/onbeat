@@ -83,6 +83,13 @@ describe("checkProposals", () => {
     expect(checkProposals([add("Ana is my carer.", ["b", "zzz"])], req)).toEqual([]);
   });
 
+  it("keeps an edit to a plural day when the line names the day in the singular", () => {
+    const singular: LearnRequest = { ...req, lines: [{ id: "s", speaker: "user", text: "Physio moved to Thursday at 10:30." }] };
+    const p = edit("I have physio on Thursdays at 10:30.", "physio", ["s"]);
+    expect(checkProposals([p], singular)).toEqual([p]);
+    expect(checkProposals([edit("I have physio on Fridays at 10:30.", "physio", ["s"])], singular)).toEqual([]);
+  });
+
   it("drops an edit of a note that wasn't sent, or one that changes nothing", () => {
     expect(checkProposals([edit("I have physio on Thursdays at 10:30.", "other")], req)).toEqual([]);
     expect(checkProposals([edit("I have physio on Tuesdays at 10:30!")], req)).toEqual([]);
@@ -114,5 +121,18 @@ describe("checkProposals", () => {
   it("never lets a new note carry a note id", () => {
     const [kept] = checkProposals([add("Ana is my new carer.", ["b"], { noteId: "physio" })], req);
     expect(kept).not.toHaveProperty("noteId");
+  });
+
+  it("accepts a full hour like 10:00 when the line says it the same way, but not a different time", () => {
+    const withLines: LearnRequest = {
+      ...req,
+      lines: [
+        { id: "p", speaker: "user", text: "Physio is at 10:00 on Thursday." },
+        { id: "q", speaker: "user", text: "Physio is at 10:30 on Thursday." },
+      ],
+    };
+    const ok = add("I have physio on Thursday 8 October at 10:00.", ["p"]);
+    expect(checkProposals([ok], withLines)).toEqual([ok]);
+    expect(checkProposals([add("I have physio on Thursday 8 October at 10:15.", ["q"])], withLines)).toEqual([]);
   });
 });

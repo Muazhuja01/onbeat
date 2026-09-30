@@ -19,6 +19,8 @@ export interface Phrase {
   context: { placeId?: string; partnerId?: string; timeOfDay: TimeOfDay };
   timesUsed: number;
   lastUsed: number;
+  /** Made on purpose (in the assistant or Your notes), shown in the "Your phrases" row. Everyday spoken phrases never have it. */
+  quick?: true;
 }
 
 export interface ConversationContext {

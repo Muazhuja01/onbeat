@@ -31,11 +31,13 @@ import { Composer } from "./composer";
 import { ContextBar } from "./context-bar";
 import { DemoBar } from "./demo-bar";
 import { ListenControl } from "./listen-control";
+import { AssistantScreen, type AssistantHandle } from "./assistant-screen";
 import { NotesEditor } from "./notes-editor";
 import { PartnerInput } from "./partner-input";
 import { ProfileMenu } from "./profile-menu";
 import { ProfilePicker } from "./profile-picker";
 import { ProfileSetup } from "./profile-setup";
+import { PhraseRow } from "./phrase-row";
 import { ReactionBar } from "./reaction-bar";
 import { ReplyList } from "./reply-list";
 import { SettingsPanel } from "./settings-panel";
@@ -63,7 +65,7 @@ export function ConversationScreen() {
 }
 
 /** What fills the page. The conversation stays mounted underneath the others. */
-type View = "loading" | "setup" | "demo-picker" | "notes" | "suggestions" | "conversation";
+type View = "loading" | "setup" | "demo-picker" | "notes" | "suggestions" | "assistant" | "conversation";
 
 const SAVE_FAILED = "Couldn't save. Your browser's storage may be full.";
 const LEARNING_NOTICE = "New: OnBeat can suggest notes from your conversations for you to review. Turn it off in Settings.";
@@ -206,16 +208,16 @@ function Screen() {
   }, [state.replies, announce]);
 
   const speak = useCallback(
-    (text: string, opts?: { isReaction?: boolean }) => {
+    (text: string, opts?: { isReaction?: boolean; quick?: boolean }) => {
       const t = text.trim();
       if (!t || !voice) return;
       void voice.speak(t);
       // A quick reaction (e.g. "Thanks!") isn't a phrase the user composed;
       // saving it would pollute their saved phrases.
       if (opts?.isReaction) return;
-      // A reply tapped as it is came from the notes, maybe with an invented detail: only
-      // the user's own words are learned from.
-      if (!state.replies.some((r) => r.text.trim() === t)) void learning.session?.addLine({ speaker: "user", text: t, ...lineContext() });
+      // A reply tapped as it is came from the notes, maybe with an invented detail, and a
+      // quick phrase was made on purpose: only the user's own new words are learned from.
+      if (!opts?.quick && !state.replies.some((r) => r.text.trim() === t)) void learning.session?.addLine({ speaker: "user", text: t, ...lineContext() });
       void memory?.addPhrase(t, { now: new Date(), placeId: state.placeId, partnerId: state.partnerId }).then(() => {
         // A cached result embeds style examples drawn from phrases, so a new
         // phrase makes the cache stale (mirrors R13's reasoning for choosePersona).
@@ -231,6 +233,11 @@ function Screen() {
   }, []);
 
   const notes = useMemo(() => (memory ? memory.notes() : []), [memory, notesVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [phrasesVersion, setPhrasesVersion] = useState(0);
+  const quickPhrases = useMemo(
+    () => (memory ? memory.quickPhrases({ partnerId: state.partnerId, placeId: state.placeId }) : []),
+    [memory, state.partnerId, state.placeId, notesVersion, phrasesVersion], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const places = notes.filter((n) => n.kind === "place");
   const people = notes.filter((n) => n.kind === "person");
   const partnerName = (state.partnerId && memory?.getNote(state.partnerId)?.entities[0]) || "Them";
@@ -297,6 +304,23 @@ function Screen() {
   const leaveConversation = (next: View) => {
     if (state.speaking) stop();
     setView(next);
+  };
+
+  /**
+   * A screen picked from the menu. From the assistant it goes through the assistant's
+   * "Leave without keeping N changes?" (spec decision 4); only switching profile skips it.
+   */
+  const assistantRef = useRef<AssistantHandle>(null);
+  const goTo = (next: View) => {
+    if (view === "assistant" && assistantRef.current) assistantRef.current.requestLeave(() => leaveConversation(next));
+    else leaveConversation(next);
+  };
+
+  /** The assistant covers the conversation: stop listening and speech first. */
+  const openAssistant = () => {
+    hearing?.stop();
+    gapTimer.reset();
+    leaveConversation("assistant");
   };
 
   /** Shows a profile's or demo's notes with a fresh conversation. */
@@ -480,15 +504,16 @@ function Screen() {
             activeId={registry?.active()?.id ?? null}
             demoName={demo?.name ?? null}
             onSwitch={(id) => void switchTo(id)}
-            onNotes={() => leaveConversation("notes")}
-            onNew={() => leaveConversation("setup")}
+            onNotes={() => goTo("notes")}
+            onNew={() => goTo("setup")}
             onExport={exportActive}
             onImport={(file) => void importFile(file)}
             onRename={(name) => void renameActive(name)}
             onDelete={() => void deleteActive()}
-            onDemo={() => leaveConversation("demo-picker")}
+            onDemo={() => goTo("demo-picker")}
             suggestionCount={learning.suggestions.length}
-            onSuggestions={() => leaveConversation("suggestions")}
+            onSuggestions={() => goTo("suggestions")}
+            onAssistant={demo ? undefined : openAssistant}
           />
         )}
       </header>
@@ -513,11 +538,55 @@ function Screen() {
         {view === "demo-picker" && (
           <ProfilePicker personas={personas} onChoose={(p) => void startDemo(p)} onBack={back ?? (() => setView("setup"))} />
         )}
+        {view === "assistant" && memory && !demo && (
+          <AssistantScreen
+            ref={assistantRef}
+            key={activeProfileId ?? "none"}
+            memory={memory}
+            announce={announce}
+            onChanged={() => {
+              // Notes or phrases changed: cached replies are stale (R13), and a removed note may be the current Talking with or Place.
+              client?.clearCache();
+              setNotesVersion((v) => v + 1);
+              setPhrasesVersion((v) => v + 1);
+              if ((state.partnerId && !memory.getNote(state.partnerId)) || (state.placeId && !memory.getNote(state.placeId))) {
+                dispatch({
+                  type: "setContext",
+                  partnerId: state.partnerId && memory.getNote(state.partnerId) ? state.partnerId : undefined,
+                  placeId: state.placeId && memory.getNote(state.placeId) ? state.placeId : undefined,
+                });
+              }
+            }}
+            onClose={() => {
+              setView("conversation");
+              resetFocusToTop();
+            }}
+          />
+        )}
         {view === "notes" && memory && (
           <NotesEditor
             notes={notes}
             onSave={(note) => void saveNote(note)}
             onRemove={(id) => void removeNote(id)}
+            phrases={memory.allQuickPhrases()}
+            onAddPhrase={async (text, tie) => {
+              const made = await memory.addQuickPhrase(text, tie);
+              setPhrasesVersion((v) => v + 1);
+              if (made) announce("Phrase saved");
+              return made !== null;
+            }}
+            onUpdatePhrase={async (id, text, tie) => {
+              const ok = await memory.updateQuickPhrase(id, text, tie);
+              setPhrasesVersion((v) => v + 1);
+              if (ok) announce("Phrase saved");
+              return ok;
+            }}
+            onRemovePhrase={(id) =>
+              void memory.removePhrase(id).then(() => {
+                setPhrasesVersion((v) => v + 1);
+                announce("Phrase deleted");
+              })
+            }
             onDone={() => {
               setView("conversation");
               resetFocusToTop();
@@ -561,6 +630,7 @@ function Screen() {
           <div className="flex min-w-0 flex-col gap-6 [grid-area:side]">
             <SpokenCaption speaking={state.speaking} lastSpoken={state.lastSpoken} />
             <ReactionBar reactions={state.reactions} onReact={(text) => speak(text, { isReaction: true })} />
+            <PhraseRow phrases={quickPhrases} onSpeak={(text) => speak(text, { quick: true })} />
             <ReplyList ref={replyListRef} replies={state.replies} speaking={state.speaking} status={state.status} onSpeak={speak} onStop={stop} />
             <Composer
               value={state.typed}

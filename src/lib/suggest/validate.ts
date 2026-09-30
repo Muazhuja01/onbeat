@@ -86,8 +86,11 @@ export function claimSupported(claim: string, sourceText: string): boolean {
   if (words.includes(target)) return true;
   const value = NUMBER_WORDS.get(target);
   if (value !== undefined) return sourceNumbers.includes(String(value)) || sourceNumbers.includes(`${value}:00`);
-  // Days in notes are often plural ("Tuesdays").
-  return DAYS_AND_MONTHS.has(target) && words.includes(`${target}s`);
+  // Days are often plural in notes ("Tuesdays") and singular in what people type ("Thursday"),
+  // so either form backs the other.
+  if (DAYS_AND_MONTHS.has(target) && words.includes(`${target}s`)) return true;
+  const singular = target.replace(/s$/, "");
+  return singular !== target && DAYS_AND_MONTHS.has(singular) && words.includes(singular);
 }
 
 export interface ValidationSources {

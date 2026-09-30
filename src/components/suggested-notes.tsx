@@ -6,6 +6,7 @@ import { composeNoteText, type DraftNote } from "@/lib/profiles/notes";
 import type { Note } from "@/lib/types";
 import { KIND_LABELS, NoteForm } from "./note-form";
 import { primaryButton, secondaryButton } from "./ui";
+import { SuggestionCard } from "./suggestion-card";
 
 interface Props {
   suggestions: PendingSuggestion[];
@@ -79,24 +80,16 @@ export function SuggestedNotes({ suggestions: all, notes, onKeep, onSkip, onSkip
             const text = composeNoteText(s.draft);
             const group = KIND_LABELS[s.draft.kind].group;
             return (
-              <li key={s.id} className="flex flex-col gap-3 rounded-control border-2 border-ink/15 bg-surface px-4 py-3">
-                <h3 className="text-reply font-bold">{target ? `Change a note: ${group}` : `New note: ${group}`}</h3>
-                {target ? (
-                  <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-body">
-                    <dt className="font-bold">Now</dt>
-                    <dd className="break-words">{target.text}</dd>
-                    <dt className="font-bold">New</dt>
-                    <dd className="break-words">{text}</dd>
-                  </dl>
-                ) : (
-                  <p className="text-body break-words">{text}</p>
-                )}
-                <div className="flex flex-col gap-1">
-                  {s.sources.map((line, i) => (
-                    <Source key={i} line={line} now={now} />
-                  ))}
-                </div>
-                {editing === s.id ? (
+              <SuggestionCard
+                key={s.id}
+                heading={target ? `Change a note: ${group}` : `New note: ${group}`}
+                current={target?.text}
+                text={text}
+                sources={s.sources.map((line, i) => (
+                  <Source key={i} line={line} now={now} />
+                ))}
+                editing={editing === s.id}
+                editForm={
                   <NoteForm
                     kind={s.draft.kind}
                     initial={{ name: s.draft.name ?? "", text: s.draft.text }}
@@ -109,36 +102,17 @@ export function SuggestedNotes({ suggestions: all, notes, onKeep, onSkip, onSkip
                     }}
                     onCancel={() => setEditing(null)}
                   />
-                ) : (
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      aria-label={`Keep: ${text}`}
-                      className={primaryButton}
-                      onClick={() => {
-                        handle(s.id, () => onKeep(s, s.draft));
-                        settle();
-                      }}
-                    >
-                      Keep
-                    </button>
-                    <button type="button" aria-label={`Edit: ${text}`} className={secondaryButton} onClick={() => setEditing(s.id)}>
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Skip: ${text}`}
-                      className={secondaryButton}
-                      onClick={() => {
-                        handle(s.id, () => onSkip(s.id));
-                        settle();
-                      }}
-                    >
-                      Skip
-                    </button>
-                  </div>
-                )}
-              </li>
+                }
+                onKeep={() => {
+                  handle(s.id, () => onKeep(s, s.draft));
+                  settle();
+                }}
+                onEdit={() => setEditing(s.id)}
+                onSkip={() => {
+                  handle(s.id, () => onSkip(s.id));
+                  settle();
+                }}
+              />
             );
           })}
         </ul>

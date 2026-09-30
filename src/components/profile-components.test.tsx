@@ -274,4 +274,17 @@ describe("ProfileMenu", () => {
     await userEvent.click(screen.getByRole("button", { name: "Set up your own profile" }));
     expect(h.onNew).toHaveBeenCalled();
   });
+
+  it("offers the assistant only when given a handler", async () => {
+    const h = handlers();
+    const onAssistant = vi.fn();
+    const { unmount } = render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} {...h} />);
+    await userEvent.click(screen.getByRole("button", { name: "Maya" }));
+    expect(screen.queryByRole("button", { name: "Assistant" })).toBeNull();
+    unmount();
+    render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} {...h} onAssistant={onAssistant} />);
+    await userEvent.click(screen.getByRole("button", { name: "Maya" }));
+    await userEvent.click(screen.getByRole("button", { name: "Assistant" }));
+    expect(onAssistant).toHaveBeenCalled();
+  });
 });
