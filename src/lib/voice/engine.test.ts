@@ -171,7 +171,7 @@ describe("voices", () => {
     worker.emit({ type: "ready" });
     const generated = () =>
       worker.sent.filter((m): m is Extract<VoiceWorkerRequest, { type: "generate" }> => m.type === "generate");
-    return { engine, worker, audio: a, generated };
+    return { engine, worker, audio: a, basic: b.basic, generated };
   }
 
   it("asks the worker for the current voice, and for a new one after a change", () => {
@@ -185,7 +185,7 @@ describe("voices", () => {
 
   it("plays a sample in another voice without changing the current one", () => {
     const { engine, generated } = natural({ voice: () => "af_heart", speed: () => 1 });
-    void engine.speak("Hi, I'm Tom.", { voice: "am_michael", speed: 1.15 });
+    void engine.sample("Hi, I'm Tom.", { voice: "am_michael", speed: 1.15 });
     void engine.speak("Next reply");
     expect(generated().map((m) => [m.voice, m.speed])).toEqual([
       ["am_michael", 1.15],
@@ -198,7 +198,7 @@ describe("voices", () => {
     const { basic, calls } = fakeBasic();
     const engine = new VoiceEngine(deps(null, audio, basic));
     engine.load();
-    await engine.speak("Hi", { voice: "am_michael", speed: 0.85 });
+    await engine.sample("Hi", { voice: "am_michael", speed: 0.85 });
     expect(calls.at(-1)).toEqual(["Hi", 0.85]);
   });
 
@@ -209,7 +209,7 @@ describe("voices", () => {
     const reply = engine.speak("A reply");
     worker.emit({ type: "audio", id: generated()[0].id, samples: new Float32Array(5), sampleRate: 24000 });
     await vi.waitFor(() => expect(audio.played).toEqual([5]));
-    void engine.speak("Hi, I'm Tom.", { voice: "am_michael", speed: 1.15 });
+    void engine.sample("Hi, I'm Tom.", { voice: "am_michael", speed: 1.15 });
     await reply;
     expect(audio.audio.stop).toHaveBeenCalled();
     expect(ends).toEqual(["A reply"]);
@@ -219,5 +219,63 @@ describe("voices", () => {
       ["am_michael", 1.15],
       ["af_heart", 1],
     ]);
+  });
+
+  it("a sample waits past the reply wait for its clip, plays it, and is not a reply", async () => {
+    const { engine, worker, audio, basic, generated } = natural();
+    const events: string[] = [];
+    engine.on("start", (t) => events.push(`start:${t}`));
+    engine.on("end", (t) => events.push(`end:${t}`));
+    engine.on("sampleStart", () => events.push("sampleStart"));
+    engine.on("sampleEnd", () => events.push("sampleEnd"));
+    const done = engine.sample("Hi, I'm Tom.", { voice: "am_michael", speed: 1 });
+    // Well past naturalWaitMs (50 ms here): a reply would have used the device voice by now.
+    await new Promise((r) => setTimeout(r, 150));
+    expect(basic.speak).not.toHaveBeenCalled();
+    worker.emit({ type: "audio", id: generated()[0].id, samples: new Float32Array(9), sampleRate: 24000 });
+    await vi.waitFor(() => expect(audio.played).toEqual([9]));
+    expect(engine.current).toBeNull();
+    audio.finish();
+    await done;
+    expect(basic.speak).not.toHaveBeenCalled();
+    expect(events).toEqual(["sampleStart", "sampleEnd"]);
+  });
+
+  it("a sample uses the device voice in basic mode, still without reply events", async () => {
+    const { audio } = fakeAudio();
+    const { basic, calls } = fakeBasic();
+    const engine = new VoiceEngine(deps(null, audio, basic));
+    engine.load();
+    const events: string[] = [];
+    engine.on("start", (t) => events.push(`start:${t}`));
+    engine.on("end", (t) => events.push(`end:${t}`));
+    await engine.sample("Hi", { voice: "am_michael", speed: 1.15 });
+    expect(calls).toEqual([["Hi", 1.15]]);
+    expect(events).toEqual([]);
+  });
+
+  it("a sample uses the device voice when its clip fails", async () => {
+    const { engine, worker, basic, generated } = natural();
+    const done = engine.sample("Hi", { voice: "am_michael", speed: 1 });
+    worker.emit({ type: "error", id: generated()[0].id, message: "no voice file" });
+    await done;
+    expect(basic.speak).toHaveBeenCalledWith("Hi", 1);
+  });
+
+  it("speaking while a sample is being prepared cancels the sample", async () => {
+    const { engine, worker, audio, generated } = natural();
+    const ends: string[] = [];
+    engine.on("sampleEnd", () => ends.push("sample"));
+    const sample = engine.sample("Hi, I'm Tom.", { voice: "am_michael", speed: 1 });
+    const reply = engine.speak("A reply");
+    expect(ends).toEqual(["sample"]);
+    worker.emit({ type: "audio", id: generated()[1].id, samples: new Float32Array(4), sampleRate: 24000 });
+    await vi.waitFor(() => expect(audio.played).toEqual([4]));
+    // The sample's clip arrives late and is not played over the reply.
+    worker.emit({ type: "audio", id: generated()[0].id, samples: new Float32Array(9), sampleRate: 24000 });
+    await sample;
+    expect(audio.played).toEqual([4]);
+    audio.finish();
+    await reply;
   });
 });

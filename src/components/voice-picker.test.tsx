@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -6,7 +6,11 @@ import { DEFAULT_VOICE, MALE_NOTE, type VoiceChoice } from "@/lib/voice/choices"
 import type { VoiceEngine } from "@/lib/voice/engine";
 import { VoicePicker, VoiceScreen } from "./voice-picker";
 
-const fakeVoice = () => ({ speak: vi.fn(async () => {}), stop: vi.fn() }) as unknown as VoiceEngine & { speak: ReturnType<typeof vi.fn> };
+const fakeVoice = () =>
+  ({ speak: vi.fn(async () => {}), sample: vi.fn(async () => {}), stop: vi.fn() }) as unknown as VoiceEngine & {
+    speak: ReturnType<typeof vi.fn>;
+    sample: ReturnType<typeof vi.fn>;
+  };
 
 function Harness({ voice, mode = "natural" as const }: { voice: VoiceEngine; mode?: "natural" | "loading" | "basic" }) {
   const [value, setValue] = useState<VoiceChoice>(DEFAULT_VOICE);
@@ -33,10 +37,22 @@ describe("VoicePicker", () => {
     await userEvent.click(screen.getByRole("radio", { name: "Male" }));
     await userEvent.click(screen.getByRole("radio", { name: "Faster" }));
     await userEvent.click(screen.getByRole("button", { name: "Play a sample" }));
-    expect(voice.speak).toHaveBeenCalledWith("Hi, I'm Tom. This is how I'll sound.", { voice: "am_michael", speed: 1.15 });
+    expect(voice.sample).toHaveBeenCalledWith("Hi, I'm Tom. This is how I'll sound.", { voice: "am_michael", speed: 1.15 });
+    expect(voice.speak).not.toHaveBeenCalled();
   });
 
-  it("pressing Play a sample twice calls voice.speak twice and never calls onChange", async () => {
+  it("says the sample is being prepared until it has played", async () => {
+    const voice = fakeVoice();
+    let finish = () => {};
+    voice.sample.mockImplementation(() => new Promise<void>((r) => (finish = r)));
+    render(<Harness voice={voice} />);
+    await userEvent.click(screen.getByRole("button", { name: "Play a sample" }));
+    expect(screen.getByRole("button", { name: "Preparing sample" })).toBeDisabled();
+    await act(async () => finish());
+    expect(screen.getByRole("button", { name: "Play a sample" })).toBeEnabled();
+  });
+
+  it("pressing Play a sample twice plays two samples and never calls onChange", async () => {
     const voice = fakeVoice();
     const onChange = vi.fn();
     render(
@@ -44,7 +60,7 @@ describe("VoicePicker", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Play a sample" }));
     await userEvent.click(screen.getByRole("button", { name: "Play a sample" }));
-    expect(voice.speak).toHaveBeenCalledTimes(2);
+    expect(voice.sample).toHaveBeenCalledTimes(2);
     expect(onChange).not.toHaveBeenCalled();
   });
 

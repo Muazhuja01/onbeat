@@ -7,6 +7,7 @@ import { NoteForm } from "./note-form";
 import { NotesEditor } from "./notes-editor";
 import { ProfileMenu } from "./profile-menu";
 import { DEFAULT_VOICE } from "@/lib/voice/choices";
+import type { VoiceEngine } from "@/lib/voice/engine";
 import { ProfileSetup } from "./profile-setup";
 
 describe("NoteForm", () => {
@@ -210,6 +211,28 @@ describe("ProfileSetup", () => {
     await userEvent.click(screen.getByRole("button", { name: "Skip" }));
     await userEvent.click(screen.getByRole("button", { name: "Finish" }));
     expect(onDone.mock.calls[0][2]).toEqual(DEFAULT_VOICE);
+  });
+
+  it("stops a playing sample when leaving the voice step", async () => {
+    const voice = { sample: vi.fn(() => new Promise<void>(() => {})), stop: vi.fn() } as unknown as VoiceEngine & { stop: ReturnType<typeof vi.fn> };
+    const onCancel = vi.fn();
+    render(<ProfileSetup onDone={vi.fn()} onCancel={onCancel} voiceMode="natural" voiceProgress={100} voice={voice} />);
+    await userEvent.type(screen.getByLabelText("What's your name?"), "Tom");
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    for (const leave of ["Back", "Skip", "Next"]) {
+      await userEvent.click(screen.getByRole("button", { name: "Play a sample" }));
+      voice.stop.mockClear();
+      await userEvent.click(screen.getByRole("button", { name: leave }));
+      expect(voice.stop).toHaveBeenCalled();
+      // Back to the voice step.
+      await userEvent.click(screen.getByRole("button", { name: leave === "Back" ? "Next" : "Back" }));
+    }
+    await userEvent.click(screen.getByRole("button", { name: "Play a sample" }));
+    voice.stop.mockClear();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(voice.stop).toHaveBeenCalled();
+    expect(onCancel).toHaveBeenCalled();
   });
 });
 

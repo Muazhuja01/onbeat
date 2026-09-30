@@ -35,6 +35,17 @@ export function VoicePicker({ value, onChange, name, voice, mode, progress }: Pi
   const id = useId();
   const set = (patch: Partial<VoiceChoice>) => onChange(normalizeChoice({ ...value, ...patch }));
   const loading = mode === "loading";
+  // A voice's first sample downloads its file, which can take a few seconds.
+  const [preparing, setPreparing] = useState(false);
+  const playSample = async () => {
+    if (!voice) return;
+    setPreparing(true);
+    try {
+      await voice.sample(sampleText(name), { voice: voiceId(value), speed: speedValue(value) });
+    } finally {
+      setPreparing(false);
+    }
+  };
   return (
     <div className="flex flex-col gap-5">
       <Choice legend="Voice" name={`${id}-gender`} options={GENDERS} value={value.gender} onPick={(gender) => set({ gender })} />
@@ -44,11 +55,11 @@ export function VoicePicker({ value, onChange, name, voice, mode, progress }: Pi
       <div className="flex flex-col gap-2">
         <button
           type="button"
-          disabled={loading || !voice}
-          onClick={() => void voice?.speak(sampleText(name), { voice: voiceId(value), speed: speedValue(value) })}
+          disabled={loading || preparing || !voice}
+          onClick={() => void playSample()}
           className={`${secondaryButton} self-start`}
         >
-          {loading ? `Voice loading, ${progress}%` : "Play a sample"}
+          {loading ? `Voice loading, ${progress}%` : preparing ? "Preparing sample" : "Play a sample"}
         </button>
         {value.gender === "male" && <p className={hint}>{MALE_NOTE}</p>}
         {mode === "basic" && <p className={hint}>Your device&apos;s voice will be used, and it may not match this choice.</p>}

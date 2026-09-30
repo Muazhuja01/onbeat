@@ -68,11 +68,23 @@ export function ProfileSetup({ onDone, onDemo, onCancel, onImport, readDocument,
   const clean = cleanName(name);
   // Setup starts the main note with "I'm <name>. " when the text doesn't say the name.
   const aboutLimit = NOTE_MAX - clean.length - 6;
+  // Leaving the voice step (or setup) stops a sample that is still playing.
   const cancel = onCancel && (
-    <button type="button" onClick={onCancel} className={secondaryButton}>
+    <button
+      type="button"
+      onClick={() => {
+        voice?.stop();
+        onCancel();
+      }}
+      className={secondaryButton}
+    >
       Cancel
     </button>
   );
+  const leaveVoiceStep = (next: number) => {
+    voice?.stop();
+    setStep(next);
+  };
 
   return (
     <section aria-labelledby="setup-heading" className="flex max-w-2xl flex-col gap-6">
@@ -214,20 +226,20 @@ export function ProfileSetup({ onDone, onDemo, onCancel, onImport, readDocument,
           </p>
           <VoicePicker value={choice} onChange={setChoice} name={clean} voice={voice} mode={voiceMode} progress={voiceProgress} />
           <div className="flex flex-wrap gap-3">
-            <button type="button" onClick={() => setStep(1)} className={secondaryButton}>
+            <button type="button" onClick={() => leaveVoiceStep(1)} className={secondaryButton}>
               Back
             </button>
             <button
               type="button"
               onClick={() => {
                 setChoice(DEFAULT_VOICE);
-                setStep(3);
+                leaveVoiceStep(3);
               }}
               className={secondaryButton}
             >
               Skip
             </button>
-            <button type="button" onClick={() => setStep(3)} className={primaryButton}>
+            <button type="button" onClick={() => leaveVoiceStep(3)} className={primaryButton}>
               Next
             </button>
             {cancel}
