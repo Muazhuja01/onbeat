@@ -5,6 +5,8 @@ import type { Note } from "@/lib/types";
 import { DocumentImport } from "./document-import";
 import { NoteForm } from "./note-form";
 import { NotesEditor } from "./notes-editor";
+import { ProfileMenu } from "./profile-menu";
+import { ProfileSetup } from "./profile-setup";
 
 describe("NoteForm", () => {
   it("needs a name for a person and saves both fields", async () => {
@@ -111,5 +113,128 @@ describe("DocumentImport", () => {
     await userEvent.upload(screen.getByLabelText(/Choose a document/), new File(["x"], "scan.pdf"));
     expect(await screen.findByText("OnBeat couldn't find any text in that file.")).toBeInTheDocument();
     expect(screen.getByLabelText(/Choose a document/)).toBeEnabled();
+  });
+});
+
+describe("ProfileSetup", () => {
+  it("walks through the steps and builds the notes", async () => {
+    const onDone = vi.fn();
+    render(<ProfileSetup onDone={onDone} onDemo={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    await userEvent.type(screen.getByLabelText("What's your name?"), "  Maya {Enter}");
+    expect(screen.getByRole("heading", { name: "Tell OnBeat about you" })).toHaveFocus();
+    await userEvent.type(screen.getByLabelText("About you"), "I type to talk.");
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.type(screen.getByLabelText("Name", { selector: "#person-name" }), "Sam");
+    await userEvent.type(screen.getByLabelText("Who they are to you"), "my barista");
+    await userEvent.click(screen.getByRole("button", { name: "Add person" }));
+    expect(screen.getByText("Sam: my barista")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Finish" }));
+    const [name, made] = onDone.mock.calls[0];
+    expect(name).toBe("Maya");
+    expect(made.map((n: Note) => n.text)).toEqual(["I'm Maya. I type to talk.", "Sam: my barista"]);
+    expect(made[0].pinned).toBe(true);
+  });
+
+  it("keeps notes from a document", async () => {
+    const onDone = vi.fn();
+    const readDocument = vi.fn().mockResolvedValue({ ok: true, truncated: false, notes: [{ kind: "routine", text: "Physio on Tuesdays." }] });
+    render(<ProfileSetup onDone={onDone} readDocument={readDocument} />);
+    await userEvent.type(screen.getByLabelText("What's your name?"), "Tom{Enter}");
+    await userEvent.click(screen.getByRole("button", { name: "Start from a document" }));
+    await userEvent.upload(screen.getByLabelText(/Choose a document/), new File(["x"], "me.txt"));
+    await userEvent.click(await screen.findByRole("button", { name: "Save 1 note" }));
+    expect(screen.getByText("1 note from your document will be added.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Finish" }));
+    expect(onDone.mock.calls[0][1].map((n: Note) => n.text)).toEqual(["I'm Tom.", "Physio on Tuesdays."]);
+  });
+
+  it("goes back without losing what was typed", async () => {
+    render(<ProfileSetup onDone={vi.fn()} />);
+    await userEvent.type(screen.getByLabelText("What's your name?"), "Tom");
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByLabelText("What's your name?")).toHaveValue("Tom");
+    expect(screen.queryByRole("button", { name: "Try a demo first" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+  });
+});
+
+describe("ProfileMenu", () => {
+  const profiles = [
+    { id: "a", name: "Maya", createdAt: 1 },
+    { id: "b", name: "Tom", createdAt: 2 },
+  ];
+  const handlers = () => ({
+    onSwitch: vi.fn(),
+    onNotes: vi.fn(),
+    onNew: vi.fn(),
+    onExport: vi.fn(),
+    onImport: vi.fn(),
+    onRename: vi.fn(),
+    onDelete: vi.fn(),
+    onDemo: vi.fn(),
+  });
+
+  it("switches profile and closes", async () => {
+    const h = handlers();
+    render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} {...h} />);
+    const toggle = screen.getByRole("button", { name: "Maya" });
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await userEvent.click(screen.getByRole("button", { name: "Switch to Tom" }));
+    expect(h.onSwitch).toHaveBeenCalledWith("b");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("renames", async () => {
+    const h = handlers();
+    render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} {...h} />);
+    await userEvent.click(screen.getByRole("button", { name: "Maya" }));
+    await userEvent.click(screen.getByRole("button", { name: "Rename" }));
+    const field = screen.getByLabelText("Profile name");
+    await userEvent.clear(field);
+    await userEvent.type(field, "Maya L{Enter}");
+    expect(h.onRename).toHaveBeenCalledWith("Maya L");
+  });
+
+  it("confirms before deleting", async () => {
+    const h = handlers();
+    render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} {...h} />);
+    await userEvent.click(screen.getByRole("button", { name: "Maya" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete this profile" }));
+    expect(screen.getByText(/Export first/)).toBeInTheDocument();
+    expect(h.onDelete).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Delete Maya" }));
+    expect(h.onDelete).toHaveBeenCalled();
+  });
+
+  it("closes on Escape and returns focus", async () => {
+    render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} {...handlers()} />);
+    const toggle = screen.getByRole("button", { name: "Maya" });
+    await userEvent.click(toggle);
+    await userEvent.keyboard("{Escape}");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveFocus();
+  });
+
+  it("imports a file", async () => {
+    const h = handlers();
+    render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} {...h} />);
+    await userEvent.click(screen.getByRole("button", { name: "Maya" }));
+    const file = new File(["{}"], "onbeat-maya.json", { type: "application/json" });
+    await userEvent.upload(screen.getByLabelText("Import a profile"), file);
+    expect(h.onImport).toHaveBeenCalledWith(file);
+  });
+
+  it("offers setup and saved profiles in a demo", async () => {
+    const h = handlers();
+    render(<ProfileMenu profiles={profiles} activeId="a" demoName="Aisha" {...h} />);
+    await userEvent.click(screen.getByRole("button", { name: "Demo: Aisha" }));
+    expect(screen.getByRole("button", { name: "Switch to Maya" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Your notes" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Set up your own profile" }));
+    expect(h.onNew).toHaveBeenCalled();
   });
 });

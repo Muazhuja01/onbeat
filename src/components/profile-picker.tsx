@@ -1,13 +1,14 @@
 import type { Persona } from "@/data/personas";
 
-export function ProfilePicker({ personas, onChoose, onSkip }: { personas: Persona[]; onChoose: (p: Persona) => void; onSkip: () => void }) {
+/** The example people, reached from "Try a demo". */
+export function ProfilePicker({ personas, onChoose, onBack }: { personas: Persona[]; onChoose: (p: Persona) => void; onBack: () => void }) {
   return (
     <section aria-labelledby="profiles-heading" className="flex max-w-3xl flex-col gap-4">
       <h2 id="profiles-heading" className="text-caption font-bold text-balance">
-        Try it with an example profile
+        Try a demo
       </h2>
       <p className="max-w-[60ch] text-body text-muted">
-        Each profile has notes about a person&apos;s life, so the replies can be personal. Notes stay in this browser.
+        These example people have notes about their lives, so you can see how replies become personal. Nothing you do in a demo is saved.
       </p>
       <ul className="flex flex-col gap-3">
         {personas.map((p) => (
@@ -23,8 +24,8 @@ export function ProfilePicker({ personas, onChoose, onSkip }: { personas: Person
           </li>
         ))}
       </ul>
-      <button type="button" onClick={onSkip} className="min-h-12 self-start text-body font-bold underline underline-offset-4">
-        Continue without a profile
+      <button type="button" onClick={onBack} className="min-h-12 self-start text-body font-bold underline underline-offset-4">
+        Back
       </button>
     </section>
   );
