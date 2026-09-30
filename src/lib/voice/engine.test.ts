@@ -33,8 +33,15 @@ function fakeAudio() {
 
 function fakeBasic() {
   const spoken: string[] = [];
-  const basic: BasicSpeech = { speak: vi.fn(async (t: string) => void spoken.push(t)), stop: vi.fn() };
-  return { basic, spoken };
+  const calls: [string, number][] = [];
+  const basic: BasicSpeech = {
+    speak: vi.fn(async (t: string, rate: number) => {
+      spoken.push(t);
+      calls.push([t, rate]);
+    }),
+    stop: vi.fn(),
+  };
+  return { basic, spoken, calls };
 }
 
 const deps = (worker: WorkerLike | null, audio: AudioOut, basic: BasicSpeech) => ({
@@ -151,5 +158,66 @@ describe("VoiceEngine", () => {
     v.on("progress", (p) => progress.push(p));
     w.emit({ type: "progress", value: 42 });
     expect(progress).toEqual([42]);
+  });
+});
+
+describe("voices", () => {
+  function natural(overrides: { voice?: () => string; speed?: () => number } = {}) {
+    const worker = new FakeWorker();
+    const a = fakeAudio();
+    const b = fakeBasic();
+    const engine = new VoiceEngine({ ...deps(worker, a.audio, b.basic), ...overrides });
+    engine.load();
+    worker.emit({ type: "ready" });
+    const generated = () =>
+      worker.sent.filter((m): m is Extract<VoiceWorkerRequest, { type: "generate" }> => m.type === "generate");
+    return { engine, worker, audio: a, generated };
+  }
+
+  it("asks the worker for the current voice, and for a new one after a change", () => {
+    let voice = "af_heart";
+    const { engine, generated } = natural({ voice: () => voice });
+    void engine.speak("Hello");
+    voice = "am_michael";
+    void engine.speak("Hello");
+    expect(generated().map((m) => m.voice)).toEqual(["af_heart", "am_michael"]);
+  });
+
+  it("plays a sample in another voice without changing the current one", () => {
+    const { engine, generated } = natural({ voice: () => "af_heart", speed: () => 1 });
+    void engine.speak("Hi, I'm Tom.", { voice: "am_michael", speed: 1.15 });
+    void engine.speak("Next reply");
+    expect(generated().map((m) => [m.voice, m.speed])).toEqual([
+      ["am_michael", 1.15],
+      ["af_heart", 1],
+    ]);
+  });
+
+  it("uses the sample's speed with the device voice", async () => {
+    const { audio } = fakeAudio();
+    const { basic, calls } = fakeBasic();
+    const engine = new VoiceEngine(deps(null, audio, basic));
+    engine.load();
+    await engine.speak("Hi", { voice: "am_michael", speed: 0.85 });
+    expect(calls.at(-1)).toEqual(["Hi", 0.85]);
+  });
+
+  it("a sample stops the reply that is speaking, and the next reply uses the current voice", async () => {
+    const { engine, worker, audio, generated } = natural({ voice: () => "af_heart", speed: () => 1 });
+    const ends: string[] = [];
+    engine.on("end", (t) => ends.push(t));
+    const reply = engine.speak("A reply");
+    worker.emit({ type: "audio", id: generated()[0].id, samples: new Float32Array(5), sampleRate: 24000 });
+    await vi.waitFor(() => expect(audio.played).toEqual([5]));
+    void engine.speak("Hi, I'm Tom.", { voice: "am_michael", speed: 1.15 });
+    await reply;
+    expect(audio.audio.stop).toHaveBeenCalled();
+    expect(ends).toEqual(["A reply"]);
+    void engine.speak("Next reply");
+    expect(generated().map((m) => [m.voice, m.speed])).toEqual([
+      ["af_heart", 1],
+      ["am_michael", 1.15],
+      ["af_heart", 1],
+    ]);
   });
 });

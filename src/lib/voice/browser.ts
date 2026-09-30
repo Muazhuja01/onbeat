@@ -1,4 +1,5 @@
 import { en } from "@/lib/language-packs/en";
+import { DEFAULT_VOICE, speedValue, voiceId, type VoiceChoice } from "./choices";
 import { VoiceEngine, type AudioOut, type BasicSpeech } from "./engine";
 
 export function webAudioOut(): AudioOut {
@@ -63,12 +64,12 @@ export function browserBasicSpeech(lang = en.bcp47): BasicSpeech {
   };
 }
 
-function readVoice(): string {
-  try {
-    return localStorage.getItem("onbeat:voice") ?? en.defaultVoice;
-  } catch {
-    return en.defaultVoice;
-  }
+
+/** The open profile's or demo's voice; the conversation screen sets it. */
+let current = { voice: voiceId(DEFAULT_VOICE), speed: speedValue(DEFAULT_VOICE) };
+
+export function setCurrentVoice(choice: VoiceChoice): void {
+  current = { voice: voiceId(choice), speed: speedValue(choice) };
 }
 
 let engine: VoiceEngine | null = null;
@@ -77,6 +78,6 @@ export function getBrowserVoice(): VoiceEngine {
   if (engine) return engine;
   const worker =
     typeof Worker === "undefined" ? null : new Worker(new URL("../../workers/voice.worker.ts", import.meta.url), { type: "module" });
-  engine = new VoiceEngine({ worker, audio: webAudioOut(), basic: browserBasicSpeech(), voice: readVoice, speed: () => 1 });
+  engine = new VoiceEngine({ worker, audio: webAudioOut(), basic: browserBasicSpeech(), voice: () => current.voice, speed: () => current.speed });
   return engine;
 }

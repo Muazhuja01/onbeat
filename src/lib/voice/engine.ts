@@ -15,6 +15,8 @@ export interface BasicSpeech {
   stop(): void;
 }
 
+/** One line spoken in a different voice and speed, leaving the current voice alone. */
+export type VoiceOverride = { voice: string; speed: number };
 type Clip = { samples: Float32Array; sampleRate: number };
 type Events = { start: string; end: string; mode: VoiceMode; progress: number };
 
@@ -84,7 +86,7 @@ export class VoiceEngine {
     if (t && this.mode === "natural") this.clip(t).catch(() => {});
   }
 
-  async speak(text: string): Promise<void> {
+  async speak(text: string, as?: VoiceOverride): Promise<void> {
     const t = text.trim();
     if (!t) return;
     this.stop();
@@ -92,10 +94,10 @@ export class VoiceEngine {
     this.speaking = t;
     this.emit("start", t);
     try {
-      const clip = this.mode === "natural" ? await withTimeout(this.clip(t), this.deps.naturalWaitMs ?? 1500) : null;
+      const clip = this.mode === "natural" ? await withTimeout(this.clip(t, as), this.deps.naturalWaitMs ?? 1500) : null;
       if (token !== this.token) return;
       if (clip) await this.deps.audio.play(clip.samples, clip.sampleRate);
-      else await this.deps.basic.speak(t, this.deps.speed());
+      else await this.deps.basic.speak(t, as?.speed ?? this.deps.speed());
     } finally {
       if (token === this.token && this.speaking === t) {
         this.speaking = null;
@@ -123,8 +125,10 @@ export class VoiceEngine {
     this.emit("mode", mode);
   }
 
-  private clip(text: string): Promise<Clip> {
-    const key = `${this.deps.voice()}|${this.deps.speed()}|${text}`;
+  private clip(text: string, as?: VoiceOverride): Promise<Clip> {
+    const voice = as?.voice ?? this.deps.voice();
+    const speed = as?.speed ?? this.deps.speed();
+    const key = `${voice}|${speed}|${text}`;
     const existing = this.clips.get(key);
     if (existing) {
       this.clips.delete(key);
@@ -136,7 +140,7 @@ export class VoiceEngine {
     promise.catch(() => this.clips.delete(key));
     this.clips.set(key, promise);
     while (this.clips.size > (this.deps.cacheSize ?? 30)) this.clips.delete(this.clips.keys().next().value as string);
-    this.deps.worker?.postMessage({ type: "generate", id, text, voice: this.deps.voice(), speed: this.deps.speed() });
+    this.deps.worker?.postMessage({ type: "generate", id, text, voice, speed });
     return promise;
   }
 
