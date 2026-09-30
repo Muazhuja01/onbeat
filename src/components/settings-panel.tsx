@@ -2,6 +2,7 @@
 
 import { CaretDown, GearSix } from "@phosphor-icons/react";
 import type { ThemeChoice } from "@/lib/settings";
+import { secondaryButton } from "./ui";
 
 const THEME_LABELS: Record<ThemeChoice, string> = {
   system: "Match this device",
@@ -23,13 +24,16 @@ interface Props {
   digitKeys: boolean;
   cloudCaptions: boolean;
   learning: boolean;
+  voiceLabel?: string;
+  voiceBasic?: boolean;
+  onVoice?: () => void;
   onTheme: (theme: ThemeChoice) => void;
   onDigitKeys: (on: boolean) => void;
   onCloudCaptions: (on: boolean) => void;
   onLearning: (on: boolean) => void;
 }
 
-export function SettingsPanel({ theme, digitKeys, cloudCaptions, learning, onTheme, onDigitKeys, onCloudCaptions, onLearning }: Props) {
+export function SettingsPanel({ theme, digitKeys, cloudCaptions, learning, voiceLabel, voiceBasic, onVoice, onTheme, onDigitKeys, onCloudCaptions, onLearning }: Props) {
   return (
     <details className="group rounded-control border-2 border-ink/30">
       <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 rounded-control px-4 text-body font-bold [&::-webkit-details-marker]:hidden">
@@ -54,6 +58,20 @@ export function SettingsPanel({ theme, digitKeys, cloudCaptions, learning, onThe
             </label>
           ))}
         </fieldset>
+        {onVoice && (
+          <div className="flex flex-col gap-1">
+            <div className="flex min-h-12 flex-wrap items-center gap-x-4 gap-y-2">
+              <div className="flex min-w-0 flex-col">
+                <span className="text-label font-bold">Voice</span>
+                <span className="text-body">{voiceLabel}</span>
+              </div>
+              <button type="button" onClick={onVoice} aria-label="Change voice" className={`${secondaryButton} ml-auto`}>
+                Change
+              </button>
+            </div>
+            {voiceBasic && <p className="text-label text-muted">Using your device&apos;s voice</p>}
+          </div>
+        )}
         <div className="flex flex-col gap-1">
           <label className="flex min-h-12 cursor-pointer items-center gap-3 text-body">
             <input
