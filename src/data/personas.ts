@@ -1,3 +1,4 @@
+import { DEFAULT_VOICE, type VoiceChoice } from "@/lib/voice/choices";
 import type { Note, Phrase } from "@/lib/types";
 
 export interface Persona {
@@ -8,6 +9,7 @@ export interface Persona {
   defaultPartnerId: string;
   notes: Note[];
   phrases: Phrase[];
+  voice: VoiceChoice;
 }
 
 const n = (id: string, kind: Note["kind"], text: string, entities: string[] = [], extra: Partial<Note> = {}): Note => ({
@@ -45,6 +47,7 @@ export const personas: Persona[] = [
       n("m-books", "preference", "I love mystery novels, especially Agatha Christie.", ["Agatha Christie"]),
       n("m-home", "place", "Home is my apartment on Cedar Street.", ["Cedar Street"]),
     ],
+    voice: DEFAULT_VOICE,
     phrases: [
       p("m-p1", "My usual, please.", 12, "m-cafe", "m-sam"),
       p("m-p2", "Could I get a large oat latte?", 6, "m-cafe"),
@@ -70,6 +73,7 @@ export const personas: Persona[] = [
       n("t-doctor", "person", "Dr. Chen at Lakeview Clinic is my family doctor.", ["Dr. Chen", "Lakeview Clinic"]),
       n("t-work", "about-me", "I work as a graphic designer."),
     ],
+    voice: { gender: "male", accent: "american", style: "calm", speed: "normal" },
     phrases: [
       p("t-p1", "I'm here to pick up a prescription.", 10, "t-pharmacy"),
       p("t-p2", "Can you type that for me?", 8),
@@ -94,6 +98,7 @@ export const personas: Persona[] = [
       n("a-harbor", "routine", "I'm leading the Harbor app redesign, due on Friday.", ["Harbor"]),
       n("a-lunch", "preference", "I usually eat lunch at 12:30 and like the Thai place downstairs."),
     ],
+    voice: DEFAULT_VOICE,
     phrases: [
       p("a-p1", "Morning, Marco.", 9, "a-office", "a-marco"),
       p("a-p2", "The Harbor designs are almost done.", 6, "a-office"),

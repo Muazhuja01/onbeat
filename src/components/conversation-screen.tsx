@@ -18,7 +18,7 @@ import { getBrowserRegistry, openDemoMemory, openProfileMemory } from "@/lib/mem
 import type { MemoryStore } from "@/lib/memory/store";
 import { memoryKeyValue } from "@/lib/profiles/kv";
 import { buildNote, type DraftNote } from "@/lib/profiles/notes";
-import { ProfileRegistry } from "@/lib/profiles/registry";
+import { ProfileRegistry, profileVoice } from "@/lib/profiles/registry";
 import { exportFileName, exportProfile, parseImport } from "@/lib/profiles/transfer";
 import { getServerSettings, getSettings, learningTold, markLearningTold, setCloudCaptions, setDigitKeys, setLearning, setTheme, subscribeSettings } from "@/lib/settings";
 import { SuggestClient } from "@/lib/suggest/client";
@@ -404,7 +404,7 @@ function Screen() {
     const active = registry?.active();
     if (!active || !memory) return;
     const now = new Date();
-    const url = URL.createObjectURL(new Blob([exportProfile(active.name, memory.notes(), memory.phrases(), now, learning.suggestions)], { type: "application/json" }));
+    const url = URL.createObjectURL(new Blob([exportProfile(active.name, memory.notes(), memory.phrases(), now, learning.suggestions, profileVoice(active))], { type: "application/json" }));
     const link = document.createElement("a");
     link.href = url;
     link.download = exportFileName(active.name, now);
@@ -426,7 +426,7 @@ function Screen() {
     let store: MemoryStore;
     let name: string;
     try {
-      const profile = await registry.create(registry.uniqueName(parsed.name));
+      const profile = await registry.create(registry.uniqueName(parsed.name), parsed.voice);
       name = profile.name;
       await registry.persistFor(profile.id).save({ version: 1, notes: parsed.notes, phrases: parsed.phrases });
       if (parsed.suggestions.length) await (await PendingStore.open(registry.keyValue, profile.id)).replaceAll(parsed.suggestions);

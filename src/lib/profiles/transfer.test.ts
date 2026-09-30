@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Note, Phrase } from "@/lib/types";
 import type { PendingSuggestion } from "@/lib/learning/types";
+import { DEFAULT_VOICE } from "@/lib/voice/choices";
 import { exportFileName, exportProfile, parseImport } from "./transfer";
 
 const notes: Note[] = [
@@ -79,5 +80,22 @@ describe("suggested notes in exports", () => {
     const old = JSON.parse(exportProfile("Maya", notes, [], now));
     delete old.suggestions;
     expect(parseImport(JSON.stringify(old))!.suggestions).toEqual([]);
+  });
+});
+
+describe("voice in export files", () => {
+  const male = { gender: "male" as const, accent: "british" as const, style: "calm", speed: "slower" as const };
+
+  it("carries the voice", () => {
+    expect(parseImport(exportProfile("Tom", [], [], now, [], male))!.voice).toEqual(male);
+  });
+
+  it("imports older files, and files with an unknown voice, with the default", () => {
+    expect(parseImport(exportProfile("Tom", [], [], now))!.voice).toEqual(DEFAULT_VOICE);
+    const odd = JSON.parse(exportProfile("Tom", [], [], now, [], male));
+    odd.profile.voice = { gender: "male", accent: "british", style: "robot", speed: "normal" };
+    expect(parseImport(JSON.stringify(odd))!.voice).toEqual(DEFAULT_VOICE);
+    odd.profile.voice = "am_michael";
+    expect(parseImport(JSON.stringify(odd))!.voice).toEqual(DEFAULT_VOICE);
   });
 });
