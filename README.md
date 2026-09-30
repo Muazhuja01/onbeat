@@ -18,7 +18,7 @@ Phones already offer captions and type-to-speak. OnBeat tries to shorten the gap
 - While they're still talking, the app searches the user's saved notes (people, places, routines, things they've said before) and asks a language model for three short replies.
 - The user picks one or types their own. Nothing is spoken until they tap.
 - A reply is discarded if it mentions a name, number or time that isn't in the user's notes or the conversation.
-- Notes are stored in the browser. Only the few notes relevant to the current reply, or to the lines being learned from, are sent to the model.
+- Notes are stored in the browser. Only the few notes relevant to the current reply, or to the lines being learned from, are sent to the model. The assistant sends more when it's used: notes up to 12,000 characters, and the quick phrases.
 
 ## Status
 
@@ -30,7 +30,7 @@ Suggested notes: after a pause in a conversation, the recent lines (what the oth
 
 Captions come from Moonshine in the browser. "Clearer captions" in Settings (off by default) sends each finished line from the other person to Deepgram Nova-3 through Cloudflare, which roughly halves the word errors on clear speech; the browser's caption is used whenever that service is slow or unavailable. Measurements are in [eval/hearing/RESULTS.md](eval/hearing/RESULTS.md).
 
-Next: learning from conversations (suggested notes the user confirms), then an assistant chat for updating notes and preparing for conversations.
+Assistant: a short chat, opened from the profile menu, for updating notes, preparing for an appointment and making quick phrases. It proposes changes as cards, and nothing is saved until the user chooses Keep. When used, it sends the chat, the user's notes (up to 12,000 characters) and their quick phrases to the language model. It is built but not released, because its eval missed the target. Measurements are in [eval/assist/RESULTS.md](eval/assist/RESULTS.md).
 
 Results on the held-out test set (60 scenarios written before any tuning) for the default model `qwen/qwen3.8-27b`. Neither target (90% top-3 hit rate, under 5% invented details) is met; the owner accepted these numbers for the deploy. Details, method and known gaps are in [eval/RESULTS.md](eval/RESULTS.md).
 
