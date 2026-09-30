@@ -98,4 +98,10 @@ describe("voice in export files", () => {
     odd.profile.voice = "am_michael";
     expect(parseImport(JSON.stringify(odd))!.voice).toEqual(DEFAULT_VOICE);
   });
+
+  it("keeps only the voice's own fields", () => {
+    const file = JSON.parse(exportProfile("Tom", [], [], now, [], male));
+    file.profile.voice = { ...male, extra: "<script>" };
+    expect(parseImport(JSON.stringify(file))!.voice).toStrictEqual(male);
+  });
 });

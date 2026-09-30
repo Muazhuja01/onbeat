@@ -100,6 +100,8 @@ export function parseImport(text: string): { name: string; notes: Note[]; phrase
       createdAt: s.createdAt,
     };
   });
-  const voice = isVoiceChoice(parsed.data.profile.voice) ? parsed.data.profile.voice : DEFAULT_VOICE;
+  const given = parsed.data.profile.voice;
+  // Rebuilt field by field, so nothing else in the file is stored with the profile.
+  const voice: VoiceChoice = isVoiceChoice(given) ? { gender: given.gender, accent: given.accent, style: given.style, speed: given.speed } : DEFAULT_VOICE;
   return { name, notes, phrases, suggestions, voice };
 }
