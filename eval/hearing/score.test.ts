@@ -3,12 +3,30 @@ import { normalizeWords, scoreClip, summarize, wordErrors } from "./score";
 
 describe("normalizeWords", () => {
   it("lowercases, drops punctuation and filler, splits hyphens", () => {
-    expect(normalizeWords("YEAH I MEAN, UM, THAT'S A WELL-KNOWN one?")).toEqual(["yeah", "i", "mean", "that's", "a", "well", "known", "one"]);
+    expect(normalizeWords("YEAH I MEAN, UM, THAT'S A WELL-KNOWN one?")).toEqual(["yeah", "i", "mean", "that's", "a", "well", "known", "1"]);
     expect(normalizeWords("Mm-hmm. Uh, okay.")).toEqual(["okay"]);
   });
 
   it("treats curly and straight apostrophes alike", () => {
     expect(normalizeWords("What’s your name")).toEqual(["what's", "your", "name"]);
+  });
+
+  // The same forgiveness as Whisper's English normalizer, so numbers compare with published ones.
+  it("expands contractions", () => {
+    expect(normalizeWords("If you've got it, you won't mind. I'm sure they'll say we'd can't")).toEqual(
+      normalizeWords("If you have got it, you will not mind. I am sure they will say we would can not"),
+    );
+  });
+
+  it("writes spelled-out numbers as digits", () => {
+    expect(normalizeWords("ninety nine")).toEqual(["99"]);
+    expect(normalizeWords("the nineties")).toEqual(["the", "90s"]);
+    expect(normalizeWords("two hundred and five people")).toEqual(["205", "people"]);
+    expect(normalizeWords("a table for two")).toEqual(["a", "table", "for", "2"]);
+  });
+
+  it("uses American spellings and one spelling of okay", () => {
+    expect(normalizeWords("The colours of the programme, OK")).toEqual(["the", "colors", "of", "the", "program", "okay"]);
   });
 });
 

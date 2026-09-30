@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mixAtSnr, parseWav, rms } from "./wav";
+import { encodeWav, mixAtSnr, parseWav, rms } from "./wav";
 
 function wav16(samples: number[], sampleRate: number, channels = 1): Uint8Array {
   const data = samples.length * 2;
@@ -48,5 +48,14 @@ describe("mixAtSnr", () => {
   it("returns the speech unchanged when no noise is asked for", () => {
     const speech = Float32Array.from([0.1, 0.2]);
     expect(mixAtSnr(speech, new Float32Array(10), Infinity, 0)).toEqual(speech);
+  });
+});
+
+describe("encodeWav", () => {
+  it("writes 16-bit mono audio that parseWav reads back", () => {
+    const samples = Float32Array.from([0, 0.5, -0.5, 0.25]);
+    const back = parseWav(encodeWav(samples, 16000));
+    expect(back.sampleRate).toBe(16000);
+    back.samples.forEach((s, i) => expect(s).toBeCloseTo(samples[i], 3));
   });
 });

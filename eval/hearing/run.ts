@@ -5,10 +5,11 @@
  * noise. Reports word error rate and how often a caption was cut off, split
  * into several lines, or missing.
  *
- *   npx tsx eval/hearing/run.ts [--split dev|test] [--model tiny|base]
+ *   npx tsx eval/hearing/run.ts [--split dev|test] [--model tiny|base|groq:<whisper model>|cf:nova-3]
  *     [--pad 96] [--silence 600] [--enter 0.3] [--exit 0.1]
  *     [--tokens app|library] [--limit N] [--label name]
  */
+import { setDefaultResultOrder } from "node:dns";
 import { AutoModel, pipeline, Tensor } from "@huggingface/transformers";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -18,7 +19,10 @@ import { DEFAULT_SEGMENTER, Segmenter } from "@/lib/hearing/segmenter";
 import { trimRepeatedTail } from "@/lib/hearing/transcript";
 import { CACHE, type Clip } from "./clips";
 import { scoreClip, summarize, type ClipScore, type Summary } from "./score";
-import { noiseGain, parseWav } from "./wav";
+import { encodeWav, noiseGain, parseWav } from "./wav";
+
+// This network drops some IPv6 connections to the APIs mid-request.
+setDefaultResultOrder("ipv4first");
 
 const { values: args } = parseArgs({
   options: {
@@ -83,6 +87,65 @@ function seeded(id: string): number {
   return (h >>> 0) / 4294967296;
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Sends a request until it succeeds, waiting out rate limits and dropped
+ * connections. `ms` is how long the successful request took, not the waits.
+ */
+async function send(name: string, request: () => Promise<Response>): Promise<{ res: Response; ms: number }> {
+  for (let attempt = 0; ; attempt++) {
+    const started = performance.now();
+    let res: Response;
+    try {
+      res = await request();
+    } catch (err) {
+      if (attempt >= 6) throw err;
+      console.error(`${name} request failed (${(err as Error & { cause?: Error }).cause?.message ?? String(err)}), retrying`);
+      await sleep(3000 * 2 ** attempt);
+      continue;
+    }
+    if (res.ok) return { res, ms: performance.now() - started };
+    if (attempt >= 6 || (res.status !== 429 && res.status < 500)) throw new Error(`${name} ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const asked = Number(res.headers.get("retry-after"));
+    await sleep(asked > 0 ? asked * 1000 : 5000 * 2 ** attempt);
+  }
+}
+
+/** One segment through Whisper on Groq. */
+async function transcribeWithGroq(model: string, audio: Float32Array): Promise<{ text: string; ms: number }> {
+  const wav = encodeWav(audio, SAMPLE_RATE);
+  const { res, ms } = await send("Groq", () => {
+    const form = new FormData();
+    form.append("file", new Blob([wav as BlobPart], { type: "audio/wav" }), "turn.wav");
+    form.append("model", model);
+    form.append("language", "en");
+    form.append("temperature", "0");
+    form.append("response_format", "json");
+    return fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+      body: form,
+    });
+  });
+  return { text: ((await res.json()) as { text: string }).text.trim(), ms };
+}
+
+/** One segment through Deepgram Nova-3 on Cloudflare Workers AI. */
+async function transcribeWithNova(audio: Float32Array): Promise<{ text: string; ms: number }> {
+  const wav = encodeWav(audio, SAMPLE_RATE);
+  const url = `https://api.cloudflare.com/client/v4/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/ai/run/@cf/deepgram/nova-3?smart_format=true&language=en`;
+  const { res, ms } = await send("Cloudflare", () =>
+    fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`, "Content-Type": "audio/wav" },
+      body: wav as BodyInit,
+    }),
+  );
+  const body = (await res.json()) as { result: { results: { channels: { alternatives: { transcript: string }[] }[] } } };
+  return { text: body.result.results.channels[0]?.alternatives[0]?.transcript.trim() ?? "", ms };
+}
+
 async function main() {
   const split = args.split as "dev" | "test";
   const clips = (JSON.parse(readFileSync(join(CACHE, "clips.json"), "utf8")) as Clip[])
@@ -101,13 +164,26 @@ async function main() {
     config: { model_type: "custom" },
     dtype: "fp32",
   } as never)) as unknown as Vad;
-  const asr = (await pipeline("automatic-speech-recognition", `onnx-community/moonshine-${args.model}-ONNX`, {
-    dtype: { encoder_model: "fp32", decoder_model_merged: "q8" },
-  } as never)) as unknown as Asr;
-  const transcribe = async (audio: Float32Array) => {
-    const out = args.tokens === "app" ? await asr(audio, { max_new_tokens: maxTranscriptTokens(audio.length) }) : await asr(audio);
-    return trimRepeatedTail(out.text.trim());
-  };
+  let transcribe: (audio: Float32Array) => Promise<{ text: string; ms: number }>;
+  if (args.model.startsWith("groq:")) {
+    const model = args.model.slice("groq:".length);
+    process.loadEnvFile(".env.local");
+    if (!process.env.GROQ_API_KEY) throw new Error("GROQ_API_KEY is missing. Add it to .env.local.");
+    transcribe = (audio) => transcribeWithGroq(model, audio);
+  } else if (args.model === "cf:nova-3") {
+    process.loadEnvFile(".env.local");
+    if (!process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.CLOUDFLARE_API_TOKEN) throw new Error("Cloudflare keys are missing. Add them to .env.local.");
+    transcribe = transcribeWithNova;
+  } else {
+    const asr = (await pipeline("automatic-speech-recognition", `onnx-community/moonshine-${args.model}-ONNX`, {
+      dtype: { encoder_model: "fp32", decoder_model_merged: "q8" },
+    } as never)) as unknown as Asr;
+    transcribe = async (audio) => {
+      const started = performance.now();
+      const out = args.tokens === "app" ? await asr(audio, { max_new_tokens: maxTranscriptTokens(audio.length) }) : await asr(audio);
+      return { text: trimRepeatedTail(out.text.trim()), ms: performance.now() - started };
+    };
+  }
   const options = {
     ...DEFAULT_SEGMENTER,
     padMs: Number(args.pad),
@@ -156,9 +232,8 @@ async function main() {
           if (e.type === "start" || e.type === "discard") events[e.type]++;
           if (e.type !== "end") continue;
           events.end++;
-          const t0 = performance.now();
-          const text = await transcribe(e.audio);
-          asrMs += performance.now() - t0;
+          const { text, ms } = await transcribe(e.audio);
+          asrMs += ms;
           if (text) turns.push(text);
         }
       }
@@ -178,7 +253,7 @@ async function main() {
     if ((n + 1) % 20 === 0) console.error(`${n + 1}/${clips.length} clips (${Math.round((Date.now() - started) / 1000)} s)`);
   }
 
-  const label = args.label ?? `${split}-${args.model}-in${args.enter}-out${args.exit}-sil${args.silence}-${args.tokens}`;
+  const label = args.label ?? `${split}-${args.model.replace(":", "-")}-in${args.enter}-out${args.exit}-sil${args.silence}-${args.tokens}`;
   const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
   const row = (name: string, s: Summary) =>
     `| ${name} | ${s.clips} | ${pct(s.wer)} | ${pct(s.exact)} | ${pct(s.cutOff)} | ${pct(s.split)} | ${pct(s.missed)} |`;
@@ -196,7 +271,7 @@ async function main() {
   }
   lines.push(row("**all**", summarize(results.map((r) => r.score))));
   const times = results.map((r) => r.asrMs).sort((a, b) => a - b);
-  lines.push("", `Transcription time per clip: median ${Math.round(times[Math.floor(times.length / 2)])} ms (Node, CPU).`);
+  lines.push("", `Transcription time per clip: median ${Math.round(times[Math.floor(times.length / 2)])} ms (local models: Node on this CPU; cloud: request round trip).`);
   const worst = results.filter((r) => r.score.cutOff || r.score.split).slice(0, 12);
   if (worst.length) {
     lines.push("", "Cut off or split (first 12):", "");
