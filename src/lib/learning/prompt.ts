@@ -64,6 +64,7 @@ export function buildLearnMessages(req: LearnRequest): ChatMessage[] {
     "- Skip anything a note already says.",
     '- If a line changes or adds to what a note says, change that note: "action": "edit", its id in "note", and the whole new text, keeping the rest of its wording.',
     "- A fact about a person or place that has a note is a change to that note, not a new note.",
+    '- A change keeps every part of the old note that is still true and adds the new fact to it: "Hill Street Library is where I borrow audiobooks." becomes "Hill Street Library is where I borrow audiobooks. It is closed on Sundays now."',
     "- Leave out facts about other people unless they matter to the person (who someone is to them, when they visit).",
     "- Leave out other people's news (a friend's holiday, a child starting school) unless it changes the person's own plans.",
     "- Don't say what someone's job or role is unless a line or a note says it.",

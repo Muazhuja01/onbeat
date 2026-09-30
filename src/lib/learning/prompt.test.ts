@@ -49,6 +49,9 @@ describe("buildLearnMessages", () => {
     expect(user.content).toContain('Write a date only when a line names the day (a weekday, today, tomorrow, or a date). Keep other time words as they were said ("end of the month").');
     expect(user.content).toContain("Leave out other people's news (a friend's holiday, a child starting school) unless it changes the person's own plans.");
     expect(user.content).toContain("Don't say what someone's job or role is unless a line or a note says it.");
+    expect(user.content).toContain(
+      'A change keeps every part of the old note that is still true and adds the new fact to it: "Hill Street Library is where I borrow audiobooks." becomes "Hill Street Library is where I borrow audiobooks. It is closed on Sundays now."',
+    );
   });
 
   it("says when there are no notes", () => {
