@@ -83,6 +83,30 @@ describe("AssistSession", () => {
     expect(memory.getNote("physio")).toBeUndefined();
   });
 
+  it("saves once when Keep is tapped twice before the first finishes", async () => {
+    const { session, memory, post } = await setup([]);
+    post.mockImplementationOnce(async (body) => ({
+      ok: true,
+      say: "Here.",
+      proposals: [
+        { action: "add", kind: "routine", text: "I have swimming on Fridays at 8:00.", lineIds: [userId(body)] },
+        { action: "remove", noteId: "physio", lineIds: [userId(body)] },
+      ],
+    }));
+    await session.send("Swimming on Fridays. I stopped physio.");
+    const [add, remove] = session.state.cards;
+    const before = memory.notes().length;
+
+    const [a, b] = await Promise.all([session.keep(add.id), session.keep(add.id)]);
+    expect([a, b].sort()).toEqual(["gone", "kept"]);
+    expect(memory.notes()).toHaveLength(before + 1);
+
+    const [c, d] = await Promise.all([session.keep(remove.id), session.keep(remove.id)]);
+    expect([c, d].sort()).toEqual(["gone", "kept"]);
+    expect(memory.getNote("physio")).toBeUndefined();
+    expect(memory.notes()).toHaveLength(before);
+  });
+
   it("ties a phrase to a person kept earlier in the same chat", async () => {
     const { session, memory, post } = await setup([]);
     post.mockImplementationOnce(async (body) => ({
