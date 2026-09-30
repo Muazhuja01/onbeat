@@ -5,10 +5,40 @@ import { PHRASE_MAX, type AssistProposal, type AssistRequest } from "./protocol"
 
 type NoteProposal = Extract<AssistProposal, { action: "add" | "edit" }>;
 
+const MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December";
+
+/**
+ * A user line with the 24-hour form of each am/pm time it states added, so "2 pm" backs
+ * "14:00" as well as "2:00". The model writes dated notes in 24-hour time.
+ */
+export function withDayTimes(text: string): string {
+  const times = [...text.matchAll(/\b(\d{1,2})(?::(\d{2}))?\s*([ap])\.?m\.?(?![\p{L}])/giu)].flatMap((m) => {
+    const hour = Number(m[1]);
+    if (hour < 1 || hour > 12) return [];
+    const h24 = (hour % 12) + (m[3].toLowerCase() === "p" ? 12 : 0);
+    return [`${h24}:${m[2] ?? "00"}`];
+  });
+  return times.length ? `${text} (${times.join(", ")})` : text;
+}
+
+/**
+ * A note's text without the dates ("3 November") that its cited lines state as typed, day and
+ * month alike, so the learning check doesn't drop a date past the coming two weeks that the
+ * person typed themselves (the prompt asks for such a date). Every other part is still checked.
+ */
+function withoutTypedDates(text: string, lineText: string): string {
+  return text.replace(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(${MONTHS})\\b`, "gi"), (date, day: string, month: string) => {
+    const typed = new RegExp(`\\b(?:${day}(?:st|nd|rd|th)?\\s+${month}|${month}\\s+${day}(?:st|nd|rd|th)?)\\b`, "i");
+    return typed.test(lineText) ? " " : date;
+  });
+}
+
 /**
  * Drops, never repairs. Every proposal must cite only the user's own lines: the assistant's
  * lines are its own words and can't be the source of a fact. Note adds and edits then pass
- * the learning check (a detail must be in the cited lines, or the old note for an edit).
+ * the learning check (a detail must be in the cited lines, or the old note for an edit), with
+ * two allowances: an am/pm time a line states backs its 24-hour form, and a date a cited
+ * line states as typed may be past the coming two weeks.
  * A removal must name a sent note that isn't also edited. A phrase may not state a name or
  * number found in no user line and no sent note, and may not repeat a quick phrase.
  */
@@ -19,17 +49,25 @@ export function checkAssistProposals(proposals: AssistProposal[], req: AssistReq
 
   const learnReq: LearnRequest = {
     today: req.today,
-    lines: userLines.map((l) => ({ id: l.id, speaker: "user" as const, text: l.text })),
+    lines: userLines.map((l) => ({ id: l.id, speaker: "user" as const, text: withDayTimes(l.text) })),
     notes: req.notes,
   };
+  const lineText = new Map(userLines.map((l) => [l.id, l.text]));
   const noteProposals = cited.filter((p): p is NoteProposal => p.action === "add" || p.action === "edit");
+  // The check sees each text without its typed dates; what it keeps is shown as the model wrote it.
+  const shown = new Map<string, string>();
+  const checkedText = (p: NoteProposal) => {
+    const t = withoutTypedDates(p.text, p.lineIds.map((id) => lineText.get(id) ?? "").join("\n"));
+    if (!shown.has(t)) shown.set(t, p.text);
+    return t;
+  };
   const notes: AssistProposal[] = checkProposals(
-    noteProposals.map((p): Proposal => ({ action: p.action, kind: p.kind, ...(p.name ? { name: p.name } : {}), text: p.text, ...(p.action === "edit" ? { noteId: p.noteId } : {}), lineIds: p.lineIds })),
+    noteProposals.map((p): Proposal => ({ action: p.action, kind: p.kind, ...(p.name ? { name: p.name } : {}), text: checkedText(p), ...(p.action === "edit" ? { noteId: p.noteId } : {}), lineIds: p.lineIds })),
     learnReq,
   ).map((p) =>
     p.action === "edit"
-      ? { action: "edit", kind: p.kind, ...(p.name ? { name: p.name } : {}), text: p.text, noteId: p.noteId!, lineIds: p.lineIds }
-      : { action: "add", kind: p.kind, ...(p.name ? { name: p.name } : {}), text: p.text, lineIds: p.lineIds },
+      ? { action: "edit", kind: p.kind, ...(p.name ? { name: p.name } : {}), text: shown.get(p.text)!, noteId: p.noteId!, lineIds: p.lineIds }
+      : { action: "add", kind: p.kind, ...(p.name ? { name: p.name } : {}), text: shown.get(p.text)!, lineIds: p.lineIds },
   );
 
   const sent = new Set(req.notes.map((n) => n.id));

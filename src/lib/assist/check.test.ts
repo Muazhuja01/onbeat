@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkAssistProposals } from "./check";
+import { checkAssistProposals, withDayTimes } from "./check";
 import type { AssistProposal, AssistRequest } from "./protocol";
 
 const req: AssistRequest = {
@@ -71,6 +71,28 @@ describe("checkAssistProposals", () => {
       req,
     );
     expect(twice).toHaveLength(1);
+  });
+
+  it("reads an am/pm time in a line as its 24-hour form too", () => {
+    expect(withDayTimes("Wednesday at 2 pm.")).toBe("Wednesday at 2 pm. (14:00)");
+    expect(withDayTimes("3 November at 4:30pm, or 9 a.m.")).toBe("3 November at 4:30pm, or 9 a.m. (16:30, 9:00)");
+    expect(withDayTimes("Thursday at 10:00.")).toBe("Thursday at 10:00.");
+  });
+
+  it("keeps a dated note in 24-hour time for a line's pm time, and drops a different hour", () => {
+    const pm: AssistRequest = { ...req, lines: [...req.lines, { id: "u3", speaker: "user", text: "Marco, Wednesday at 2 pm." }] };
+    const p: AssistProposal = { action: "add", kind: "routine", text: "Wednesday 7 October, 14:00: meeting with Marco.", lineIds: ["u3"] };
+    expect(checkAssistProposals([p], pm)).toEqual([p]);
+    expect(checkAssistProposals([{ ...p, text: "Wednesday 7 October, 15:00: meeting with Marco." }], pm)).toEqual([]);
+  });
+
+  it("keeps a date past the coming two weeks when the line typed it, and nothing it didn't type", () => {
+    const far: AssistRequest = { ...req, lines: [...req.lines, { id: "u3", speaker: "user", text: "Parent-teacher meeting at Hillside School, 3 November at 4pm." }] };
+    const p: AssistProposal = { action: "add", kind: "routine", text: "3 November, 16:00: parent-teacher meeting at Hillside School.", lineIds: ["u3"] };
+    expect(checkAssistProposals([p], far)).toEqual([p]);
+    expect(checkAssistProposals([{ ...p, text: "4 November, 16:00: parent-teacher meeting at Hillside School." }], far)).toEqual([]);
+    expect(checkAssistProposals([{ ...p, text: "Tuesday 3 November, 16:00: parent-teacher meeting at Hillside School." }], far)).toEqual([]);
+    expect(checkAssistProposals([{ ...p, text: "3 November, 17:00: parent-teacher meeting at Hillside School." }], far)).toEqual([]);
   });
 
   it("puts notes first, then removals, then phrases", () => {
