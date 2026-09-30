@@ -42,11 +42,17 @@ function clip(text: string): string {
   return text.trim().replace(/\s+/g, " ").slice(0, NOTE_MAX).trim();
 }
 
-export function buildNote(draft: DraftNote, opts: { id?: string; pinned?: boolean; now: number }): Note {
+/** The text a draft is stored as: "Name: description" for a person or place, unless the description already names them. */
+export function composeNoteText(draft: DraftNote): string {
   const name = hasName(draft.kind) ? (draft.name ?? "").trim() : "";
   const body = draft.text.trim();
   const mentions = name && body.toLowerCase().includes(name.toLowerCase());
-  const text = clip(name && !mentions ? (body ? `${name}: ${body}` : name) : body);
+  return clip(name && !mentions ? (body ? `${name}: ${body}` : name) : body);
+}
+
+export function buildNote(draft: DraftNote, opts: { id?: string; pinned?: boolean; now: number }): Note {
+  const name = hasName(draft.kind) ? (draft.name ?? "").trim() : "";
+  const text = composeNoteText(draft);
   const entities = [...new Set([...(name ? [name] : []), ...guessEntities(text)])];
   return {
     id: opts.id ?? `n_${crypto.randomUUID()}`,

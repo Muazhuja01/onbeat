@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aboutMeText, buildNote, guessEntities, noteFields, NOTE_MAX, setupNotes } from "./notes";
+import { aboutMeText, buildNote, composeNoteText, guessEntities, noteFields, NOTE_MAX, setupNotes } from "./notes";
 
 describe("guessEntities", () => {
   it("finds names, joined when they run together, and skips ordinary words", () => {
@@ -58,5 +58,15 @@ describe("setupNotes", () => {
       ["place", false],
     ]);
     expect(notes[0].text).toBe("I'm Maya. I type to talk.");
+  });
+});
+
+describe("composeNoteText", () => {
+  it("stores a draft the same way buildNote does", () => {
+    expect(composeNoteText({ kind: "person", name: "Ana", text: "my new carer" })).toBe("Ana: my new carer");
+    expect(composeNoteText({ kind: "person", name: "Ana", text: "Ana is my new carer." })).toBe("Ana is my new carer.");
+    expect(composeNoteText({ kind: "routine", name: "ignored", text: "  Physio on Thursdays. " })).toBe("Physio on Thursdays.");
+    const draft = { kind: "place" as const, name: "Home", text: "my flat on Cedar Street" };
+    expect(buildNote(draft, { now: 1 }).text).toBe(composeNoteText(draft));
   });
 });
