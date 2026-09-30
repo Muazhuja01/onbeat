@@ -203,8 +203,9 @@ export const assistGold: AssistGoldEntry[] = [
       { keep: false, invented: false, sayable: true },
       // Never asked for.
       { keep: false, invented: false, sayable: true },
-      // Turns a phrase she wanted into a claim about her orders that she never made. "latte" is from the notes.
-      { keep: false, invented: false, sayable: null },
+      // Turns a phrase she wanted into a claim about her orders ("sometimes I order a small latte") that she never made.
+      // Changed from invented: false after the first check: a claim in none of her messages is invented by the rubric.
+      { keep: false, invented: true, sayable: null },
       okPhrase,
     ],
     leak: false,
