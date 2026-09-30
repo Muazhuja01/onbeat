@@ -7,7 +7,7 @@ import type { MemoryStore } from "@/lib/memory/store";
 import { composeNoteText, type DraftNote } from "@/lib/profiles/notes";
 import { KIND_LABELS, NoteForm } from "./note-form";
 import { SuggestionCard } from "./suggestion-card";
-import { fieldLabel, hint, primaryButton, secondaryButton, textField } from "./ui";
+import { fieldLabel, hint, primaryButton, secondaryButton, textArea, textField } from "./ui";
 
 interface Props {
   memory: MemoryStore;
@@ -59,12 +59,24 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
   const [leaving, setLeaving] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
+  const closing = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
   const seen = useRef(0);
 
   useEffect(() => {
+    // Closing is permanent, and StrictMode unmounts and remounts straight away in development.
+    // So close on a timer that a remount cancels; a real unmount lets it run.
+    if (closing.current) clearTimeout(closing.current);
+    closing.current = null;
     headingRef.current?.focus();
-    return () => session.close();
+    return () => {
+      closing.current = setTimeout(() => session.close(), 0);
+    };
   }, [session]);
+
+  const cardButton = (id: string, selector = "button") => document.getElementById(`assist-card-${id}`)?.querySelector<HTMLElement>(selector);
+  const boxOrHeading = () => (boxRef.current && !boxRef.current.disabled ? boxRef.current : headingRef.current);
+  const focusSoon = (find: () => HTMLElement | null | undefined) => requestAnimationFrame(() => find()?.focus());
 
   // Each new assistant line is announced; focus goes to its first card, else the text box.
   useEffect(() => {
@@ -91,13 +103,30 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
   const keep = async (card: AssistCard, edited?: { draft?: DraftNote; phraseText?: string }) => {
     setEditing(null);
     setConfirmDelete(null);
-    const outcome: KeepOutcome = await session.keep(card.id, edited);
+    let outcome: KeepOutcome;
+    try {
+      outcome = await session.keep(card.id, edited);
+    } catch {
+      announce("Couldn't save that. Try again.");
+      focusSoon(() => cardButton(card.id));
+      return;
+    }
     if (outcome === "kept") {
       onChanged();
       announce(card.action === "remove" ? "Deleted" : "Kept");
     } else if (outcome === "duplicate") announce("You already have this.");
     else if (outcome === "changed") announce("This note has changed since.");
-    boxRef.current?.focus();
+    focusSoon(boxOrHeading);
+  };
+
+  const skip = (card: AssistCard) => {
+    const next = state.cards.find((c) => c.state === "open" && c.id !== card.id);
+    session.skip(card.id);
+    focusSoon(() => (next ? cardButton(next.id) : boxOrHeading()));
+  };
+  const cancelEdit = (card: AssistCard) => {
+    setEditing(null);
+    focusSoon(() => cardButton(card.id, 'button[aria-label^="Edit:"]'));
   };
 
   const renderCard = (card: AssistCard) => {
@@ -108,7 +137,7 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
       </p>
     ));
     const notice = card.changed ? "This note has changed since." : undefined;
-    const common = { id: `assist-card-${card.id}`, sources, notice, editing: editing === card.id, onEdit: () => setEditing(card.id), onSkip: () => session.skip(card.id) };
+    const common = { id: `assist-card-${card.id}`, sources, notice, editing: editing === card.id, onEdit: () => setEditing(card.id), onSkip: () => skip(card) };
     let body;
     if (card.action === "phrase") {
       const text = card.phrase!.text;
@@ -118,7 +147,7 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
           heading={`Quick phrase${card.phrase!.forName ? ` for ${card.phrase!.forName}` : ""}`}
           text={text}
           onKeep={() => void keep(card)}
-          editForm={<PhraseForm initial={text} onSave={(t) => void keep(card, { phraseText: t })} onCancel={() => setEditing(null)} />}
+          editForm={<PhraseForm initial={text} onSave={(t) => void keep(card, { phraseText: t })} onCancel={() => cancelEdit(card)} />}
         />
       );
     } else if (card.action === "remove") {
@@ -131,7 +160,10 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
               <button type="button" className={primaryButton} autoFocus onClick={() => void keep(card)}>
                 Delete
               </button>
-              <button type="button" className={secondaryButton} onClick={() => setConfirmDelete(null)}>
+              <button type="button" className={secondaryButton} onClick={() => {
+                  setConfirmDelete(null);
+                  focusSoon(() => cardButton(card.id));
+                }}>
                 Cancel
               </button>
             </div>
@@ -156,7 +188,7 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
               submitLabel="Keep"
               autoFocus
               onSave={(d) => void keep(card, { draft: d })}
-              onCancel={() => setEditing(null)}
+              onCancel={() => cancelEdit(card)}
             />
           }
         />
@@ -182,12 +214,15 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
             <button type="button" className={primaryButton} autoFocus onClick={onClose}>
               Leave
             </button>
-            <button type="button" className={secondaryButton} onClick={() => setLeaving(false)}>
+            <button type="button" className={secondaryButton} onClick={() => {
+                setLeaving(false);
+                focusSoon(() => closeRef.current);
+              }}>
               Stay
             </button>
           </div>
         ) : (
-          <button type="button" className={secondaryButton} onClick={close}>
+          <button type="button" ref={closeRef} className={secondaryButton} onClick={close}>
             Close
           </button>
         )}
@@ -248,7 +283,7 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
         <textarea
           id="assist-message"
           ref={boxRef}
-          className={textField}
+          className={textArea}
           rows={2}
           maxLength={500}
           value={draft}

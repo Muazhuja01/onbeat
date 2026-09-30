@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { StrictMode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AssistResult } from "@/lib/assist/client";
 import type { AssistRequest } from "@/lib/assist/protocol";
 import { AssistSession } from "@/lib/assist/session";
@@ -75,5 +76,74 @@ describe("AssistantScreen", () => {
     expect(await screen.findByText("Not sent.")).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText("Got it.")).toBeVisible();
+  });
+
+  it("moves focus to the next card after Skip, then to the text box", async () => {
+    await setup((b) => ({
+      ok: true,
+      say: "Two.",
+      proposals: [
+        { action: "phrase", text: "One.", lineIds: [uid(b)] },
+        { action: "phrase", text: "Two.", lineIds: [uid(b)] },
+      ],
+    }));
+    await userEvent.click(screen.getByRole("button", { name: "Make quick phrases" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Skip: One." }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Keep: Two." })).toHaveFocus());
+    await userEvent.click(screen.getByRole("button", { name: "Skip: Two." }));
+    await waitFor(() => expect(screen.getByLabelText("Message to the assistant")).toHaveFocus());
+  });
+
+  it("returns focus to Close on Stay", async () => {
+    await setup((b) => ({ ok: true, say: "Here.", proposals: [{ action: "phrase", text: "Thank you.", lineIds: [uid(b)] }] }));
+    await userEvent.click(screen.getByRole("button", { name: "Make quick phrases" }));
+    await screen.findByRole("button", { name: "Keep: Thank you." });
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    await userEvent.click(screen.getByRole("button", { name: "Stay" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Close" })).toHaveFocus());
+  });
+
+  it("returns focus to Delete when the delete confirmation is cancelled", async () => {
+    await setup((b) => ({ ok: true, say: "Remove it?", proposals: [{ action: "remove", noteId: "home", lineIds: [uid(b)] }] }));
+    await userEvent.type(screen.getByLabelText("Message to the assistant"), "Moved.{Enter}");
+    await userEvent.click(await screen.findByRole("button", { name: "Delete: Home is my flat on Oak Road." }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delete: Home is my flat on Oak Road." })).toHaveFocus());
+  });
+
+  it("returns focus to Edit when an edit is cancelled", async () => {
+    await setup((b) => ({ ok: true, say: "Here.", proposals: [{ action: "phrase", text: "Thank you.", lineIds: [uid(b)] }] }));
+    await userEvent.click(screen.getByRole("button", { name: "Make quick phrases" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Edit: Thank you." }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Edit: Thank you." })).toHaveFocus());
+  });
+
+  it("says so and keeps the card when saving fails", async () => {
+    const p = await setup((b) => ({ ok: true, say: "Here.", proposals: [{ action: "phrase", text: "Thank you.", lineIds: [uid(b)] }] }));
+    vi.spyOn(p.memory, "addQuickPhrase").mockRejectedValue(new Error("disk full"));
+    await userEvent.click(screen.getByRole("button", { name: "Make quick phrases" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Keep: Thank you." }));
+    await waitFor(() => expect(p.announce).toHaveBeenCalledWith("Couldn't save that. Try again."));
+    expect(p.onChanged).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Keep: Thank you." })).toHaveFocus());
+  });
+});
+
+describe("AssistantScreen under StrictMode", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("still sends after the development remount", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ say: "Hello back.", proposals: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const memory = await MemoryStore.create();
+    render(
+      <StrictMode>
+        <AssistantScreen memory={memory} onChanged={vi.fn()} onClose={vi.fn()} announce={vi.fn()} />
+      </StrictMode>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Make quick phrases" }));
+    expect(await screen.findByText("Hello back.")).toBeVisible();
+    expect(fetchMock).toHaveBeenCalled();
   });
 });
