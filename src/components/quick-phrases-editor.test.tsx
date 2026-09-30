@@ -43,3 +43,39 @@ describe("QuickPhrasesEditor", () => {
     expect(p.onRemove).toHaveBeenCalledWith("p1");
   });
 });
+
+describe("QuickPhrasesEditor focus", () => {
+  const second = { ...phrase, id: "p2", text: "No sugar." };
+  const frame = () => new Promise((r) => requestAnimationFrame(() => r(null)));
+
+  it("returns focus to the Delete button on Cancel", async () => {
+    show();
+    await userEvent.click(screen.getByRole("button", { name: "Delete: My usual, please." }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await frame();
+    expect(screen.getByRole("button", { name: "Delete: My usual, please." })).toHaveFocus();
+  });
+
+  it("moves focus to the next phrase after a confirmed delete, and only deletes once", async () => {
+    const onRemove = vi.fn();
+    const props = { phrases: [phrase, second], people: [sam], places: [], onAdd: vi.fn(async () => true), onUpdate: vi.fn(async () => true), onRemove };
+    const { rerender } = render(<QuickPhrasesEditor {...props} />);
+    await userEvent.click(screen.getByRole("button", { name: "Delete: My usual, please." }));
+    const confirm = screen.getByRole("button", { name: "Delete" });
+    await userEvent.click(confirm);
+    expect(confirm).toBeDisabled();
+    await userEvent.click(confirm);
+    expect(onRemove).toHaveBeenCalledTimes(1);
+    rerender(<QuickPhrasesEditor {...props} phrases={[second]} />);
+    expect(screen.getByRole("button", { name: "Edit: No sugar." })).toHaveFocus();
+  });
+
+  it("moves focus to Add a phrase when the last phrase is deleted", async () => {
+    const props = { phrases: [phrase], people: [sam], places: [], onAdd: vi.fn(async () => true), onUpdate: vi.fn(async () => true), onRemove: vi.fn() };
+    const { rerender } = render(<QuickPhrasesEditor {...props} />);
+    await userEvent.click(screen.getByRole("button", { name: "Delete: My usual, please." }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+    rerender(<QuickPhrasesEditor {...props} phrases={[]} />);
+    expect(screen.getByRole("button", { name: "Add a phrase" })).toHaveFocus();
+  });
+});

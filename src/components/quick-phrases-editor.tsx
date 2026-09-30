@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PHRASE_MAX } from "@/lib/assist/protocol";
 import { noteFields } from "@/lib/profiles/notes";
 import type { Note, Phrase } from "@/lib/types";
@@ -85,6 +85,23 @@ export function QuickPhrasesEditor({ phrases, people, places, onAdd, onUpdate, o
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
+  // The row being deleted (the store write is async, so the row lingers) and where focus goes once it is gone.
+  const [removing, setRemoving] = useState<string | null>(null);
+  const afterRemove = useRef<{ id: string; focus: string } | null>(null);
+  useEffect(() => {
+    const pending = afterRemove.current;
+    if (pending && !phrases.some((p) => p.id === pending.id)) {
+      afterRemove.current = null;
+      document.getElementById(pending.focus)?.focus();
+    }
+  }, [phrases]);
+  const confirmDelete = (id: string) => {
+    const i = phrases.findIndex((p) => p.id === id);
+    const neighbour = phrases[i + 1] ?? phrases[i - 1];
+    afterRemove.current = { id, focus: neighbour ? `phrase-edit-${neighbour.id}` : "phrase-add" };
+    setRemoving(id);
+    onRemove(id);
+  };
   const forName = (p: Phrase) => {
     const n = [...people, ...places].find((x) => x.id === (p.context.partnerId ?? p.context.placeId));
     return n ? noteFields(n).name || n.text : "anyone";
@@ -122,10 +139,17 @@ export function QuickPhrasesEditor({ phrases, people, places, onAdd, onUpdate, o
               ) : confirming === p.id ? (
                 <div className="flex flex-wrap items-center gap-3">
                   <p className="text-body font-bold">Delete this phrase?</p>
-                  <button type="button" className={primaryButton} autoFocus onClick={() => onRemove(p.id)}>
+                  <button type="button" className={primaryButton} autoFocus disabled={removing === p.id} onClick={() => confirmDelete(p.id)}>
                     Delete
                   </button>
-                  <button type="button" className={secondaryButton} onClick={() => setConfirming(null)}>
+                  <button type="button" className={secondaryButton} 
+                    onClick={() => {
+                      setConfirming(null);
+                      setRemoving(null);
+                      afterRemove.current = null;
+                      refocus(`phrase-delete-${p.id}`);
+                    }}
+                  >
                     Cancel
                   </button>
                 </div>
@@ -137,7 +161,7 @@ export function QuickPhrasesEditor({ phrases, people, places, onAdd, onUpdate, o
                     <button id={`phrase-edit-${p.id}`} type="button" aria-label={`Edit: ${p.text}`} className={secondaryButton} onClick={() => setEditing(p.id)}>
                       Edit
                     </button>
-                    <button type="button" aria-label={`Delete: ${p.text}`} className={secondaryButton} onClick={() => setConfirming(p.id)}>
+                    <button id={`phrase-delete-${p.id}`} type="button" aria-label={`Delete: ${p.text}`} className={secondaryButton} onClick={() => setConfirming(p.id)}>
                       Delete
                     </button>
                   </div>
