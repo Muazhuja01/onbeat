@@ -1,4 +1,5 @@
 import { learningKeys } from "@/lib/learning/keys";
+import { retireProfile } from "@/lib/learning/lifecycle";
 import type { Persist, Snapshot } from "@/lib/memory/persist";
 import { idbKeyValue, memoryKeyValue, type KeyValue } from "./kv";
 
@@ -69,6 +70,7 @@ export class ProfileRegistry {
     const profiles = this.state.profiles.filter((p) => p.id !== id);
     const activeId = this.state.activeId === id ? (profiles[0]?.id ?? null) : this.state.activeId;
     await this.kv.del(`profile:${id}`);
+    retireProfile(id);
     for (const key of learningKeys(id)) await this.kv.del(key);
     await this.write({ ...this.state, activeId, profiles });
   }

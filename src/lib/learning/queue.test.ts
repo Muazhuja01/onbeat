@@ -97,3 +97,17 @@ describe("LearningQueue", () => {
     await expect(clearQueues(broken, ["p1"])).resolves.toBeUndefined();
   });
 });
+
+describe("LearningQueue after its data is thrown away", () => {
+  it("doesn't write back lines another part of the app cleared, until it is cleared itself", async () => {
+    const kv = memoryKeyValue();
+    const q = await LearningQueue.open(kv, "gone-1", () => 2_000);
+    await q.add(line("a"));
+    await clearQueues(kv, ["gone-1"]);
+    await q.fail();
+    expect(await kv.get(queueKey("gone-1"))).toBeUndefined();
+    await q.clear();
+    await q.add(line("b"));
+    expect(await kv.get(queueKey("gone-1"))).toBeDefined();
+  });
+});

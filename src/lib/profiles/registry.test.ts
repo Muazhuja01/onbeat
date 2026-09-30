@@ -89,3 +89,19 @@ describe("ProfileRegistry learning data", () => {
     for (const key of [queueKey(p.id), pendingKey(p.id), skippedKey(p.id)]) expect(await kv.get(key)).toBeUndefined();
   });
 });
+
+describe("ProfileRegistry learning data in flight", () => {
+  it("a queue or suggestion list opened before a profile was deleted never writes it back", async () => {
+    const { LearningQueue } = await import("@/lib/learning/queue");
+    const { PendingStore } = await import("@/lib/learning/pending");
+    const kv = memoryKeyValue();
+    const reg = await ProfileRegistry.open(kv);
+    const p = await reg.create("Priya");
+    const queue = await LearningQueue.open(kv, p.id);
+    const pending = await PendingStore.open(kv, p.id);
+    await reg.remove(p.id);
+    await queue.add({ id: "l1", speaker: "partner", text: "hi", at: Date.now() });
+    await pending.merge([{ id: "s1", action: "add", draft: { kind: "routine", text: "I swim on Fridays." }, sources: [], createdAt: 1 }], []);
+    for (const key of [queueKey(p.id), pendingKey(p.id)]) expect(await kv.get(key)).toBeUndefined();
+  });
+});

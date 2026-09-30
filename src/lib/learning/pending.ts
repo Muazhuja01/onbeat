@@ -4,6 +4,7 @@ import { isNearDuplicate } from "@/lib/suggest/validate";
 import { tokenize } from "@/lib/text";
 import type { Note } from "@/lib/types";
 import { pendingKey, skippedKey } from "./keys";
+import { isDeleted } from "./lifecycle";
 import type { PendingSuggestion } from "./types";
 
 export const PENDING_MAX = 30;
@@ -93,6 +94,7 @@ export class PendingStore {
 
   private async save(withSkipped: boolean): Promise<void> {
     this.listeners.forEach((cb) => cb());
+    if (isDeleted(this.profileId)) return;
     try {
       await this.kv.set(pendingKey(this.profileId), this.items);
       if (withSkipped) await this.kv.set(skippedKey(this.profileId), this.skipped);
