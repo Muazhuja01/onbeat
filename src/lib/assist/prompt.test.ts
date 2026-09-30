@@ -68,4 +68,10 @@ describe("buildAssistMessages", () => {
     expect(user.content).toContain("Today is Monday 5 October 2026.");
     expect(user.content).toContain("who it is with, when, where");
   });
+
+  it("gives every job's guidance when no job button was picked", () => {
+    const [, user] = buildAssistMessages({ job: null, today: "2026-10-05", lines: [{ id: "U1", speaker: "user", text: "My doctor changed" }], notes: [], phrases: [] });
+    expect(user.content).toContain("No job button was picked");
+    for (const job of ["Job: update their information.", "Job: prepare for an appointment.", "Job: make quick phrases."]) expect(user.content).toContain(job);
+  });
 });

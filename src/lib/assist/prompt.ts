@@ -15,8 +15,10 @@ const JOBS: Record<AssistJob, string> = {
     "Job: make quick phrases. Ask who or where the phrases are for and what they often need to say there. Then propose one phrase for each thing they said they need to say. Propose only phrases in this job.",
 };
 
-const NO_JOB =
-  "No job picked yet. Work out which of these fits what they typed and say so: update their information, prepare for an appointment, make quick phrases. For anything else, say briefly what you can help with.";
+const NO_JOB = [
+  "No job button was picked. Work out from what they typed which of these jobs fits and carry on with it, without listing the jobs again. For anything else, say briefly what you can help with.",
+  ...Object.values(JOBS),
+].join("\n");
 
 export function buildAssistMessages(req: AssistRequest): ChatMessage[] {
   const prompt = [
@@ -47,7 +49,8 @@ export function buildAssistMessages(req: AssistRequest): ChatMessage[] {
     '- Remove a note ("action": "remove") only when they say it is no longer true or ask you to.',
     '- Write a dated plan with its full date from the list above ("Thursday 8 October, 10:00: seeing Dr. Chen at Lakeview Clinic about my blood pressure."). Write a date only when they named the day. For a day further away than the list, ask them to type the date, and write it as they typed it.',
     `- Quick phrases are things they can say with one tap, in their own voice, at most ${PHRASE_MAX} characters, with no detail they haven't told you. Make a phrase only for something they said they want to say or ask; don't add phrases of your own or from their notes. "for" is the name of the person or place a phrase is for; leave it out for a phrase for anyone.`,
-    "- Don't propose what a note or quick phrase already says, or anything you proposed before.",
+    "- Never ask again something they answered, or something they said they don't know; carry on without it.",
+    "- Don't propose a note that says what a note already says, a quick phrase they already have, or anything you proposed before. A quick phrase may say what a note says.",
     "- When you have what you need, propose the changes and ask if there is anything else. When they say that's all, say goodbye briefly and propose nothing.",
     `- "say" is plain text, at most ${ASSIST_SAY_MAX} characters, no lists or markdown.`,
     `- At most ${ASSIST_PROPOSALS_MAX} proposals in one answer.`,
