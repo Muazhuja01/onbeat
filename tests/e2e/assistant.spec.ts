@@ -45,7 +45,7 @@ test("prepare an appointment, keep the cards, see the phrases with that person",
   expect((await new AxeBuilder({ page }).withTags(WCAG).analyze()).violations).toEqual([]);
   await page.getByRole("button", { name: "Prepare for an appointment" }).click();
   await expect(page.getByText("Who is the appointment with, and when?")).toBeVisible();
-  await page.getByLabel("Message to the assistant").fill("Dr. Chen, my family doctor, Thursday at 10:00 about my blood pressure. I get dizzy in the mornings.");
+  await page.getByLabel("Or type what you need").fill("Dr. Chen, my family doctor, Thursday at 10:00 about my blood pressure. I get dizzy in the mornings.");
   await page.keyboard.press("Enter");
   for (const name of ["Keep: Thursday 8 October", "Keep: Dr. Chen", "Keep: I get dizzy", "Keep: Please write it down"]) {
     await page.getByRole("button", { name: new RegExp(`^${name}`) }).click();
@@ -93,7 +93,7 @@ test("a removal asks before deleting", async ({ page }) => {
   await page.getByRole("button", { name: "Add", exact: true }).click();
   await page.getByRole("button", { name: "Done" }).click();
   await openAssistant(page);
-  await page.getByLabel("Message to the assistant").fill("I don't go to Lakeview Clinic any more.");
+  await page.getByLabel("Or type what you need").fill("I don't go to Lakeview Clinic any more.");
   await page.keyboard.press("Enter");
   await page.getByRole("button", { name: /^Delete: Lakeview/ }).click();
   await expect(page.getByText("Delete this note?")).toBeVisible();

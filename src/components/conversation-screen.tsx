@@ -31,7 +31,7 @@ import { Composer } from "./composer";
 import { ContextBar } from "./context-bar";
 import { DemoBar } from "./demo-bar";
 import { ListenControl } from "./listen-control";
-import { AssistantScreen } from "./assistant-screen";
+import { AssistantScreen, type AssistantHandle } from "./assistant-screen";
 import { NotesEditor } from "./notes-editor";
 import { PartnerInput } from "./partner-input";
 import { ProfileMenu } from "./profile-menu";
@@ -306,6 +306,16 @@ function Screen() {
     setView(next);
   };
 
+  /**
+   * A screen picked from the menu. From the assistant it goes through the assistant's
+   * "Leave without keeping N changes?" (spec decision 4); only switching profile skips it.
+   */
+  const assistantRef = useRef<AssistantHandle>(null);
+  const goTo = (next: View) => {
+    if (view === "assistant" && assistantRef.current) assistantRef.current.requestLeave(() => leaveConversation(next));
+    else leaveConversation(next);
+  };
+
   /** The assistant covers the conversation: stop listening and speech first. */
   const openAssistant = () => {
     hearing?.stop();
@@ -494,15 +504,15 @@ function Screen() {
             activeId={registry?.active()?.id ?? null}
             demoName={demo?.name ?? null}
             onSwitch={(id) => void switchTo(id)}
-            onNotes={() => leaveConversation("notes")}
-            onNew={() => leaveConversation("setup")}
+            onNotes={() => goTo("notes")}
+            onNew={() => goTo("setup")}
             onExport={exportActive}
             onImport={(file) => void importFile(file)}
             onRename={(name) => void renameActive(name)}
             onDelete={() => void deleteActive()}
-            onDemo={() => leaveConversation("demo-picker")}
+            onDemo={() => goTo("demo-picker")}
             suggestionCount={learning.suggestions.length}
-            onSuggestions={() => leaveConversation("suggestions")}
+            onSuggestions={() => goTo("suggestions")}
             onAssistant={demo ? undefined : openAssistant}
           />
         )}
@@ -530,6 +540,7 @@ function Screen() {
         )}
         {view === "assistant" && memory && !demo && (
           <AssistantScreen
+            ref={assistantRef}
             key={activeProfileId ?? "none"}
             memory={memory}
             announce={announce}

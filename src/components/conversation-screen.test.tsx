@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as browserMemory from "@/lib/memory/browser";
 import { MemoryStore } from "@/lib/memory/store";
 import type { SuggestInput, SuggestUpdate } from "@/lib/suggest/client";
@@ -455,5 +455,51 @@ describe("ConversationScreen learning", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(h.learnBodies).toHaveLength(0);
     await userEvent.click(box);
+  });
+});
+
+describe("ConversationScreen assistant", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  async function assistantWithACard() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)) as { lines: { id: string; speaker: string }[] };
+        const last = body.lines.filter((l) => l.speaker === "user").at(-1)!.id;
+        return new Response(JSON.stringify({ say: "Here.", proposals: [{ action: "phrase", text: "Thank you.", lineIds: [last] }] }), { status: 200 });
+      }),
+    );
+    await setUpPriya();
+    await userEvent.click(screen.getByRole("button", { name: "Priya" }));
+    await userEvent.click(screen.getByRole("button", { name: "Assistant" }));
+    await userEvent.click(screen.getByRole("button", { name: "Make quick phrases" }));
+    await screen.findByRole("button", { name: "Keep: Thank you." });
+  }
+
+  it("asks before the menu leaves the assistant with changes not kept", async () => {
+    await assistantWithACard();
+    await userEvent.click(screen.getByRole("button", { name: "Priya" }));
+    await userEvent.click(screen.getByRole("button", { name: "Your notes" }));
+    expect(screen.getByText("Leave without keeping 1 change?")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Keep: Thank you." })).toBeVisible();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Leave" })).toHaveFocus());
+
+    await userEvent.click(screen.getByRole("button", { name: "Stay" }));
+    await userEvent.click(screen.getByRole("button", { name: "Priya" }));
+    await userEvent.click(screen.getByRole("button", { name: "New profile" }));
+    expect(screen.getByText("Leave without keeping 1 change?")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Leave" }));
+    expect(await screen.findByLabelText("What's your name?")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Assistant" })).toBeNull();
+  });
+
+  it("leaves for the chosen screen straight away when nothing is open", async () => {
+    await assistantWithACard();
+    await userEvent.click(screen.getByRole("button", { name: "Skip: Thank you." }));
+    await userEvent.click(screen.getByRole("button", { name: "Priya" }));
+    await userEvent.click(screen.getByRole("button", { name: "Suggested notes" }));
+    expect(screen.queryByRole("heading", { name: "Assistant" })).toBeNull();
+    expect(screen.queryByText(/Leave without keeping/)).toBeNull();
   });
 });

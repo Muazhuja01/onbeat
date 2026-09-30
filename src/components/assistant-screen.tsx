@@ -1,13 +1,19 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useImperativeHandle, useRef, useState, useSyncExternalStore, type Ref } from "react";
 import { ASSIST_USER_MAX, PHRASE_MAX, type AssistJob } from "@/lib/assist/protocol";
 import { AssistSession, JOB_TEXT, type AssistCard, type KeepOutcome } from "@/lib/assist/session";
 import type { MemoryStore } from "@/lib/memory/store";
-import { composeNoteText, type DraftNote } from "@/lib/profiles/notes";
+import { composeNoteText, noteFields, type DraftNote } from "@/lib/profiles/notes";
 import { KIND_LABELS, NoteForm } from "./note-form";
 import { SuggestionCard } from "./suggestion-card";
 import { fieldLabel, hint, primaryButton, secondaryButton, textArea, textField } from "./ui";
+
+/** Lets the page leave the assistant for another screen through the same question as Close. */
+export interface AssistantHandle {
+  /** Runs `then` now, or after the user says Leave when some cards are not yet kept or skipped. */
+  requestLeave: (then: () => void) => void;
+}
 
 interface Props {
   memory: MemoryStore;
@@ -15,6 +21,7 @@ interface Props {
   onClose: () => void;
   announce: (text: string) => void;
   session?: AssistSession;
+  ref?: Ref<AssistantHandle>;
 }
 
 const JOBS: AssistJob[] = ["update", "prepare", "phrases"];
@@ -46,7 +53,7 @@ function PhraseForm({ initial, onSave, onCancel }: { initial: string; onSave: (t
   );
 }
 
-export function AssistantScreen({ memory, onChanged, onClose, announce, session: given }: Props) {
+export function AssistantScreen({ memory, onChanged, onClose, announce, session: given, ref }: Props) {
   const [session] = useState(() => given ?? new AssistSession({ memory }));
   const state = useSyncExternalStore(
     (fn) => session.onChange(fn),
@@ -56,12 +63,14 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const [leaving, setLeaving] = useState(false);
+  /** Where Leave goes while the question is showing: Close, or a screen picked from the menu. */
+  const [leaving, setLeaving] = useState<(() => void) | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const closing = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const seen = useRef(0);
+  const seenFailed = useRef(new Set<string>());
 
   useEffect(() => {
     // Closing is permanent, and StrictMode unmounts and remounts straight away in development.
@@ -78,19 +87,32 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
   const boxOrHeading = () => (boxRef.current && !boxRef.current.disabled ? boxRef.current : headingRef.current);
   const focusSoon = (find: () => HTMLElement | null | undefined) => requestAnimationFrame(() => find()?.focus());
 
-  // Each new assistant line is announced; focus goes to its first card, else the text box.
+  // New assistant lines are announced (at message 20, the answer and the limit together); focus
+  // goes to their first card, else the text box, or the heading once the text box is off.
   useEffect(() => {
     const assistant = state.lines.filter((l) => l.speaker === "assistant");
     if (assistant.length <= seen.current) return;
+    const fresh = assistant.slice(seen.current);
     seen.current = assistant.length;
-    const line = assistant.at(-1)!;
-    announce(line.text);
-    const first = state.cards.find((c) => c.lineId === line.id && c.state === "open");
+    announce(fresh.map((l) => l.text).join(" "));
+    const ids = new Set(fresh.map((l) => l.id));
+    const first = state.cards.find((c) => ids.has(c.lineId) && c.state === "open");
     requestAnimationFrame(() => {
       const target = first ? document.getElementById(`assist-card-${first.id}`)?.querySelector("button") : null;
-      (target ?? boxRef.current)?.focus();
+      const box = boxRef.current && !boxRef.current.disabled ? boxRef.current : null;
+      (target ?? box ?? headingRef.current)?.focus();
     });
   }, [state.lines, state.cards, announce]);
+
+  // A line that couldn't be sent is announced, and focus goes to its Try again. A rate limit
+  // is announced by the status line instead, and Try again waits until it's over.
+  useEffect(() => {
+    const failed = state.lines.find((l) => l.failed && !seenFailed.current.has(l.id));
+    seenFailed.current = new Set(state.lines.filter((l) => l.failed).map((l) => l.id));
+    if (!failed || state.status === "rate_limited") return;
+    announce("Not sent. Try again.");
+    requestAnimationFrame(() => document.getElementById(`assist-retry-${failed.id}`)?.focus());
+  }, [state.lines, state.status, announce]);
 
   const full = session.userCount() >= ASSIST_USER_MAX;
   const send = () => {
@@ -113,9 +135,11 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
     }
     if (outcome === "kept") {
       onChanged();
-      announce(card.action === "remove" ? "Deleted" : "Kept");
+      const forAnyone = session.state.cards.find((c) => c.id === card.id)?.forAnyone;
+      announce(card.action === "remove" ? "Deleted" : forAnyone ? "Kept, for anyone" : "Kept");
     } else if (outcome === "duplicate") announce("You already have this.");
     else if (outcome === "changed") announce("This note has changed since.");
+    else announce("This note is no longer there.");
     focusSoon(boxOrHeading);
   };
 
@@ -154,7 +178,7 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
       body =
         confirmDelete === card.id ? (
           <li key={card.id} id={`assist-card-${card.id}`} className="flex flex-col gap-3 rounded-control border-2 border-ink/15 bg-surface px-4 py-3">
-            <p className="text-body font-bold">Delete this note?</p>
+            <h3 className="text-body font-bold">Delete this note?</h3>
             <p className="text-body break-words">{card.oldText}</p>
             <div className="flex flex-wrap gap-3">
               <button type="button" className={primaryButton} autoFocus onClick={() => void keep(card)}>
@@ -173,6 +197,9 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
         );
     } else {
       const text = composeNoteText(card.draft!);
+      // Once the card says the note changed, Edit starts from the note as it is now.
+      const now = card.changed ? memory.getNote(card.noteId ?? "") : undefined;
+      const initial = now ? noteFields(now) : { name: card.draft!.name ?? "", text: card.draft!.text };
       body = (
         <SuggestionCard
           {...common}
@@ -184,7 +211,7 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
           editForm={
             <NoteForm
               kind={card.draft!.kind}
-              initial={{ name: card.draft!.name ?? "", text: card.draft!.text }}
+              initial={initial}
               submitLabel="Keep"
               autoFocus
               onSave={(d) => void keep(card, { draft: d })}
@@ -198,7 +225,9 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
   };
 
   const open = session.openCount();
-  const close = () => (open > 0 ? setLeaving(true) : onClose());
+  const requestLeave = (then: () => void) => (session.openCount() > 0 ? setLeaving(() => then) : then());
+  const close = () => requestLeave(onClose);
+  useImperativeHandle(ref, () => ({ requestLeave }));
 
   return (
     <section aria-labelledby="assistant-heading" className="flex max-w-3xl flex-col gap-6">
@@ -211,11 +240,11 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
             <p className="text-body font-bold">
               Leave without keeping {open} {open === 1 ? "change" : "changes"}?
             </p>
-            <button type="button" className={primaryButton} autoFocus onClick={onClose}>
+            <button type="button" className={primaryButton} autoFocus onClick={leaving}>
               Leave
             </button>
             <button type="button" className={secondaryButton} onClick={() => {
-                setLeaving(false);
+                setLeaving(null);
                 focusSoon(() => closeRef.current);
               }}>
               Stay
@@ -233,7 +262,16 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
           <p className="text-body font-bold">What would you like to do?</p>
           <div className="flex flex-col gap-3 sm:max-w-md">
             {JOBS.map((job) => (
-              <button key={job} type="button" className={`${secondaryButton} text-left`} onClick={() => void session.chooseJob(job)}>
+              <button
+                key={job}
+                type="button"
+                className={`${secondaryButton} text-left`}
+                onClick={() => {
+                  void session.chooseJob(job);
+                  // The job buttons go once the chat starts; the text box is where the chat goes on.
+                  focusSoon(() => boxRef.current);
+                }}
+              >
                 {JOB_TEXT[job]}
               </button>
             ))}
@@ -253,7 +291,17 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
               {line.failed && (
                 <div className="flex flex-wrap items-center gap-3">
                   <p className="text-body font-bold">Not sent.</p>
-                  <button type="button" className={secondaryButton} onClick={() => void session.retry()} disabled={state.status !== "idle"}>
+                  <button
+                    type="button"
+                    id={`assist-retry-${line.id}`}
+                    className={secondaryButton}
+                    onClick={() => {
+                      void session.retry();
+                      // Try again goes while the message is resent.
+                      focusSoon(() => boxRef.current);
+                    }}
+                    disabled={state.status !== "idle"}
+                  >
                     Try again
                   </button>
                 </div>
@@ -278,7 +326,7 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
         }}
       >
         <label htmlFor="assist-message" className={fieldLabel}>
-          Message to the assistant
+          Or type what you need
         </label>
         <textarea
           id="assist-message"

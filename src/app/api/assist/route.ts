@@ -4,7 +4,13 @@ import { clientIp, isSameOrigin, json } from "@/lib/server/guard";
 import { AllProvidersFailedError, createCooldown, providerConfigs } from "@/lib/server/providers";
 import { createRateLimiter } from "@/lib/server/rate-limit";
 
-/** 40 chat lines, 12,000 characters of notes and 100 phrases fit under this. */
+/**
+ * Checked against content-length in bytes and the body's length in characters, so text outside
+ * ASCII reaches it sooner. 40 full lines, 12,000 characters of notes and 100 full phrases with
+ * names come to about 60,000 with ids and JSON. It is not the largest request the schema allows:
+ * 20 assistant lines that each list 8 already-proposed changes (up to 340 characters each) can
+ * add over 50,000 more, and such a request is refused as too large.
+ */
 const BODY_MAX = 64_000;
 // The chat is paced by the user's typing; 10 a minute leaves room for quick answers and a retry.
 const limiter = createRateLimiter({ limit: 10, windowMs: 60_000 });
