@@ -107,14 +107,26 @@ async function send(name: string, request: () => Promise<Response>): Promise<{ r
     }
     if (res.ok) return { res, ms: performance.now() - started };
     if (attempt >= 6 || (res.status !== 429 && res.status < 500)) throw new Error(`${name} ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    // Groq's retry-after is often a second or two while the minute's quota is still used up.
     const asked = Number(res.headers.get("retry-after"));
-    await sleep(asked > 0 ? asked * 1000 : 5000 * 2 ** attempt);
+    await sleep(Math.max(asked > 0 ? asked * 1000 : 0, 5000 * 2 ** attempt));
   }
+}
+
+/** Groq's free tier allows 20 requests a minute; space them out rather than lean on retries. */
+const GROQ_GAP_MS = 3100;
+let groqNext = 0;
+
+async function groqTurn(): Promise<void> {
+  const wait = groqNext - Date.now();
+  groqNext = Math.max(groqNext, Date.now()) + GROQ_GAP_MS;
+  if (wait > 0) await sleep(wait);
 }
 
 /** One segment through Whisper on Groq. */
 async function transcribeWithGroq(model: string, audio: Float32Array): Promise<{ text: string; ms: number }> {
   const wav = encodeWav(audio, SAMPLE_RATE);
+  await groqTurn();
   const { res, ms } = await send("Groq", () => {
     const form = new FormData();
     form.append("file", new Blob([wav as BlobPart], { type: "audio/wav" }), "turn.wav");
