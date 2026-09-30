@@ -5,14 +5,16 @@
  * noise. Reports word error rate and how often a caption was cut off, split
  * into several lines, or missing.
  *
- *   npx tsx eval/hearing/run.ts [--split dev|test] [--model tiny|base|groq:<whisper model>|cf:nova-3]
+ *   npx tsx eval/hearing/run.ts [--split dev|test] [--model tiny|base|groq:<whisper model>|cf:nova-3|parakeet:<dir>]
  *     [--pad 96] [--silence 600] [--enter 0.3] [--exit 0.1]
  *     [--tokens app|library] [--limit N] [--label name]
  */
 import { setDefaultResultOrder } from "node:dns";
 import { AutoModel, pipeline, Tensor } from "@huggingface/transformers";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
+import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { FRAME, Framer, maxTranscriptTokens, SAMPLE_RATE } from "@/lib/hearing/audio";
 import { DEFAULT_SEGMENTER, Segmenter } from "@/lib/hearing/segmenter";
@@ -158,6 +160,46 @@ async function transcribeWithNova(audio: Float32Array): Promise<{ text: string; 
   return { text: body.result.results.channels[0]?.alternatives[0]?.transcript.trim() ?? "", ms };
 }
 
+/**
+ * NVIDIA Parakeet (the model Handy uses) through sherpa-onnx, on this CPU, in a
+ * child process (parakeet-worker.cjs explains why). Neither is a project
+ * dependency; set them up once in the git-ignored cache:
+ *   cd eval/hearing/.cache && npm install --prefix sherpa sherpa-onnx-node
+ *   and unpack sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2 into parakeet/
+ */
+async function loadParakeet(dir: string): Promise<(audio: Float32Array) => Promise<{ text: string; ms: number }>> {
+  const child = spawn(process.execPath, [resolve("eval/hearing/parakeet-worker.cjs"), resolve(CACHE), resolve(dir)], {
+    stdio: ["pipe", "pipe", "inherit"],
+  });
+  const waiting = new Map<number, (text: string) => void>();
+  let ready: () => void;
+  const started = new Promise<void>((r) => (ready = r));
+  createInterface({ input: child.stdout! }).on("line", (line) => {
+    const msg = JSON.parse(line) as { ready?: boolean; id?: number; text?: string };
+    if (msg.ready) ready();
+    else waiting.get(msg.id!)?.(msg.text ?? "");
+  });
+  child.on("exit", (code) => {
+    if (!code) return;
+    console.error(`parakeet worker exited with ${code}`);
+    process.exit(1);
+  });
+  process.on("exit", () => child.kill());
+  await started;
+  let next = 0;
+  return (audio) => {
+    const id = next++;
+    const t0 = performance.now();
+    return new Promise((done) => {
+      waiting.set(id, (text) => {
+        waiting.delete(id);
+        done({ text, ms: performance.now() - t0 });
+      });
+      child.stdin!.write(JSON.stringify({ id, audio: Buffer.from(audio.buffer, audio.byteOffset, audio.byteLength).toString("base64") }) + "\n");
+    });
+  };
+}
+
 async function main() {
   const split = args.split as "dev" | "test";
   const clips = (JSON.parse(readFileSync(join(CACHE, "clips.json"), "utf8")) as Clip[])
@@ -182,6 +224,8 @@ async function main() {
     process.loadEnvFile(".env.local");
     if (!process.env.GROQ_API_KEY) throw new Error("GROQ_API_KEY is missing. Add it to .env.local.");
     transcribe = (audio) => transcribeWithGroq(model, audio);
+  } else if (args.model.startsWith("parakeet:")) {
+    transcribe = await loadParakeet(join(CACHE, "parakeet", args.model.slice("parakeet:".length)));
   } else if (args.model === "cf:nova-3") {
     process.loadEnvFile(".env.local");
     if (!process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.CLOUDFLARE_API_TOKEN) throw new Error("Cloudflare keys are missing. Add them to .env.local.");
@@ -296,7 +340,11 @@ async function main() {
   writeFileSync(join(import.meta.dirname, "..", "results", `hearing-${label}.md`), report + "\n");
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exitCode = 1;
-});
+// Exit explicitly: a Parakeet child process would otherwise keep Node running.
+main().then(
+  () => process.exit(),
+  (err) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  },
+);
