@@ -39,6 +39,11 @@ export interface HearingDeps {
   model: string;
   levelEveryMs?: number;
   now?: () => number;
+  /**
+   * A second, more accurate transcription of a finished turn (cloud captions).
+   * Resolves to null to keep the in-browser text: when it's off, fails or is slow.
+   */
+  refineTurn?: (audio: Float32Array) => Promise<string | null>;
 }
 
 export class HearingEngine implements Hearing {
@@ -60,6 +65,11 @@ export class HearingEngine implements Hearing {
   private startToken = 0;
   private lastLevelAt = -Infinity;
   private hasPartial = false;
+  /** Worker messages that arrived while a turn was being refined, kept in order. */
+  private backlog: HearingWorkerMessage[] = [];
+  private refining = false;
+  /** Bumped when hearing stops, so a late refined turn is dropped. */
+  private epoch = 0;
 
   constructor(private readonly deps: HearingDeps) {}
 
@@ -117,6 +127,7 @@ export class HearingEngine implements Hearing {
 
   stop(): void {
     this.startToken++;
+    this.dropPending();
     clearTimeout(this.resumeTimer);
     this.paused = false;
     this.mic?.stop();
@@ -164,6 +175,7 @@ export class HearingEngine implements Hearing {
   /** Stops hearing because something broke, and says so. */
   private halt(status: HearingStatus): void {
     this.startToken++;
+    this.dropPending();
     clearTimeout(this.resumeTimer);
     this.paused = false;
     this.mic?.stop();
@@ -188,6 +200,11 @@ export class HearingEngine implements Hearing {
   }
 
   private onWorkerMessage(msg: HearingWorkerMessage): void {
+    // Captions must stay in order: the next turn waits for the one being refined.
+    if (this.refining && (msg.type === "speechStart" || msg.type === "partial" || msg.type === "turnEnd")) {
+      this.backlog.push(msg);
+      return;
+    }
     switch (msg.type) {
       case "progress":
         this.emit("progress", msg.value);
@@ -214,15 +231,44 @@ export class HearingEngine implements Hearing {
         this.hasPartial = true;
         this.emit("partial", msg.text);
         return;
-      case "turnEnd": {
+      case "turnEnd":
         if (!this.active) return;
-        const had = this.hasPartial;
-        this.hasPartial = false;
-        if (msg.text) this.emit("turnEnd", { text: msg.text, endedAt: msg.endedAt });
-        else if (had) this.emit("partial", "");
+        if (this.deps.refineTurn && msg.audio?.length) void this.refine(msg, msg.audio);
+        else this.endTurn(msg.text, msg.endedAt);
         return;
-      }
     }
+  }
+
+  /** Refines one turn, then handles what arrived meanwhile, in order. */
+  private async refine(msg: Extract<HearingWorkerMessage, { type: "turnEnd" }>, audio: Float32Array): Promise<void> {
+    this.refining = true;
+    const epoch = this.epoch;
+    let better: string | null = null;
+    try {
+      better = await this.deps.refineTurn!(audio);
+    } catch {
+      better = null;
+    }
+    this.refining = false;
+    if (epoch !== this.epoch) return;
+    // The partner finished this line before any pause for the app's own voice, so it is kept.
+    this.endTurn(better?.trim() || msg.text, msg.endedAt, true);
+    while (this.backlog.length && !this.refining) this.onWorkerMessage(this.backlog.shift()!);
+  }
+
+  private endTurn(text: string, endedAt: number, evenIfPaused = false): void {
+    if (evenIfPaused ? this.status !== "listening" : !this.active) return;
+    const had = this.hasPartial;
+    this.hasPartial = false;
+    if (text) this.emit("turnEnd", { text, endedAt });
+    else if (had) this.emit("partial", "");
+  }
+
+  /** Forgets a turn being refined and anything queued behind it. */
+  private dropPending(): void {
+    this.epoch++;
+    this.refining = false;
+    this.backlog = [];
   }
 
   private clearPartial(): void {

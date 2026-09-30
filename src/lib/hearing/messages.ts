@@ -10,5 +10,8 @@ export type HearingWorkerMessage =
   | { type: "speechStart" }
   /** Transcript of the partner's words so far; `ms` is how long transcription took. */
   | { type: "partial"; text: string; ms: number }
-  /** The partner paused long enough to end the turn. `endedAt` is when their last word ended (ms since epoch). Text may be empty. */
-  | { type: "turnEnd"; text: string; endedAt: number; ms: number };
+  /**
+   * The partner paused long enough to end the turn. `endedAt` is when their last word ended (ms since epoch). Text may be empty.
+   * `audio` is the turn at 16 kHz, for cloud captions.
+   */
+  | { type: "turnEnd"; text: string; endedAt: number; ms: number; audio?: Float32Array };

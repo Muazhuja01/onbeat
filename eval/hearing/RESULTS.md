@@ -66,11 +66,13 @@ npx tsx eval/hearing/rescore.ts eval/results/hearing-dev-*.json
 | Deepgram Nova-3 | Cloudflare Workers AI | 28.1% | 12.5% | 37.4% | 14.9% | 30.6% | 30.0% | 10.8% | 394 ms round trip |
 | Whisper large-v3-turbo | Groq | 29.6% | 12.5% | 42.7% | 15.5% | 29.8% | 30.0% | 6.3% | 379 ms round trip |
 | Whisper large-v3 | Groq | 29.3% | 11.4% | 42.7% | 14.2% | 30.7% | 29.8% | 6.3% | 443 ms round trip |
+| Parakeet TDT 0.6B v3 (what Handy uses), int8 | This CPU, sherpa-onnx | 31.4% | 16.8% | 42.2% | 21.7% | 32.6% | 25.2% | 8.8% | 191 ms (CPU) |
 
 What this shows:
 
 - **Any of the three cloud models roughly halves the word errors on clear speech** (28.6% to 11 to 13%) and cuts street noise from 36% to about 15%. They are within 1.5 points of each other overall.
 - **Whisper makes up "Thank you."** when there is only background noise: 33 turns with turbo and 38 with large-v3, out of 600, none of which contain those words (29 to 31 of them in café noise, so about 1 in 7 café clips). In OnBeat that is a caption of something the other person never said, and replies to it. Nova-3 never did this. Nova-3 instead leaves more faint, distant speech blank (missed 10.8%).
+- **Parakeet v3** (the model in the [Handy](https://github.com/cjpais/handy) dictation app) is better than Moonshine base but behind the three cloud models, most on clear speech (16.8% against 11 to 13%) and street noise (21.7% against 14 to 16%). It invented little (4 "Okay." lines). It is also too big for the browser (670 MB) and for a Vercel function, so it would need its own server.
 - **Nova-3, falling back to Moonshine when it returns nothing** (simulated from the saved runs; the turns are cut the same way whatever the model): word errors 27.7%, missed 7.2%.
 - **Stricter turn thresholds with Nova-3** (0.4 / 0.25, 600 ms): café 37.4% to 27.9%, but quiet 12.5% to 13.8%, street 14.9% to 16.6%, AMI 30.6% to 32.5%, all 28.1% to 29.7%. A trade, not a clear win.
 - **Cost and limits.** Cloudflare's free daily allowance (10,000 neurons) ran out part way through the third full Nova-3 run, so it covers roughly 1,500 turns a day for everyone together, and the same allowance serves the reply fallback. Real use needs the Workers Paid plan (usage-priced) or a Deepgram account. Groq's free tier allows 20 Whisper requests a minute.
@@ -79,11 +81,8 @@ What this shows:
 
 Keep Moonshine in the browser for the live caption while someone talks, and send each finished turn to **Deepgram Nova-3** for the final caption and the replies, using Moonshine's text when Nova-3 returns nothing or doesn't answer within a couple of seconds. Not Whisper, because of the invented "Thank you." lines.
 
-Before building it, two choices for the owner:
-
-1. **The other person's voice would leave the device** (to Cloudflare and Deepgram) for every finished turn. The suggested default is an opt-in setting, "Clearer captions", that says so.
-2. **Paying for it.** The free allowance is too small for real use.
+**Built (2026-09-30), opt-in as the owner chose:** the "Clearer captions" setting sends each finished turn to `/api/transcribe` (Nova-3 on Cloudflare). The in-browser caption is kept when Nova-3 returns nothing, errors, is rate-limited or takes over 2.5 s, and after a failure the app skips the cloud for a minute. Off by default, because the other person's voice leaves the device. Real use still needs a paid Cloudflare plan: the free allowance is about 1,500 turns a day.
 
 Keep the turn thresholds at 0.3 / 0.1 unless café use matters most; then 0.4 / 0.25.
 
-The test split has not been used yet; it is for checking the setup chosen on dev, once, after the owner picks one.
+The test split has not been used yet. It is for one check of Nova-3 with the Moonshine fallback, once Cloudflare's allowance allows (it was used up on 2026-09-30).

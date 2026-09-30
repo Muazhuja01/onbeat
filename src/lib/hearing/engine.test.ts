@@ -27,7 +27,9 @@ class FakeWorker implements WorkerLike {
   }
 }
 
-function setup(opts: { openMic?: HearingDeps["openMic"]; noWorker?: boolean; createWorker?: HearingDeps["createWorker"] } = {}) {
+function setup(
+  opts: { openMic?: HearingDeps["openMic"]; noWorker?: boolean; createWorker?: HearingDeps["createWorker"]; refineTurn?: HearingDeps["refineTurn"] } = {},
+) {
   let worker = new FakeWorker();
   let feedMic: (samples: Float32Array, level: number) => void = () => {};
   let endMic: () => void = () => {};
@@ -47,7 +49,7 @@ function setup(opts: { openMic?: HearingDeps["openMic"]; noWorker?: boolean; cre
       if (worker.terminated) worker = new FakeWorker();
       return worker;
     });
-  const engine = new HearingEngine({ createWorker, openMic, model: "moonshine", now: () => t });
+  const engine = new HearingEngine({ createWorker, openMic, model: "moonshine", now: () => t, refineTurn: opts.refineTurn });
   const statuses: HearingStatus[] = [];
   engine.on("status", (s) => statuses.push(s));
   return {
@@ -273,5 +275,93 @@ describe("HearingEngine", () => {
     advance(50);
     feed(0.4);
     expect(levels).toEqual([0.2, 0.4]);
+  });
+});
+
+describe("HearingEngine with cloud captions", () => {
+  /** A cloud call the test answers by hand. */
+  function manualCloud() {
+    const calls: { audio: Float32Array; answer: (text: string | null) => void }[] = [];
+    const refineTurn = vi.fn((audio: Float32Array) => new Promise<string | null>((answer) => calls.push({ audio, answer })));
+    return { calls, refineTurn };
+  }
+  const audio = () => new Float32Array([0.1, 0.2]);
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  async function listening(refineTurn: HearingDeps["refineTurn"]) {
+    const s = setup({ refineTurn });
+    const events: string[] = [];
+    s.engine.on("partial", (p) => events.push(`partial:${p}`));
+    s.engine.on("turnEnd", (t) => events.push(`turn:${t.text}`));
+    s.engine.on("speechStart", () => events.push("start"));
+    await s.engine.start();
+    s.worker.reply({ type: "ready" });
+    return { ...s, events };
+  }
+
+  it("uses the cloud text for a finished turn", async () => {
+    const cloud = manualCloud();
+    const { worker, events } = await listening(cloud.refineTurn);
+    worker.reply({ type: "partial", text: "Can I have your", ms: 50 });
+    worker.reply({ type: "turnEnd", text: "Can I have your", endedAt: 1, ms: 50, audio: audio() });
+    expect(events).toEqual(["partial:Can I have your"]);
+    cloud.calls[0].answer("Can I have your name?");
+    await flush();
+    expect(events).toEqual(["partial:Can I have your", "turn:Can I have your name?"]);
+    expect(Array.from(cloud.calls[0].audio)).toEqual([Math.fround(0.1), Math.fround(0.2)]);
+  });
+
+  it("keeps the in-browser text when the cloud has nothing, fails or is off", async () => {
+    for (const refineTurn of [async () => null, async () => "  ", async () => Promise.reject(new Error("down"))]) {
+      const { worker, events } = await listening(refineTurn);
+      worker.reply({ type: "turnEnd", text: "What size?", endedAt: 1, ms: 50, audio: audio() });
+      await flush();
+      expect(events).toEqual(["turn:What size?"]);
+    }
+  });
+
+  it("holds the next turn's events until the refined turn is out, in order", async () => {
+    const cloud = manualCloud();
+    const { worker, events } = await listening(cloud.refineTurn);
+    worker.reply({ type: "turnEnd", text: "first", endedAt: 1, ms: 50, audio: audio() });
+    worker.reply({ type: "speechStart" });
+    worker.reply({ type: "partial", text: "sec", ms: 50 });
+    worker.reply({ type: "turnEnd", text: "second", endedAt: 2, ms: 50, audio: audio() });
+    expect(events).toEqual([]);
+    cloud.calls[0].answer("First.");
+    await flush();
+    expect(events).toEqual(["turn:First.", "start", "partial:sec"]);
+    cloud.calls[1].answer("Second.");
+    await flush();
+    expect(events).toEqual(["turn:First.", "start", "partial:sec", "turn:Second."]);
+  });
+
+  it("still shows a line the partner finished before the app started speaking", async () => {
+    const cloud = manualCloud();
+    const { engine, worker, events } = await listening(cloud.refineTurn);
+    worker.reply({ type: "turnEnd", text: "What size?", endedAt: 1, ms: 50, audio: audio() });
+    engine.pause();
+    cloud.calls[0].answer("What size would you like?");
+    await flush();
+    expect(events).toEqual(["turn:What size would you like?"]);
+  });
+
+  it("drops a turn still being refined when listening stops", async () => {
+    const cloud = manualCloud();
+    const { engine, worker, events } = await listening(cloud.refineTurn);
+    worker.reply({ type: "turnEnd", text: "What size?", endedAt: 1, ms: 50, audio: audio() });
+    worker.reply({ type: "partial", text: "late", ms: 50 });
+    engine.stop();
+    cloud.calls[0].answer("What size would you like?");
+    await flush();
+    expect(events).toEqual([]);
+  });
+
+  it("doesn't call the cloud for a turn without audio", async () => {
+    const cloud = manualCloud();
+    const { worker, events } = await listening(cloud.refineTurn);
+    worker.reply({ type: "turnEnd", text: "Hello.", endedAt: 1, ms: 50 });
+    expect(cloud.refineTurn).not.toHaveBeenCalled();
+    expect(events).toEqual(["turn:Hello."]);
   });
 });

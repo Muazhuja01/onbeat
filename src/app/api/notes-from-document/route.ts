@@ -1,28 +1,16 @@
 import { buildDocumentMessages, parseDocumentNotes } from "@/lib/profiles/document-notes";
 import { DOCUMENT_MAX_BYTES, DOCUMENT_MAX_CHARS, documentKind, extractDocumentText } from "@/lib/server/document-text";
 import { AllProvidersFailedError, createCooldown, providerConfigs, streamCompletion } from "@/lib/server/providers";
+import { clientIp, isSameOrigin, json } from "@/lib/server/guard";
 import { createRateLimiter } from "@/lib/server/rate-limit";
 
 const limiter = createRateLimiter({ limit: 5, windowMs: 60_000 });
 const cooldown = createCooldown();
 
-function json(data: unknown, status: number): Response {
-  return Response.json(data, { status, headers: { "cache-control": "no-store" } });
-}
-
 /** Turns an uploaded document into draft notes. The user confirms each one; nothing is stored here. */
 export async function POST(request: Request): Promise<Response> {
-  const origin = request.headers.get("origin");
-  const host = request.headers.get("host");
-  if (origin && host) {
-    try {
-      if (new URL(origin).host !== host) return json({ error: "forbidden" }, 403);
-    } catch {
-      return json({ error: "forbidden" }, 403);
-    }
-  }
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-  if (!limiter.check(ip)) return json({ error: "rate_limited" }, 429);
+  if (!isSameOrigin(request)) return json({ error: "forbidden" }, 403);
+  if (!limiter.check(clientIp(request))) return json({ error: "rate_limited" }, 429);
 
   // Refuse an oversized upload before reading it into memory.
   if (Number(request.headers.get("content-length")) > DOCUMENT_MAX_BYTES + 64_000) return json({ error: "too_large" }, 413);

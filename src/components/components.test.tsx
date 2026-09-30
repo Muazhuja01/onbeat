@@ -228,7 +228,7 @@ describe("SettingsPanel", () => {
   it("chooses a theme and turns the number keys off", async () => {
     const onTheme = vi.fn();
     const onDigitKeys = vi.fn();
-    render(<SettingsPanel theme="system" digitKeys={true} onTheme={onTheme} onDigitKeys={onDigitKeys} />);
+    render(<SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} onTheme={onTheme} onDigitKeys={onDigitKeys} onCloudCaptions={() => {}} />);
     await userEvent.click(screen.getByText("Settings"));
     expect(screen.getByRole("radio", { name: "Match this device" })).toBeChecked();
     await userEvent.click(screen.getByRole("radio", { name: "High contrast" }));
@@ -237,8 +237,19 @@ describe("SettingsPanel", () => {
     expect(onDigitKeys).toHaveBeenCalledWith(false);
   });
 
+  it("turns clearer captions on, saying where the audio goes", async () => {
+    const onCloudCaptions = vi.fn();
+    render(<SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={onCloudCaptions} />);
+    await userEvent.click(screen.getByText("Settings"));
+    const box = screen.getByRole("checkbox", { name: "Clearer captions" });
+    expect(box).not.toBeChecked();
+    expect(box).toHaveAccessibleDescription(/sent to Deepgram, through Cloudflare/);
+    await userEvent.click(box);
+    expect(onCloudCaptions).toHaveBeenCalledWith(true);
+  });
+
   it("lists the keyboard shortcuts", async () => {
-    render(<SettingsPanel theme="dark" digitKeys={false} onTheme={() => {}} onDigitKeys={() => {}} />);
+    render(<SettingsPanel theme="dark" digitKeys={false} cloudCaptions={false} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={() => {}} />);
     await userEvent.click(screen.getByText("Settings"));
     expect(screen.getByRole("radio", { name: "Dark" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /Number keys speak replies/ })).not.toBeChecked();

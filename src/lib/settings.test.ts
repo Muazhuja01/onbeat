@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { forgetSettings, getSettings, setDigitKeys, setTheme, subscribeSettings } from "./settings";
+import { forgetSettings, getSettings, setCloudCaptions, setDigitKeys, setTheme, subscribeSettings } from "./settings";
 
 afterEach(() => {
   localStorage.clear();
@@ -8,8 +8,18 @@ afterEach(() => {
 });
 
 describe("settings", () => {
-  it("defaults to the system theme with number keys on", () => {
-    expect(getSettings()).toEqual({ theme: "system", digitKeys: true });
+  it("defaults to the system theme, number keys on and cloud captions off", () => {
+    expect(getSettings()).toEqual({ theme: "system", digitKeys: true, cloudCaptions: false });
+  });
+
+  it("saves the cloud captions choice, and forgets it when turned off", () => {
+    setCloudCaptions(true);
+    expect(localStorage.getItem("onbeat:cloud-captions")).toBe("on");
+    forgetSettings();
+    expect(getSettings().cloudCaptions).toBe(true);
+    setCloudCaptions(false);
+    expect(localStorage.getItem("onbeat:cloud-captions")).toBeNull();
+    expect(getSettings().cloudCaptions).toBe(false);
   });
 
   it("saves a theme and applies it to the page", () => {
