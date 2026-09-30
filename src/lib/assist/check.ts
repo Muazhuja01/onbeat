@@ -37,12 +37,70 @@ function withoutTypedDates(text: string, lineText: string): string {
   });
 }
 
+/** Roles and relationships a note or phrase can claim for someone; each group backs itself. */
+const ROLE_GROUPS: string[][] = [
+  ["doctor", "gp", "physician"],
+  ["dentist"],
+  ["pharmacist", "chemist"],
+  ["nurse"],
+  ["optician", "optometrist"],
+  ["physio", "physiotherapist"],
+  ["therapist", "counsellor", "counselor"],
+  ["specialist", "consultant", "surgeon"],
+  ["vet"],
+  ["neighbour", "neighbor"],
+  ["manager", "boss", "supervisor"],
+  ["carer", "caregiver", "care worker", "support worker", "aide"],
+  ["colleague", "coworker", "co-worker", "teammate"],
+  ["landlord", "landlady"],
+  ["teacher", "tutor"],
+  ["friend", "best friend"],
+  ["partner", "husband", "wife", "boyfriend", "girlfriend"],
+  ["mum", "mom", "mother"],
+  ["dad", "father"],
+  ["sister"],
+  ["brother"],
+  ["son"],
+  ["daughter"],
+  ["aunt"],
+  ["uncle"],
+  ["cousin"],
+  ["grandma", "grandmother", "nan", "gran"],
+  ["grandpa", "grandfather", "grandad"],
+];
+const ROLE_WORDS = ROLE_GROUPS.flat().sort((a, b) => b.length - a.length);
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const roleAlt = ROLE_WORDS.map((w) => escapeRe(w).replace(/[\s-]+/g, "[\\s-]+")).join("|");
+/** "my doctor", "our new neighbour", "my family doctor": up to two words between "my" and the role. */
+const ROLE_CLAIM = new RegExp(
+  `\\b(?:my|our)\\s+(?:(?!(?:a|an|the|with|at|for|to|from|and|of|about|in|on)\\b)[\\p{L}'-]+\\s+){0,2}?(${roleAlt})s?\\b`,
+  "giu",
+);
+
+/**
+ * The roles or relationships ("my doctor", "my neighbour") a text claims for someone that no
+ * source states. A source states a role when it has the role word, or another in its group
+ * ("GP" backs "my doctor"), anywhere; "Dr." alone does not.
+ */
+export function unbackedRoles(text: string, source: string): string[] {
+  const out: string[] = [];
+  for (const m of text.matchAll(ROLE_CLAIM)) {
+    const word = m[1].toLowerCase().replace(/[\s-]+/g, " ");
+    const group = ROLE_GROUPS.find((g) => g.some((w) => w.replace(/-/g, " ") === word)) ?? [word];
+    const stated = group.some((w) => new RegExp(`\\b${escapeRe(w).replace(/[\s-]+/g, "[\\s-]+")}s?\\b`, "iu").test(source));
+    if (!stated) out.push(m[0]);
+  }
+  return out;
+}
+
 /**
  * Drops, never repairs. Every proposal must cite only the user's own lines: the assistant's
  * lines are its own words and can't be the source of a fact. Note adds and edits then pass
  * the learning check (a detail must be in the cited lines, or the old note for an edit), with
  * two allowances: an am/pm time a line states backs its 24-hour form, and a date a cited
- * line states as typed may be past the coming two weeks.
+ * line states as typed may be past the coming two weeks. A note may not claim a role or
+ * relationship ("my doctor") that no cited line and not the note it edits states; a phrase may
+ * not claim one that no cited line and no sent note states.
  * A removal must name a sent note that isn't also edited. A phrase may not state a name or
  * number found in no user line and no sent note, and may not repeat a quick phrase.
  */
@@ -67,14 +125,23 @@ export function checkAssistProposals(proposals: AssistProposal[], req: AssistReq
     if (!shown.has(t)) shown.set(t, p.text);
     return t;
   };
+  const saidBy = (p: AssistProposal) => p.lineIds.map((id) => lineText.get(id) ?? "").join("\n");
+  const oldText = new Map(req.notes.map((n) => [n.id, n.text]));
   const notes: AssistProposal[] = checkProposals(
     noteProposals.map((p): Proposal => ({ action: p.action, kind: p.kind, ...(p.name ? { name: p.name } : {}), text: checkedText(p), ...(p.action === "edit" ? { noteId: p.noteId } : {}), lineIds: p.lineIds })),
     learnReq,
-  ).map((p) =>
-    p.action === "edit"
-      ? { action: "edit", kind: p.kind, ...(p.name ? { name: p.name } : {}), text: shown.get(p.text)!, noteId: p.noteId!, lineIds: p.lineIds }
-      : { action: "add", kind: p.kind, ...(p.name ? { name: p.name } : {}), text: shown.get(p.text)!, lineIds: p.lineIds },
-  );
+  )
+    .map(
+      (p): NoteProposal =>
+        p.action === "edit"
+          ? { action: "edit", kind: p.kind, ...(p.name ? { name: p.name } : {}), text: shown.get(p.text)!, noteId: p.noteId!, lineIds: p.lineIds }
+          : { action: "add", kind: p.kind, ...(p.name ? { name: p.name } : {}), text: shown.get(p.text)!, lineIds: p.lineIds },
+    )
+    .filter((p) => {
+      // A role or relationship ("my doctor") must be stated by a cited line or the note being edited.
+      const source = [saidBy(p), p.action === "edit" ? (oldText.get(p.noteId) ?? "") : ""].join("\n");
+      return unbackedRoles(`${p.name ?? ""} ${p.text}`, source).length === 0;
+    });
 
   const sent = new Set(req.notes.map((n) => n.id));
   const edited = new Set(notes.flatMap((p) => (p.action === "edit" ? [p.noteId] : [])));
@@ -94,6 +161,8 @@ export function checkAssistProposals(proposals: AssistProposal[], req: AssistReq
     if (!text || text.length > PHRASE_MAX) continue;
     if (p.for && !claimSupported(p.for, sources)) continue;
     if (!extractClaims(text).every((claim) => claimSupported(claim, sources))) continue;
+    // A phrase may say a role a sent note states ("my doctor" when a note says so), like any detail.
+    if (unbackedRoles(text, [saidBy(p), ...req.notes.map((n) => n.text)].join("\n")).length) continue;
     if (phraseTexts.some((t) => isNearDuplicate(text, t))) continue;
     phraseTexts.push(text);
     phrases.push({ ...p, text });
