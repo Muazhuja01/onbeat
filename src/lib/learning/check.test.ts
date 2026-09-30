@@ -48,6 +48,15 @@ describe("checkProposals", () => {
     expect(checkProposals([add("Dentist on Thursday 22 October at 3pm.", ["c"])], req)).toEqual([]);
   });
 
+  it("accepts an hour written with :00 when the line says the hour", () => {
+    const words = { ...req, lines: [...req.lines, { id: "e", speaker: "partner" as const, text: "Your blood test is on Thursday at nine in the morning." }] };
+    const p = add("Blood test on Thursday 1 October at 9:00 AM.", ["e"]);
+    expect(checkProposals([p], words)).toEqual([p]);
+    const digits = add("Dentist on Thursday at 3:00.", ["c"]);
+    expect(checkProposals([digits], req)).toEqual([digits]);
+    expect(checkProposals([add("Dentist on Thursday at 3:30.", ["c"])], req)).toEqual([]);
+  });
+
   it("accepts the partner's name from the line", () => {
     const p = add("Leila told me my physio moved to Thursdays.", ["a"]);
     expect(checkProposals([p], req)).toEqual([p]);

@@ -58,8 +58,11 @@ export function checkProposals(proposals: Proposal[], req: LearnRequest): Propos
       const l = lines.get(id)!;
       return [l.text, l.partnerName ?? "", l.placeName ?? ""].join("\n");
     });
-    const checked = withoutNamedDates(text, cited.join("\n"), req.today);
-    if (checked === null) continue;
+    const dated = withoutNamedDates(text, cited.join("\n"), req.today);
+    if (dated === null) continue;
+    // "9:00" says no more than "9", which a line saying "nine" backs; "9:30" still needs its digits.
+    // "AM"/"PM" in capitals would be checked as a name; written lowercase ("3pm") they never were.
+    const checked = dated.replace(/\b(\d{1,2}):00\b/g, "$1").replace(/\b([AP])\.?M\.?(?![\p{L}])/gu, (m) => m.toLowerCase());
     const sources = [...cited, ...notes.values()].join("\n");
     if (!extractClaims(checked).every((claim) => claimSupported(claim, sources))) continue;
 
