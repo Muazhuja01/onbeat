@@ -111,7 +111,7 @@ export const learnGold: LearnGoldEntry[] = [
     shown: [
       { action: "edit", noteId: "m-physio", oldText: "I have physio on Tuesdays at 10:30.", text: "I have physio on Thursdays at 11." },
       { action: "add", text: "Ana is my new carer. She comes every morning." },
-      { action: "add", text: "It is pouring with rain where Leila lives." },
+      { action: "add", text: "It is pouring with rain where Leila is." },
     ],
     labels: [
       { keep: true, invented: false, matches: 1 },
