@@ -31,6 +31,7 @@ import { Composer } from "./composer";
 import { ContextBar } from "./context-bar";
 import { DemoBar } from "./demo-bar";
 import { ListenControl } from "./listen-control";
+import { AssistantScreen } from "./assistant-screen";
 import { NotesEditor } from "./notes-editor";
 import { PartnerInput } from "./partner-input";
 import { ProfileMenu } from "./profile-menu";
@@ -64,7 +65,7 @@ export function ConversationScreen() {
 }
 
 /** What fills the page. The conversation stays mounted underneath the others. */
-type View = "loading" | "setup" | "demo-picker" | "notes" | "suggestions" | "conversation";
+type View = "loading" | "setup" | "demo-picker" | "notes" | "suggestions" | "assistant" | "conversation";
 
 const SAVE_FAILED = "Couldn't save. Your browser's storage may be full.";
 const LEARNING_NOTICE = "New: OnBeat can suggest notes from your conversations for you to review. Turn it off in Settings.";
@@ -305,6 +306,13 @@ function Screen() {
     setView(next);
   };
 
+  /** The assistant covers the conversation: stop listening and speech first. */
+  const openAssistant = () => {
+    hearing?.stop();
+    gapTimer.reset();
+    leaveConversation("assistant");
+  };
+
   /** Shows a profile's or demo's notes with a fresh conversation. */
   const showMemory = (store: MemoryStore, context: { placeId?: string; partnerId?: string } = {}) => {
     // Cancel any request in flight for the old profile first, so its late
@@ -495,6 +503,7 @@ function Screen() {
             onDemo={() => leaveConversation("demo-picker")}
             suggestionCount={learning.suggestions.length}
             onSuggestions={() => leaveConversation("suggestions")}
+            onAssistant={demo ? undefined : openAssistant}
           />
         )}
       </header>
@@ -518,6 +527,30 @@ function Screen() {
         )}
         {view === "demo-picker" && (
           <ProfilePicker personas={personas} onChoose={(p) => void startDemo(p)} onBack={back ?? (() => setView("setup"))} />
+        )}
+        {view === "assistant" && memory && !demo && (
+          <AssistantScreen
+            key={activeProfileId ?? "none"}
+            memory={memory}
+            announce={announce}
+            onChanged={() => {
+              // Notes or phrases changed: cached replies are stale (R13), and a removed note may be the current Talking with or Place.
+              client?.clearCache();
+              setNotesVersion((v) => v + 1);
+              setPhrasesVersion((v) => v + 1);
+              if ((state.partnerId && !memory.getNote(state.partnerId)) || (state.placeId && !memory.getNote(state.placeId))) {
+                dispatch({
+                  type: "setContext",
+                  partnerId: state.partnerId && memory.getNote(state.partnerId) ? state.partnerId : undefined,
+                  placeId: state.placeId && memory.getNote(state.placeId) ? state.placeId : undefined,
+                });
+              }
+            }}
+            onClose={() => {
+              setView("conversation");
+              resetFocusToTop();
+            }}
+          />
         )}
         {view === "notes" && memory && (
           <NotesEditor
