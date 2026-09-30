@@ -48,7 +48,7 @@ The assistant chat (stage 3), learning from reply choices, surfacing phrases for
 10. **Checks (on the server, before returning).** A proposal is dropped, never repaired, if:
     - it cites no line from the batch, or a line id that wasn't sent;
     - it is an edit whose `noteId` wasn't sent;
-    - it has a detail its sources don't support: every claim `extractClaims` finds (names, numbers, times) must pass `claimSupported` against its cited lines plus, for an edit, the old note text, plus a date line listing today and the next 14 days in full ("Thursday 2 October") so a converted date passes. Both functions come from `src/lib/suggest/validate.ts`, the same check that catches invented details in replies;
+    - it has a detail its sources don't support: every claim `extractClaims` finds (names, numbers, times) must pass `claimSupported` against its cited lines plus, for an edit, the old note text, A full date the model wrote ("Thursday 1 October") passes only when it is one of the coming 15 days and a cited line names that weekday, or says tomorrow, today or tonight for those days; it is then left out of the claim check. The list of coming dates is never a source itself, since its day numbers would back any small invented number. Both functions come from `src/lib/suggest/validate.ts`, the same check that catches invented details in replies;
     - it is an add that is a near duplicate (`isNearDuplicate`) of a sent note or of another proposal in the same batch, or an edit whose text is the same as the old note once normalised (an edit is meant to be close to its note, so the near-duplicate test would drop real changes like "Mondays" to "Thursdays");
     - its kind isn't a `NoteKind`, or it is empty after trimming.
 11. **Model.** Same provider order as the document route (Groq, then Cloudflare), temperature 0.2, with the reply model as the default. The learning eval compares it against `openai/gpt-oss-20b` on the dev split before one is fixed.
@@ -56,7 +56,7 @@ The assistant chat (stage 3), learning from reply choices, surfacing phrases for
 
 ### The pending list (decided)
 
-13. **Storage.** Kept proposals go to IndexedDB key `learn-pending:<profileId>`: `{ id, action, kind, name?, text, noteId?, oldText?, sources: { speaker, text, at, partnerName? }[], createdAt }`. `oldText` is the note's text when proposed. At most 30; when full, the oldest drop.
+13. **Storage.** Kept proposals go to IndexedDB key `learn-pending:<profileId>`: `{ id, action, draft: { kind, name?, text }, noteId?, oldText?, sources: { speaker, text, at, partnerName? }[], createdAt }` (the draft is the same shape the note form edits). `oldText` is the note's text when proposed. At most 30; when full, the oldest drop.
 14. **Merging.** A new proposal replaces a pending one that edits the same note, or that is a near duplicate of it. The list never holds two versions of the same fact.
 15. **Skips are remembered.** Skip stores a fingerprint (the normalised token string of the proposal text) under `learn-skipped:<profileId>`, the last 200. A new proposal that is a near duplicate of a skipped one is dropped in the browser.
 16. **Export and import** include the pending list (it is part of the profile). They leave out the queue (raw conversation text) and skip fingerprints. The import schema accepts files without it, so older exports still import.
