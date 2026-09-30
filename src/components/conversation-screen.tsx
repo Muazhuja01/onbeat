@@ -15,7 +15,7 @@ import type { MemoryStore } from "@/lib/memory/store";
 import { memoryKeyValue } from "@/lib/profiles/kv";
 import { ProfileRegistry } from "@/lib/profiles/registry";
 import { exportFileName, exportProfile, parseImport } from "@/lib/profiles/transfer";
-import { getServerSettings, getSettings, setDigitKeys, setTheme, subscribeSettings } from "@/lib/settings";
+import { getServerSettings, getSettings, setCloudCaptions, setDigitKeys, setTheme, subscribeSettings } from "@/lib/settings";
 import { SuggestClient } from "@/lib/suggest/client";
 import type { Note } from "@/lib/types";
 import { getBrowserVoice } from "@/lib/voice/browser";
@@ -481,7 +481,14 @@ function Screen() {
           </div>
         </div>
         <div className="mt-10 max-w-xl">
-          <SettingsPanel theme={settings.theme} digitKeys={settings.digitKeys} onTheme={setTheme} onDigitKeys={setDigitKeys} />
+          <SettingsPanel
+            theme={settings.theme}
+            digitKeys={settings.digitKeys}
+            cloudCaptions={settings.cloudCaptions}
+            onTheme={setTheme}
+            onDigitKeys={setDigitKeys}
+            onCloudCaptions={setCloudCaptions}
+          />
         </div>
       </main>
     </>

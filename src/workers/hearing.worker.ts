@@ -38,8 +38,8 @@ const stageFiles: Record<Stage, Map<string, { loaded: number; total: number }>> 
 };
 let shownPercent = -1;
 
-function post(message: HearingWorkerMessage): void {
-  (self as unknown as Worker).postMessage(message);
+function post(message: HearingWorkerMessage, transfer: Transferable[] = []): void {
+  (self as unknown as Worker).postMessage(message, transfer);
 }
 
 function fractionOf(stage: Stage): number {
@@ -153,12 +153,15 @@ function handle(events: SegmentEvent[], at: number, gen: number): void {
         if (gen !== generation) return;
         try {
           const { text, ms } = await transcribe(e.audio);
-          // Sent even when empty, so the page can clear a live caption.
-          if (gen === generation) post({ type: "turnEnd", text, endedAt, ms });
+          // Sent even when empty, so the page can clear a live caption. A copy of the
+          // audio goes along for cloud captions; the segmenter may reuse its buffer.
+          const audio = e.audio.slice();
+          if (gen === generation) post({ type: "turnEnd", text, endedAt, ms, audio }, [audio.buffer]);
         } catch (err) {
           console.error("hearing worker (turnEnd):", err);
           // Still resolve the turn, so the page never waits forever for it.
-          if (gen === generation) post({ type: "turnEnd", text: "", endedAt, ms: 0 });
+          const audio = e.audio.slice();
+          if (gen === generation) post({ type: "turnEnd", text: "", endedAt, ms: 0, audio }, [audio.buffer]);
         }
       });
     }

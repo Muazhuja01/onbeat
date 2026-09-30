@@ -81,11 +81,8 @@ What this shows:
 
 Keep Moonshine in the browser for the live caption while someone talks, and send each finished turn to **Deepgram Nova-3** for the final caption and the replies, using Moonshine's text when Nova-3 returns nothing or doesn't answer within a couple of seconds. Not Whisper, because of the invented "Thank you." lines.
 
-Before building it, two choices for the owner:
-
-1. **The other person's voice would leave the device** (to Cloudflare and Deepgram) for every finished turn. The suggested default is an opt-in setting, "Clearer captions", that says so.
-2. **Paying for it.** The free allowance is too small for real use.
+**Built (2026-09-30), opt-in as the owner chose:** the "Clearer captions" setting sends each finished turn to `/api/transcribe` (Nova-3 on Cloudflare). The in-browser caption is kept when Nova-3 returns nothing, errors, is rate-limited or takes over 2.5 s, and after a failure the app skips the cloud for a minute. Off by default, because the other person's voice leaves the device. Real use still needs a paid Cloudflare plan: the free allowance is about 1,500 turns a day.
 
 Keep the turn thresholds at 0.3 / 0.1 unless café use matters most; then 0.4 / 0.25.
 
-The test split has not been used yet; it is for checking the setup chosen on dev, once, after the owner picks one.
+The test split has not been used yet. It is for one check of Nova-3 with the Moonshine fallback, once Cloudflare's allowance allows (it was used up on 2026-09-30).

@@ -26,6 +26,8 @@ Listening works: the other person's speech is captioned in the browser and repli
 
 Profiles: the first visit asks for a name, a short note about the user, and a few people and places. Several people can keep profiles in one browser and switch between them. Notes can be added, edited and deleted at any time, and a profile can be exported to a file and imported again (for a backup or another device). Notes can also be started from a document (.txt, .md, .docx or .pdf): its text is sent to the language model, which suggests short notes, and the user picks which to keep. The example people are behind a demo link and are never saved.
 
+Captions come from Moonshine in the browser. "Clearer captions" in Settings (off by default) sends each finished line from the other person to Deepgram Nova-3 through Cloudflare, which roughly halves the word errors on clear speech; the browser's caption is used whenever that service is slow or unavailable. Measurements are in [eval/hearing/RESULTS.md](eval/hearing/RESULTS.md).
+
 Next: learning from conversations (suggested notes the user confirms), then an assistant chat for updating notes and preparing for conversations.
 
 Results on the held-out test set (60 scenarios written before any tuning) for the default model `qwen/qwen3.8-27b`. Neither target (90% top-3 hit rate, under 5% invented details) is met; the owner accepted these numbers for the deploy. Details, method and known gaps are in [eval/RESULTS.md](eval/RESULTS.md).

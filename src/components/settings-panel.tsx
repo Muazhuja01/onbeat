@@ -21,11 +21,13 @@ const SHORTCUTS: [string, string][] = [
 interface Props {
   theme: ThemeChoice;
   digitKeys: boolean;
+  cloudCaptions: boolean;
   onTheme: (theme: ThemeChoice) => void;
   onDigitKeys: (on: boolean) => void;
+  onCloudCaptions: (on: boolean) => void;
 }
 
-export function SettingsPanel({ theme, digitKeys, onTheme, onDigitKeys }: Props) {
+export function SettingsPanel({ theme, digitKeys, cloudCaptions, onTheme, onDigitKeys, onCloudCaptions }: Props) {
   return (
     <details className="group rounded-control border-2 border-ink/30">
       <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 rounded-control px-4 text-body font-bold [&::-webkit-details-marker]:hidden">
@@ -63,6 +65,22 @@ export function SettingsPanel({ theme, digitKeys, onTheme, onDigitKeys }: Props)
           </label>
           <p id="digit-keys-hint" className="text-label text-muted">
             Turn this off if you use voice control, so saying a number doesn&apos;t speak a reply.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="flex min-h-12 cursor-pointer items-center gap-3 text-body">
+            <input
+              type="checkbox"
+              checked={cloudCaptions}
+              onChange={(e) => onCloudCaptions(e.target.checked)}
+              aria-describedby="cloud-captions-hint"
+              className="size-6 shrink-0 accent-ink"
+            />
+            Clearer captions
+          </label>
+          <p id="cloud-captions-hint" className="text-label text-muted">
+            When the other person finishes speaking, their words are sent to Deepgram, through Cloudflare, for a more accurate caption.
+            OnBeat doesn&apos;t keep the audio. If the service is busy, the caption from this device is used.
           </p>
         </div>
         <div className="flex flex-col gap-2">
