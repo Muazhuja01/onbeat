@@ -31,7 +31,7 @@ Practise a conversation (3b), keeping or exporting chats, voice input to the cha
 1. **Where.** "Assistant" in the profile menu, next to "Your notes". Not offered in demos, which are never saved.
 2. **Screen.** A full screen like Your notes. Opening it while a conversation runs stops listening and any speech first.
 3. **First screen.** "What would you like to do?" with three buttons: Update my information, Prepare for an appointment, Make quick phrases. Under them a notice: "The assistant sends your notes and quick phrases to the AI service OnBeat uses, more than a reply does. OnBeat doesn't keep them." Then a text box, "Or type what you need", for anything else.
-4. **Closing.** If any cards are not yet kept or skipped, the app asks "Leave without keeping N changes?". Then the chat is discarded. Switching profile closes the chat the same way.
+4. **Closing.** If any cards are not yet kept or skipped, the app asks "Leave without keeping N changes?". Then the chat is discarded. Switching profile from the menu closes the chat without asking, since switching is already a deliberate choice. **(decided)**
 5. **Length.** A chat takes up to 20 user messages. After that the assistant says to start a new chat, and the text box is disabled until they do. **(agreed)**
 
 ### The chat (agreed)
@@ -48,7 +48,7 @@ Practise a conversation (3b), keeping or exporting chats, voice input to the cha
 ### Cards (agreed)
 
 11. **Kinds.** New note, changed note (old and new text side by side), removed note, new quick phrase (with who or where it is for). Cards appear under the assistant message they came with.
-12. **Keep, Edit, Skip** as in Suggested notes. Nothing is saved without Keep. Keep on a removal asks once more: "Delete this note?".
+12. **Keep, Edit, Skip** as in Suggested notes. Nothing is saved without Keep. A removal card has Delete and Skip instead (there is nothing to edit), and Delete asks once more: "Delete this note?". The pinned about-me note is never offered for removal. **(button label and pinned rule decided)**
 13. **Changed since.** Keep compares the note's text now with the card's old text. If it differs (edited in Your notes, or by a kept suggested note), the card says "This note has changed since" and offers only Edit and Skip. The same applies to a removal.
 14. **Duplicates.** Keep on an add or phrase whose words match an existing note or quick phrase saves nothing and says "You already have this." A double tap saves once.
 15. **Who a phrase is for.** The model names a person or place. At Keep this resolves to an existing person or place note by name, else to one kept earlier in the same chat, else the phrase is general.
@@ -79,8 +79,8 @@ Request:
 interface AssistRequest {
   job: "update" | "prepare" | "phrases" | null;
   today: string; // ISO date, the user's local day
-  lines: { id: string; speaker: "user" | "assistant"; text: string }[]; // U1.., A1..
-  notes: { id: string; kind: NoteKind; name?: string; text: string }[]; // N1..
+  lines: { id: string; speaker: "user" | "assistant"; text: string; proposed?: string[] }[]; // U1.., A1..; proposed lists what an assistant line already offered, so it is not offered again
+  notes: { id: string; kind: NoteKind; text: string }[]; // N1.., the text already includes a person or place name
   phrases: { id: string; text: string; for?: string }[]; // Q1.., for = person or place name
 }
 ```
