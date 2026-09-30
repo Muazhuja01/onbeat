@@ -1,6 +1,8 @@
 import type { MemoryStore } from "@/lib/memory/store";
 import type { KeyValue } from "@/lib/profiles/kv";
 import { hasName, NOTE_MAX, noteFields } from "@/lib/profiles/notes";
+import { COMMON_WORDS } from "@/lib/suggest/common-words";
+import { tokenize } from "@/lib/text";
 import type { Note } from "@/lib/types";
 import { Batcher, type SendResult } from "./batcher";
 import { postLearnBatch, type LearnResult } from "./client";
@@ -19,12 +21,39 @@ export interface NewLine {
 
 const RELATED_PER_LINE = 3;
 
+/**
+ * A line's content words. Text search with typo tolerance lets everyday words ("is",
+ * "your", "to") match nearly every note, which pushed the note a line was about out of
+ * the few sent.
+ */
+function contentWords(text: string): string {
+  return tokenize(text)
+    .filter((w) => !COMMON_WORDS.has(w))
+    .join(" ");
+}
+
 /** The pinned about-me note, then the best matches for each line in turn, at most 9 notes in all. */
 export async function relatedNotes(memory: MemoryStore, lines: QueuedLine[]): Promise<Note[]> {
   const picked = new Map<string, Note>();
+  const pinnedIds = new Set(memory.notes().filter((n) => n.pinned).map((n) => n.id));
   const pinned = memory.notes().find((n) => n.pinned);
   if (pinned) picked.set(pinned.id, pinned);
-  const perLine = await Promise.all(lines.map((l) => memory.searchNotes(l.text, { now: new Date() }, RELATED_PER_LINE)));
+  // The person and place from the Talking with and Place lists: a line like "we close at six
+  // on Saturdays" changes the place's note without naming it.
+  const contextNames = new Set(lines.flatMap((l) => [l.partnerName, l.placeName]).filter((n): n is string => !!n).map((n) => n.toLowerCase()));
+  for (const note of memory.notes()) {
+    const name = noteFields(note).name.toLowerCase();
+    if (hasName(note.kind) && contextNames.has(name) && picked.size < LEARN_NOTES_MAX) picked.set(note.id, note);
+  }
+  // searchNotes always lists pinned notes first; ask for enough to leave RELATED_PER_LINE others.
+  const perLine = await Promise.all(
+    lines.map(async (l) => {
+      const query = contentWords(l.text);
+      if (!query) return [];
+      const found = await memory.searchNotes(query, { now: new Date() }, RELATED_PER_LINE + pinnedIds.size);
+      return found.filter((n) => !pinnedIds.has(n.id));
+    }),
+  );
   for (let rank = 0; rank < RELATED_PER_LINE; rank++) {
     for (const found of perLine) {
       const note = found[rank];

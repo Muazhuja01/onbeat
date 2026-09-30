@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { personas } from "@/data/personas";
 import { MemoryStore } from "@/lib/memory/store";
 import { memoryKeyValue } from "@/lib/profiles/kv";
 import type { Note } from "@/lib/types";
@@ -6,7 +7,7 @@ import { QUIET_MS } from "./batcher";
 import type { LearnResult } from "./client";
 import { PendingStore } from "./pending";
 import type { LearnRequest, Proposal } from "./protocol";
-import { LearningSession } from "./session";
+import { LearningSession, relatedNotes } from "./session";
 
 const notes: Note[] = [
   { id: "me", kind: "about-me", text: "I'm Maya. I type to talk.", entities: ["Maya"], updatedAt: 0, pinned: true },
@@ -35,6 +36,38 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("relatedNotes", () => {
+  it("finds the note each line is about, even with everyday words in the way", async () => {
+    const memory = await MemoryStore.create();
+    await memory.replaceAll(personas[0].notes, []);
+    const sentFor = async (text: string, reply: string) =>
+      (
+        await relatedNotes(memory, [
+          { id: "l1", speaker: "partner", text, at: 0 },
+          { id: "l2", speaker: "user", text: reply, at: 0 },
+        ])
+      ).map((n) => n.id);
+    const physio = await sentFor("Mum, the clinic called. Your physio is moving to Thursdays from next week, same time.", "Thursdays are fine.");
+    expect(physio[0]).toBe("m-me");
+    expect(physio).toContain("m-physio");
+    expect(physio.filter((id) => id === "m-me")).toHaveLength(1);
+    expect(await sentFor("I finished my degree, Mum! And I've got a job in Vancouver, I move next month.", "I'm so proud of you.")).toContain("m-leila");
+  });
+
+  it("sends the notes for who the user is talking with and where, even when a line doesn't name them", async () => {
+    const memory = await MemoryStore.create();
+    await memory.replaceAll(personas[0].notes, []);
+    const ids = (
+      await relatedNotes(memory, [
+        { id: "l1", speaker: "partner", text: "We're closed on Mondays from now on.", at: 0, partnerName: "Sam", placeName: "Blue Door Café" },
+        { id: "l2", speaker: "user", text: "Good to know.", at: 0, partnerName: "Sam", placeName: "Blue Door Café" },
+      ])
+    ).map((n) => n.id);
+    expect(ids).toContain("m-cafe");
+    expect(ids).toContain("m-sam");
+  });
 });
 
 describe("LearningSession", () => {
