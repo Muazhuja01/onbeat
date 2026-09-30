@@ -59,6 +59,7 @@ export function buildAssistMessages(req: AssistRequest): ChatMessage[] {
     '  {"action": "remove", "note": "N5", "lines": ["U5"]},',
     '  {"action": "phrase", "text": "Can we go over my dose?", "for": "Dr. Chen", "lines": ["U3"]}',
     "]}",
+    "When you only ask a question:",
     '{"say": "Who is the appointment with?", "proposals": []}',
   ].join("\n");
   return [
