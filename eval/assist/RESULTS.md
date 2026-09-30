@@ -4,7 +4,7 @@
 
 `openai/gpt-oss-120b` on Groq, reasoning effort high, temperature 0, up to 8,000 completion tokens (the shared settings in `eval/judge.ts`), with the rubric in `judge.ts` at `ASSIST_JUDGE_VERSION` 2. The Cloudflare copy of the same model was out of its daily allowance on every run below and judged nothing. `npm run eval:assist-judge-check` judges each gold entry once and prints agreement with the hand labels.
 
-The judge is paired with a mechanical brief-only check (see below). The eval counts a card as invented if either of them flags it.
+The judge is paired with a mechanical brief-only check (see below). The eval counts a card as invented if either the judge or the check flags it. A card the check flags also counts as not worth keeping, even if the judge kept it.
 
 ### Gold set
 
@@ -38,22 +38,23 @@ Coverage of the positive cases is thin:
 
 Runs 1 to 5 used the first 15 entries (38 cards, 23 phrases). Run 6 used all 18 entries.
 
-| Run | Prompt | Keep | Invented (judge) | Invented (judge or check) | Sayable | Leak |
-|---|---|---|---|---|---|---|
-| 1 | v2 | 35/38 (92%) | 34/38 (89%) | | 21/23 | 15/15 |
-| 2 | v3 | 30/38 (79%) | 29/38 (76%) | | 22/23 | 13/15 |
-| 3 | v4 | 26/38 (68%) | 27/38 (71%) | | 16/23 | 12/15 |
-| 4 | v5 | 29/38 (76%) | 25/38 (66%) | | 18/23 | 13/15 |
-| 5 | v2, final labels | 35/38 (92%) | 35/38 (92%) | | 21/23 | 15/15 |
-| 6 | v2, 18 entries | 36/44 (82%) | 39/44 (89%) | 42/44 (95%) | 24/25 | 18/18 |
+| Run | Prompt | Keep (judge) | Keep (with check) | Invented (judge) | Invented (judge or check) | Sayable | Leak |
+|---|---|---|---|---|---|---|---|
+| 1 | v2 | 35/38 (92%) | | 34/38 (89%) | | 21/23 | 15/15 |
+| 2 | v3 | 30/38 (79%) | | 29/38 (76%) | | 22/23 | 13/15 |
+| 3 | v4 | 26/38 (68%) | | 27/38 (71%) | | 16/23 | 12/15 |
+| 4 | v5 | 29/38 (76%) | | 25/38 (66%) | | 18/23 | 13/15 |
+| 5 | v2, final labels | 35/38 (92%) | | 35/38 (92%) | | 21/23 | 15/15 |
+| 6 | v2, 18 entries | 36/44 (82%) | 41/44 (93%) | 39/44 (89%) | 42/44 (95%) | 24/25 | 18/18 |
 
-On its first 15 entries, run 6 scored keep 34/38 (89%) and invented 35/38 (92%, or 36/38 with the check).
+On its first 15 entries, run 6 scored keep 34/38 (89%, or 35/38 with the check) and invented 35/38 (92%, or 36/38 with the check).
 
 **Where the gate stands:**
 - On the first 15 entries, the v2 judge passed in run 5: at least 90% on keep and on invented, and leak right on every entry.
 - On all 18 entries, invented passes only with the brief-only check (95%).
-- Keep does not pass: 82%. The judge kept 4 of the 5 new brief-only cards that should be dropped. It did so even when it listed their detail as invented itself: "cleaning", "Smile Dental" and the spare key.
-- If the brief-only check also made a card keep false, keep would be 41/44 (93%). I worked this out from run 6's saved verdicts. The eval doesn't apply the check to keep.
+- Keep passes only with the check: 41/44 (93%). The judge alone scores 36/44 (82%). It kept 4 of the 5 new brief-only cards that should be dropped, even when it listed their detail as invented itself: "cleaning", "Smile Dental" and the spare key.
+- The rule that a card the check flags is not worth keeping was set after run 6 showed keep at 82%. The reason comes from the rubric: keep requires a card to be "true to what the person said", and a detail the person never typed isn't.
+- The combined keep and invented numbers for run 6 were worked out from its saved verdicts (`results/judge-check-2026-09-30T19-17-35-220Z.json`). The judge was not run again. `judge-check` now prints both numbers for each measure.
 
 Runs 2 to 4 each changed the prompt and did worse, so those changes were dropped (see below). An unreadable answer counts as a disagreement on every card in the entry and on its leak flag. Run 1's saved verdicts were lost because its process was stopped while the Cloudflare endpoint was waiting out its quota. Its disagreements below come from the printed log, which has all of them.
 
@@ -66,7 +67,7 @@ So each case in `cases.ts` has a `briefOnly` list: words from the brief that a c
 - Days and times are left to the judge, and so are words a user could easily say another way.
 - A unit test checks that every term is in its brief and in none of the persona's notes.
 
-`briefOnlyCards` in `score.ts` flags a card that states one of those terms when no user line in the chat does. The assistant's own lines don't count. `summarizeAssist` counts a flagged card as invented, together with the judge's own calls, and reports how many cards were counted only because of the check. The runner saves the flags per card and prints each one with its terms.
+`briefOnlyCards` in `score.ts` flags a card that states one of those terms when no user line in the chat does. The assistant's own lines don't count. `summarizeAssist` counts a flagged card as invented, together with the judge's own calls. It also counts a flagged card as not worth keeping, and so not toward recall. It reports how many cards were counted invented only because of the check, and how many kept cards the check dropped. The runner saves the flags per card and prints each one with its terms.
 
 On the gold set, the check flags exactly the 6 brief-only cards and no other card.
 
@@ -134,6 +135,6 @@ Each change made the judge reason for longer and did not fix what it targeted, s
 
 ### What this means for the numbers
 
-- **Brief-only details.** The judge doesn't count a detail as invented, and often keeps the card, when the detail is true in the brief or in the expected-change list but was never typed in the chat. The brief-only check covers invented for the terms listed in `cases.ts`. A detail outside those lists, or a day or time, is still up to the judge. The check does not change keep, so "worth keeping" may be overcounted on cards like these.
+- **Brief-only details.** The judge doesn't count a detail as invented, and often keeps the card, when the detail is true in the brief or in the expected-change list but was never typed in the chat. The brief-only check covers invented for the terms listed in `cases.ts`. A detail outside those lists, or a day or time, is still up to the judge. For the same terms, the check also sets keep to false.
 - **Duplicate phrases.** The judge can keep a quick phrase the person already has. The app's own check already drops a phrase that is a near-duplicate of an existing quick phrase before it is shown (`src/lib/assist/check.ts`, line 53), so this only matters for a repeat that the check doesn't catch. Where it happens, "worth keeping" is overcounted on the phrases jobs.
 - **Run-to-run noise.** The same card can get a different verdict on another run. Examples are "Ruth is my new neighbour." and "blood pressure dose". Each gold card was judged once per run.

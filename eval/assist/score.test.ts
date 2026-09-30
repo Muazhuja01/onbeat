@@ -73,4 +73,12 @@ describe("brief-only check", () => {
     expect(both.invented).toEqual([1, 1]);
     expect(both.inventedByBriefCheck).toBe(0);
   });
+
+  it("counts a flagged card as not worth keeping, and not toward recall, even when the judge kept it", () => {
+    const s = summarizeAssist([{ ...base, briefOnly: [["cleaning"]] }]);
+    expect(s.keep).toEqual([0, 1]);
+    expect(s.keepDroppedByBriefCheck).toBe(1);
+    expect(s.recall).toEqual([0, 1]);
+    expect(summarizeAssist([{ ...base, briefOnly: [[]] }])).toMatchObject({ keep: [1, 1], keepDroppedByBriefCheck: 0, recall: [1, 1] });
+  });
 });

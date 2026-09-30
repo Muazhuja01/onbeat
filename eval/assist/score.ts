@@ -17,6 +17,8 @@ export interface AssistSummary {
   void: number;
   shown: number;
   keep: [number, number];
+  /** Cards the judge kept that count as not worth keeping only because of the brief-only check. */
+  keepDroppedByBriefCheck: number;
   invented: [number, number];
   /** Cards counted as invented only because of the brief-only check; the judge found nothing. */
   inventedByBriefCheck: number;
@@ -72,23 +74,27 @@ const median = (xs: number[]) => {
  * - A case whose verdict says the simulated user leaked a fact outside its brief is void:
  *   counted in `void` and left out of every other number. A case with an error or no
  *   verdict is left out too (the runner reports it).
- * - shown: all cards in counted cases. keep: cards judged worth keeping. invented: cards
- *   the judge found an invented detail in, or that state a brief-only term no user line has
- *   (`briefOnly`). sayable: of phrase cards, those judged sayable.
+ * - shown: all cards in counted cases. keep: cards judged worth keeping that state no
+ *   brief-only term no user line has (`briefOnly`): the rubric's keep needs a card true to
+ *   what the person said, and a detail they never typed isn't. invented: cards the judge
+ *   found an invented detail in, or that the brief-only check flags. sayable: of phrase
+ *   cards, those judged sayable.
  * - editsRight: of expected edits and removals, those matched (by the judge's `matches`)
  *   by a card with the same action on the same note.
- * - recall: expected changes matched by any kept card.
+ * - recall: expected changes matched by any kept card (kept as above).
  * - medianUserMessages: median user messages over counted cases that expected a change.
  */
 export function summarizeAssist(results: AssistCaseResult[]): AssistSummary {
   const judged = results.filter((r) => !r.error && r.verdict);
   const counted = judged.filter((r) => !r.verdict!.leak);
-  const s: AssistSummary = { cases: counted.length, void: judged.length - counted.length, shown: 0, keep: [0, 0], invented: [0, 0], inventedByBriefCheck: 0, editsRight: [0, 0], recall: [0, 0], sayable: [0, 0], medianUserMessages: 0 };
+  const s: AssistSummary = { cases: counted.length, void: judged.length - counted.length, shown: 0, keep: [0, 0], keepDroppedByBriefCheck: 0, invented: [0, 0], inventedByBriefCheck: 0, editsRight: [0, 0], recall: [0, 0], sayable: [0, 0], medianUserMessages: 0 };
   for (const r of counted) {
     const v = r.verdict!.cards;
     s.shown += r.cards.length;
-    s.keep = [s.keep[0] + v.filter((c) => c.keep).length, s.keep[1] + r.cards.length];
     const byCheck = (i: number) => (r.briefOnly?.[i]?.length ?? 0) > 0;
+    const kept = (i: number) => v[i].keep && !byCheck(i);
+    s.keep = [s.keep[0] + v.filter((_, i) => kept(i)).length, s.keep[1] + r.cards.length];
+    s.keepDroppedByBriefCheck += v.filter((c, i) => c.keep && byCheck(i)).length;
     s.invented = [s.invented[0] + v.filter((c, i) => c.invented.length > 0 || byCheck(i)).length, s.invented[1] + r.cards.length];
     s.inventedByBriefCheck += v.filter((c, i) => c.invented.length === 0 && byCheck(i)).length;
     r.cards.forEach((card, i) => {
@@ -96,12 +102,12 @@ export function summarizeAssist(results: AssistCaseResult[]): AssistSummary {
     });
     r.expected.forEach((e, i) => {
       const n = i + 1;
-      const matched = r.cards.map((c, j) => ({ c, v: v[j] })).filter((x) => x.v.matches === n);
+      const matched = r.cards.map((c, j) => ({ c, v: v[j], kept: kept(j) })).filter((x) => x.v.matches === n);
       if (e.action === "edit" || e.action === "remove") {
         const right = matched.some((x) => x.c.action === e.action && x.c.noteId === e.noteId);
         s.editsRight = [s.editsRight[0] + (right ? 1 : 0), s.editsRight[1] + 1];
       }
-      s.recall = [s.recall[0] + (matched.some((x) => x.v.keep) ? 1 : 0), s.recall[1] + 1];
+      s.recall = [s.recall[0] + (matched.some((x) => x.kept) ? 1 : 0), s.recall[1] + 1];
     });
   }
   s.medianUserMessages = median(counted.filter((r) => r.expected.length > 0).map((r) => r.userMessages));
@@ -118,6 +124,7 @@ export function assistMarkdown(split: string, votes: number, rows: { model: stri
     "|---|---|---|---|---|---|---|---|---|",
     ...rows.map(({ model, summary: s }) => `| ${model} | ${s.cases} (${s.void}) | ${s.shown} | ${pct(s.keep)} | ${pct(s.invented)} | ${pct(s.editsRight)} | ${pct(s.recall)} | ${pct(s.sayable)} | ${s.medianUserMessages} |`),
     "",
+    ...rows.filter(({ summary: s }) => s.keepDroppedByBriefCheck > 0).map(({ model, summary: s }) => `${model}: worth keeping leaves out ${s.keepDroppedByBriefCheck} card(s) the judge kept but the brief-only check flags.`),
     ...rows.filter(({ summary: s }) => s.inventedByBriefCheck > 0).map(({ model, summary: s }) => `${model}: invented includes ${s.inventedByBriefCheck} card(s) flagged only by the brief-only check.`),
   ].join("\n");
 }

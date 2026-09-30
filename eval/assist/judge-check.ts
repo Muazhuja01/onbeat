@@ -14,8 +14,8 @@ const RESULTS_DIR = "eval/assist/results";
 /**
  * Judges every gold entry once per endpoint, at the judge's normal settings, and reports
  * agreement with the hand labels: keep, invented (empty or not), sayable (phrases only)
- * and the leak flag. Invented is reported twice: the judge alone, and the judge or the
- * brief-only check (score.ts), which is what the eval counts. Every disagreement is printed
+ * and the leak flag. Keep and invented are reported twice: the judge alone, and with the
+ * brief-only check (score.ts) applied, which is what the eval counts. Every disagreement is printed
  * with the card, and the raw verdicts are saved so they can be read afterwards.
  */
 async function main() {
@@ -23,7 +23,7 @@ async function main() {
   const file = `${RESULTS_DIR}/judge-check-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
   const saved: { endpoint: string; name: string; verdict: AssistVerdict | null; briefOnly?: string[][]; text?: string; finishReason?: string; error?: string }[] = [];
   for (const ep of judgeEndpoints()) {
-    const agree = { keep: 0, invented: 0, withCheck: 0, sayable: 0, leak: 0 };
+    const agree = { keep: 0, keepWithCheck: 0, invented: 0, withCheck: 0, sayable: 0, leak: 0 };
     let cards = 0;
     let phrases = 0;
     let outOfQuota = false;
@@ -59,6 +59,9 @@ async function main() {
         const card = `"${g.cards[i].text}"`;
         if (v.keep === label.keep) agree.keep++;
         else console.log(`${ep.name} ${g.name} #${i + 1} ${card}: keep ${v.keep} vs ${label.keep}`);
+        const keepWithCheck = v.keep && briefOnly[i].length === 0;
+        if (keepWithCheck === label.keep) agree.keepWithCheck++;
+        else console.log(`${ep.name} ${g.name} #${i + 1} ${card}: keep with the brief-only check ${keepWithCheck} vs ${label.keep}`);
         if (v.invented.length > 0 === label.invented) agree.invented++;
         else console.log(`${ep.name} ${g.name} #${i + 1} ${card}: invented ${JSON.stringify(v.invented)} vs ${label.invented}`);
         const withCheck = v.invented.length > 0 || briefOnly[i].length > 0;
@@ -72,7 +75,7 @@ async function main() {
     }
     if (outOfQuota) continue;
     const pct = (n: number, of: number) => `${n}/${of} (${Math.round((n / of) * 100)}%)`;
-    console.log(`${ep.name}: keep ${pct(agree.keep, cards)}, invented ${pct(agree.invented, cards)} (with the brief-only check ${pct(agree.withCheck, cards)}), sayable ${pct(agree.sayable, phrases)}, leak ${pct(agree.leak, assistGold.length)}`);
+    console.log(`${ep.name}: keep ${pct(agree.keep, cards)} (with the brief-only check ${pct(agree.keepWithCheck, cards)}), invented ${pct(agree.invented, cards)} (with the brief-only check ${pct(agree.withCheck, cards)}), sayable ${pct(agree.sayable, phrases)}, leak ${pct(agree.leak, assistGold.length)}`);
   }
   writeFileSync(file, JSON.stringify(saved, null, 2));
   console.log(`saved ${file}`);
