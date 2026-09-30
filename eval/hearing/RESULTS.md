@@ -49,4 +49,41 @@ What this shows:
 
 For scale: large models such as Whisper large score about 35% word errors on AMI's table microphone. The test set is hard on purpose.
 
-The test split has not been used yet; it is for checking the settings chosen on dev, once.
+## Cloud models on dev (2026-09-29)
+
+Same clips, same turn settings (0.3 / 0.1, 600 ms), each finished turn sent to a cloud service instead of Moonshine. Scored with the Whisper-style normalizer (contractions, numbers, British spellings), which the Moonshine rows above predate; `rescore.ts` puts every run on the current scorer, and the Moonshine rows here are re-scored.
+
+```
+npx tsx eval/hearing/run.ts --split dev --model cf:nova-3
+npx tsx eval/hearing/run.ts --split dev --model groq:whisper-large-v3-turbo
+npx tsx eval/hearing/rescore.ts eval/results/hearing-dev-*.json
+```
+
+| Model | Where | Word errors, all | Common Voice quiet | CV café | CV street | AMI quiet | Exact | Missed | Time per turn |
+|---|---|---|---|---|---|---|---|---|---|
+| Moonshine tiny (in the app) | Browser | 44.7% | 28.6% | 59.5% | 36.0% | 40.0% | 12.8% | 8.2% | 123 ms (CPU) |
+| Moonshine base | Browser | 35.7% | 20.1% | 48.3% | 24.2% | 35.6% | 22.2% | 8.5% | 181 ms (CPU) |
+| Deepgram Nova-3 | Cloudflare Workers AI | 28.1% | 12.5% | 37.4% | 14.9% | 30.6% | 30.0% | 10.8% | 394 ms round trip |
+| Whisper large-v3-turbo | Groq | 29.6% | 12.5% | 42.7% | 15.5% | 29.8% | 30.0% | 6.3% | 379 ms round trip |
+| Whisper large-v3 | Groq | 29.3% | 11.4% | 42.7% | 14.2% | 30.7% | 29.8% | 6.3% | 443 ms round trip |
+
+What this shows:
+
+- **Any of the three cloud models roughly halves the word errors on clear speech** (28.6% to 11 to 13%) and cuts street noise from 36% to about 15%. They are within 1.5 points of each other overall.
+- **Whisper makes up "Thank you."** when there is only background noise: 33 turns with turbo and 38 with large-v3, out of 600, none of which contain those words (29 to 31 of them in café noise, so about 1 in 7 café clips). In OnBeat that is a caption of something the other person never said, and replies to it. Nova-3 never did this. Nova-3 instead leaves more faint, distant speech blank (missed 10.8%).
+- **Nova-3, falling back to Moonshine when it returns nothing** (simulated from the saved runs; the turns are cut the same way whatever the model): word errors 27.7%, missed 7.2%.
+- **Stricter turn thresholds with Nova-3** (0.4 / 0.25, 600 ms): café 37.4% to 27.9%, but quiet 12.5% to 13.8%, street 14.9% to 16.6%, AMI 30.6% to 32.5%, all 28.1% to 29.7%. A trade, not a clear win.
+- **Cost and limits.** Cloudflare's free daily allowance (10,000 neurons) ran out part way through the third full Nova-3 run, so it covers roughly 1,500 turns a day for everyone together, and the same allowance serves the reply fallback. Real use needs the Workers Paid plan (usage-priced) or a Deepgram account. Groq's free tier allows 20 Whisper requests a minute.
+
+### Recommendation
+
+Keep Moonshine in the browser for the live caption while someone talks, and send each finished turn to **Deepgram Nova-3** for the final caption and the replies, using Moonshine's text when Nova-3 returns nothing or doesn't answer within a couple of seconds. Not Whisper, because of the invented "Thank you." lines.
+
+Before building it, two choices for the owner:
+
+1. **The other person's voice would leave the device** (to Cloudflare and Deepgram) for every finished turn. The suggested default is an opt-in setting, "Clearer captions", that says so.
+2. **Paying for it.** The free allowance is too small for real use.
+
+Keep the turn thresholds at 0.3 / 0.1 unless café use matters most; then 0.4 / 0.25.
+
+The test split has not been used yet; it is for checking the setup chosen on dev, once, after the owner picks one.
