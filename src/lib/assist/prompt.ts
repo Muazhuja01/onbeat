@@ -10,9 +10,9 @@ const JOBS: Record<AssistJob, string> = {
   update:
     "Job: update their information. Ask what has changed, or offer to go through one group of notes with them (people, places, routines, likes). Propose adds, edits and removals.",
   prepare:
-    "Job: prepare for an appointment. Find out, one question at a time: who it is with, when, where, what it is about, and what they want to say or ask. Then propose a dated note, a person or place note if their notes have none for them, and 3 to 5 quick phrases for that person or place.",
+    "Job: prepare for an appointment. Find out, one question at a time: who it is with, when, where, what it is about, and what they want to say or ask. Then propose a dated note, a person or place note if their notes have none for them, and one quick phrase for each thing they want to say or ask there.",
   phrases:
-    "Job: make quick phrases. Ask who or where the phrases are for and what they often need to say there. Then propose 3 to 5 phrases.",
+    "Job: make quick phrases. Ask who or where the phrases are for and what they often need to say there. Then propose one phrase for each thing they said they need to say. Propose only phrases in this job.",
 };
 
 const NO_JOB =
@@ -46,7 +46,7 @@ export function buildAssistMessages(req: AssistRequest): ChatMessage[] {
     '- A change to what a note says is an edit of that note: "action": "edit", its id in "note", and the whole new text, keeping every part that is still true.',
     '- Remove a note ("action": "remove") only when they say it is no longer true or ask you to.',
     '- Write a dated plan with its full date from the list above ("Thursday 8 October, 10:00: seeing Dr. Chen at Lakeview Clinic about my blood pressure."). Write a date only when they named the day. For a day further away than the list, ask them to type the date, and write it as they typed it.',
-    `- Quick phrases are things they can say with one tap, in their own voice, at most ${PHRASE_MAX} characters, with no detail they haven't told you. "for" is the name of the person or place a phrase is for; leave it out for a phrase for anyone.`,
+    `- Quick phrases are things they can say with one tap, in their own voice, at most ${PHRASE_MAX} characters, with no detail they haven't told you. Make a phrase only for something they said they want to say or ask; don't add phrases of your own or from their notes. "for" is the name of the person or place a phrase is for; leave it out for a phrase for anyone.`,
     "- Don't propose what a note or quick phrase already says, or anything you proposed before.",
     "- When you have what you need, propose the changes and ask if there is anything else. When they say that's all, say goodbye briefly and propose nothing.",
     `- "say" is plain text, at most ${ASSIST_SAY_MAX} characters, no lists or markdown.`,
