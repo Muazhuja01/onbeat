@@ -1,6 +1,7 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
 import { idbKeyValue, memoryKeyValue } from "./kv";
+import { pendingKey, queueKey, skippedKey } from "@/lib/learning/keys";
 import { cleanName, openBrowserRegistry, ProfileRegistry } from "./registry";
 
 describe("ProfileRegistry", () => {
@@ -74,5 +75,33 @@ describe("ProfileRegistry", () => {
     await reg.create("Idb");
     const again = await ProfileRegistry.open(idbKeyValue());
     expect(again.list().some((p) => p.name === "Idb")).toBe(true);
+  });
+});
+
+describe("ProfileRegistry learning data", () => {
+  it("deleting a profile deletes its learning data too", async () => {
+    const kv = memoryKeyValue();
+    const reg = await ProfileRegistry.open(kv);
+    const p = await reg.create("Priya");
+    for (const key of [queueKey(p.id), pendingKey(p.id), skippedKey(p.id)]) await kv.set(key, ["x"]);
+    expect(reg.keyValue).toBe(kv);
+    await reg.remove(p.id);
+    for (const key of [queueKey(p.id), pendingKey(p.id), skippedKey(p.id)]) expect(await kv.get(key)).toBeUndefined();
+  });
+});
+
+describe("ProfileRegistry learning data in flight", () => {
+  it("a queue or suggestion list opened before a profile was deleted never writes it back", async () => {
+    const { LearningQueue } = await import("@/lib/learning/queue");
+    const { PendingStore } = await import("@/lib/learning/pending");
+    const kv = memoryKeyValue();
+    const reg = await ProfileRegistry.open(kv);
+    const p = await reg.create("Priya");
+    const queue = await LearningQueue.open(kv, p.id);
+    const pending = await PendingStore.open(kv, p.id);
+    await reg.remove(p.id);
+    await queue.add({ id: "l1", speaker: "partner", text: "hi", at: Date.now() });
+    await pending.merge([{ id: "s1", action: "add", draft: { kind: "routine", text: "I swim on Fridays." }, sources: [], createdAt: 1 }], []);
+    for (const key of [queueKey(p.id), pendingKey(p.id)]) expect(await kv.get(key)).toBeUndefined();
   });
 });

@@ -18,6 +18,9 @@ interface Props {
   onRename: (name: string) => void;
   onDelete: () => void;
   onDemo: () => void;
+  /** Suggested notes waiting for review. */
+  suggestionCount?: number;
+  onSuggestions?: () => void;
 }
 
 const item = `${secondaryButton} w-full text-left`;
@@ -33,6 +36,9 @@ export function ProfileMenu(props: Props) {
   const active = profiles.find((p) => p.id === activeId) ?? null;
   const others = profiles.filter((p) => p.id !== activeId || demoName);
   const label = demoName ? `Demo: ${demoName}` : (active?.name ?? "Profiles");
+  const count = props.suggestionCount ?? 0;
+  // Named in full here: a visually hidden span next to the name gets a stray space before its comma in Chromium.
+  const toggleName = count > 0 ? `${label}, ${count} suggested ${count === 1 ? "note" : "notes"}` : undefined;
 
   const close = (refocus = true) => {
     setOpen(false);
@@ -70,6 +76,7 @@ export function ProfileMenu(props: Props) {
       <button
         ref={toggleRef}
         type="button"
+        aria-label={toggleName}
         aria-expanded={open}
         aria-controls={`${id}-panel`}
         onClick={() => (open ? close(false) : setOpen(true))}
@@ -77,6 +84,11 @@ export function ProfileMenu(props: Props) {
       >
         <UserCircle aria-hidden="true" size={22} className="shrink-0" />
         <span className="truncate">{label}</span>
+        {count > 0 && (
+          <span aria-hidden="true" className="shrink-0 rounded-full border-2 border-ink bg-ink px-2 text-label text-surface">
+            {count}
+          </span>
+        )}
         <CaretDown aria-hidden="true" size={18} className={`shrink-0 transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
@@ -156,6 +168,11 @@ export function ProfileMenu(props: Props) {
                   <button type="button" onClick={() => act(props.onNotes)} className={item}>
                     Your notes
                   </button>
+                  {props.onSuggestions && (
+                    <button type="button" onClick={() => act(props.onSuggestions!)} className={item}>
+                      Suggested notes{count > 0 ? ` (${count})` : ""}
+                    </button>
+                  )}
                   <button type="button" onClick={() => act(props.onNew)} className={item}>
                     New profile
                   </button>

@@ -23,6 +23,8 @@ playwright-report/
 test-results/
 eval/results/*.json
 eval/hearing/.cache/
+eval/learning/.cache/
+eval/learning/results/*.json
 eval/results/hearing-*.md
 
 # downloaded model weights (cached by the browser, never committed)

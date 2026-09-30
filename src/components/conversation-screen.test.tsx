@@ -48,11 +48,23 @@ const h = vi.hoisted(() => {
   const hear = (event: string, v: unknown) => {
     for (const cb of hearingListeners[event]) cb(v);
   };
-  return { voice, emit, requests, hearing, hear };
+  type LearnRequest = import("@/lib/learning/protocol").LearnRequest;
+  type Proposal = import("@/lib/learning/protocol").Proposal;
+  const learnBodies: LearnRequest[] = [];
+  let learnAnswer: (body: LearnRequest) => Proposal[] = () => [];
+  const setLearnAnswer = (f: (body: LearnRequest) => Proposal[]) => {
+    learnAnswer = f;
+  };
+  const postLearn = async (body: LearnRequest) => {
+    learnBodies.push(body);
+    return { ok: true as const, proposals: learnAnswer(body) };
+  };
+  return { voice, emit, requests, hearing, hear, learnBodies, setLearnAnswer, postLearn };
 });
 
 vi.mock("@/lib/voice/browser", () => ({ getBrowserVoice: () => h.voice }));
 vi.mock("@/lib/hearing/browser", () => ({ getBrowserHearing: () => h.hearing }));
+vi.mock("@/lib/learning/client", () => ({ postLearnBatch: (body: import("@/lib/learning/protocol").LearnRequest) => h.postLearn(body) }));
 
 vi.mock("@/lib/memory/browser", async () => {
   const { MemoryStore } = await import("@/lib/memory/store");
@@ -119,6 +131,21 @@ async function startWithMaya() {
   await screen.findByRole("heading", { name: "Replies" });
 }
 
+async function setUpPriya() {
+  render(<ConversationScreen />);
+  await userEvent.type(await screen.findByLabelText("What's your name?"), "Priya{Enter}");
+  await userEvent.click(screen.getByRole("button", { name: "Next" }));
+  await userEvent.click(screen.getByRole("button", { name: "Finish" }));
+  await screen.findByRole("heading", { name: "Replies" });
+}
+
+/** The page goes to the background, which sends any queued lines. */
+function hidePage() {
+  Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+  document.dispatchEvent(new Event("visibilitychange"));
+  Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+}
+
 const liveRegion = () => document.querySelector<HTMLElement>('[aria-live="polite"]')!;
 
 beforeEach(() => {
@@ -128,6 +155,8 @@ beforeEach(() => {
   h.hearing.stop = vi.fn();
   h.hearing.pause = vi.fn();
   h.hearing.resume = vi.fn();
+  h.learnBodies.length = 0;
+  h.setLearnAnswer(() => []);
 });
 
 describe("ConversationScreen", () => {
@@ -333,5 +362,67 @@ describe("ConversationScreen listening", () => {
     expect(h.hearing.pause).toHaveBeenCalled();
     act(() => h.emit("end", "Large, please."));
     expect(h.hearing.resume).toHaveBeenCalledWith(400);
+  });
+});
+
+describe("ConversationScreen learning", () => {
+  it("learns from the partner and the user, and a kept suggestion becomes a note", async () => {
+    h.setLearnAnswer((body) => [{ action: "add", kind: "person", name: "Ana", text: "Ana is my new carer. She starts on Monday.", lineIds: [body.lines[0].id] }]);
+    await setUpPriya();
+    await partnerSays("Your new carer Ana starts on Monday.");
+    await userEvent.type(screen.getByLabelText("Type a reply"), "Great, thanks for telling me{Enter}");
+    hidePage();
+    await waitFor(() => expect(h.learnBodies).toHaveLength(1));
+    expect(h.learnBodies[0].lines.map((l) => [l.speaker, l.text])).toEqual([
+      ["partner", "Your new carer Ana starts on Monday."],
+      ["user", "Great, thanks for telling me"],
+    ]);
+
+    const toggle = await screen.findByRole("button", { name: "Priya, 1 suggested note" });
+    await userEvent.click(toggle);
+    await userEvent.click(screen.getByRole("button", { name: "Suggested notes (1)" }));
+    expect(screen.getByText(/The other person said: .Your new carer Ana starts on Monday../)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Keep: Ana is my new carer. She starts on Monday." }));
+    expect(await screen.findByText("Nothing to review. OnBeat suggests notes from your conversations; you choose what to keep.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Priya" }));
+    await userEvent.click(screen.getByRole("button", { name: "Your notes" }));
+    expect(screen.getByText("Ana is my new carer. She starts on Monday.")).toBeInTheDocument();
+  });
+
+  it("does not learn from a reply tapped as it is", async () => {
+    await setUpPriya();
+    await partnerSays("How was your weekend?");
+    answer("It was lovely, thanks.");
+    await userEvent.click(await screen.findByRole("button", { name: /It was lovely, thanks./ }));
+    await partnerSays("Did you do anything fun?");
+    hidePage();
+    await waitFor(() => expect(h.learnBodies).toHaveLength(1));
+    expect(h.learnBodies[0].lines.map((l) => l.text)).toEqual(["How was your weekend?", "Did you do anything fun?"]);
+  });
+
+  it("never learns in a demo", async () => {
+    await startWithMaya();
+    await partnerSays("Your physio moved to Thursdays.");
+    await partnerSays("Same time as before.");
+    hidePage();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(h.learnBodies).toHaveLength(0);
+    await userEvent.click(screen.getByRole("button", { name: "Demo: Maya" }));
+    expect(screen.queryByRole("button", { name: /Suggested notes/ })).toBeNull();
+  });
+
+  it("learns nothing with the setting off", async () => {
+    await setUpPriya();
+    await userEvent.click(screen.getByText("Settings"));
+    const box = screen.getByRole("checkbox", { name: "Suggest notes from my conversations" });
+    await userEvent.click(box);
+    await partnerSays("Your physio moved to Thursdays.");
+    await partnerSays("Same time as before.");
+    hidePage();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(h.learnBodies).toHaveLength(0);
+    await userEvent.click(box);
   });
 });

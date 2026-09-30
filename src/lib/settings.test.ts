@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { forgetSettings, getSettings, setCloudCaptions, setDigitKeys, setTheme, subscribeSettings } from "./settings";
+import { forgetSettings, getSettings, learningTold, markLearningTold, setCloudCaptions, setDigitKeys, setLearning, setTheme, subscribeSettings } from "./settings";
 
 afterEach(() => {
   localStorage.clear();
@@ -8,8 +8,8 @@ afterEach(() => {
 });
 
 describe("settings", () => {
-  it("defaults to the system theme, number keys on and cloud captions off", () => {
-    expect(getSettings()).toEqual({ theme: "system", digitKeys: true, cloudCaptions: false });
+  it("defaults to the system theme, number keys on, cloud captions off and suggested notes on", () => {
+    expect(getSettings()).toEqual({ theme: "system", digitKeys: true, cloudCaptions: false, learning: true });
   });
 
   it("saves the cloud captions choice, and forgets it when turned off", () => {
@@ -20,6 +20,22 @@ describe("settings", () => {
     setCloudCaptions(false);
     expect(localStorage.getItem("onbeat:cloud-captions")).toBeNull();
     expect(getSettings().cloudCaptions).toBe(false);
+  });
+
+  it("saves learning turned off, and forgets it when turned back on", () => {
+    setLearning(false);
+    expect(localStorage.getItem("onbeat:learning")).toBe("off");
+    forgetSettings();
+    expect(getSettings().learning).toBe(false);
+    setLearning(true);
+    expect(localStorage.getItem("onbeat:learning")).toBeNull();
+  });
+
+  it("remembers that the user was told about suggested notes", () => {
+    expect(learningTold()).toBe(false);
+    markLearningTold();
+    expect(learningTold()).toBe(true);
+    expect(localStorage.getItem("onbeat:learning-told")).toBe("yes");
   });
 
   it("saves a theme and applies it to the page", () => {

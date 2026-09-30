@@ -18,13 +18,15 @@ Phones already offer captions and type-to-speak. OnBeat tries to shorten the gap
 - While they're still talking, the app searches the user's saved notes (people, places, routines, things they've said before) and asks a language model for three short replies.
 - The user picks one or types their own. Nothing is spoken until they tap.
 - A reply is discarded if it mentions a name, number or time that isn't in the user's notes or the conversation.
-- Notes are stored in the browser. Only the few notes relevant to the current reply are sent to the model.
+- Notes are stored in the browser. Only the few notes relevant to the current reply, or to the lines being learned from, are sent to the model.
 
 ## Status
 
 Listening works: the other person's speech is captioned in the browser and replies are prepared while they talk. The app passes axe checks in light, dark and high-contrast themes and works with a keyboard alone. A small settings panel sets the theme (it follows the device's contrast setting by default) and turns the number-key shortcuts off for voice control users.
 
 Profiles: the first visit asks for a name, a short note about the user, and a few people and places. Several people can keep profiles in one browser and switch between them. Notes can be added, edited and deleted at any time, and a profile can be exported to a file and imported again (for a backup or another device). Notes can also be started from a document (.txt, .md, .docx or .pdf): its text is sent to the language model, which suggests short notes, and the user picks which to keep. The example people are behind a demo link and are never saved.
+
+Suggested notes: after a pause in a conversation, the recent lines (what the other person said and what the user typed) and the few notes they relate to are sent to the language model, which suggests new notes or changes to existing ones. Each suggestion shows the line it came from, and nothing is saved until the user chooses Keep. Replies the user tapped without changing them are never learned from. It can be turned off in Settings. Measurements are in [eval/learning/RESULTS.md](eval/learning/RESULTS.md).
 
 Captions come from Moonshine in the browser. "Clearer captions" in Settings (off by default) sends each finished line from the other person to Deepgram Nova-3 through Cloudflare, which roughly halves the word errors on clear speech; the browser's caption is used whenever that service is slow or unavailable. Measurements are in [eval/hearing/RESULTS.md](eval/hearing/RESULTS.md).
 

@@ -14,6 +14,8 @@ export async function prepare(page: Page, theme?: string) {
   await page.route("**/api/suggest", (route) =>
     route.fulfill({ status: 200, contentType: "text/plain", headers: { "x-onbeat-provider": "groq" }, body: MODEL_LINES }),
   );
+  // No suggested notes unless a test asks for them.
+  await page.route("**/api/learn", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ proposals: [] }) }));
   await page.route("**/api/notes-from-document", (route) =>
     route.fulfill({
       status: 200,

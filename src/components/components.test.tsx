@@ -228,7 +228,7 @@ describe("SettingsPanel", () => {
   it("chooses a theme and turns the number keys off", async () => {
     const onTheme = vi.fn();
     const onDigitKeys = vi.fn();
-    render(<SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} onTheme={onTheme} onDigitKeys={onDigitKeys} onCloudCaptions={() => {}} />);
+    render(<SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} learning={true} onLearning={() => {}} onTheme={onTheme} onDigitKeys={onDigitKeys} onCloudCaptions={() => {}} />);
     await userEvent.click(screen.getByText("Settings"));
     expect(screen.getByRole("radio", { name: "Match this device" })).toBeChecked();
     await userEvent.click(screen.getByRole("radio", { name: "High contrast" }));
@@ -239,7 +239,7 @@ describe("SettingsPanel", () => {
 
   it("turns clearer captions on, saying where the audio goes", async () => {
     const onCloudCaptions = vi.fn();
-    render(<SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={onCloudCaptions} />);
+    render(<SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} learning={true} onLearning={() => {}} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={onCloudCaptions} />);
     await userEvent.click(screen.getByText("Settings"));
     const box = screen.getByRole("checkbox", { name: "Clearer captions" });
     expect(box).not.toBeChecked();
@@ -248,8 +248,21 @@ describe("SettingsPanel", () => {
     expect(onCloudCaptions).toHaveBeenCalledWith(true);
   });
 
+  it("turns suggested notes off, saying what is sent", async () => {
+    const onLearning = vi.fn();
+    render(
+      <SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} learning={true} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={() => {}} onLearning={onLearning} />,
+    );
+    await userEvent.click(screen.getByText("Settings"));
+    const box = screen.getByRole("checkbox", { name: "Suggest notes from my conversations" });
+    expect(box).toBeChecked();
+    expect(box).toHaveAccessibleDescription(/sends recent lines from your conversations, and the notes they relate to/);
+    await userEvent.click(box);
+    expect(onLearning).toHaveBeenCalledWith(false);
+  });
+
   it("lists the keyboard shortcuts", async () => {
-    render(<SettingsPanel theme="dark" digitKeys={false} cloudCaptions={false} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={() => {}} />);
+    render(<SettingsPanel theme="dark" digitKeys={false} cloudCaptions={false} learning={true} onLearning={() => {}} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={() => {}} />);
     await userEvent.click(screen.getByText("Settings"));
     expect(screen.getByRole("radio", { name: "Dark" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /Number keys speak replies/ })).not.toBeChecked();

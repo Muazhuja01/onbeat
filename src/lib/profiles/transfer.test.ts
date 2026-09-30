@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Note, Phrase } from "@/lib/types";
+import type { PendingSuggestion } from "@/lib/learning/types";
 import { exportFileName, exportProfile, parseImport } from "./transfer";
 
 const notes: Note[] = [
@@ -44,5 +45,39 @@ describe("export and import", () => {
   it("names the file after the profile and date", () => {
     expect(exportFileName("Maya López", now)).toBe("onbeat-maya-lopez-2026-09-29.json");
     expect(exportFileName("!!!", now)).toBe("onbeat-profile-2026-09-29.json");
+  });
+});
+
+describe("suggested notes in exports", () => {
+  const notes: Note[] = [{ id: "physio", kind: "routine", text: "I have physio on Tuesdays at 10:30.", entities: [], updatedAt: 1 }];
+  const edit: PendingSuggestion = {
+    id: "s1",
+    action: "edit",
+    noteId: "physio",
+    oldText: "I have physio on Tuesdays at 10:30.",
+    draft: { kind: "routine", text: "I have physio on Thursdays at 10:30." },
+    sources: [{ speaker: "partner", text: "Your physio moved to Thursdays.", at: 5, partnerName: "Leila" }],
+    createdAt: 5,
+  };
+  const now = new Date("2026-09-30T12:00:00Z");
+
+  it("carry over, pointing at the imported notes", () => {
+    const parsed = parseImport(exportProfile("Maya", notes, [], now, [edit]))!;
+    expect(parsed.suggestions).toHaveLength(1);
+    const [s] = parsed.suggestions;
+    expect(s.id).not.toBe("s1");
+    expect(s).toMatchObject({ action: "edit", noteId: parsed.notes[0].id, oldText: edit.oldText, draft: edit.draft, sources: edit.sources });
+  });
+
+  it("an edit whose note isn't in the file becomes a new note", () => {
+    const parsed = parseImport(exportProfile("Maya", [], [], now, [edit]))!;
+    expect(parsed.suggestions[0].action).toBe("add");
+    expect(parsed.suggestions[0]).not.toHaveProperty("noteId");
+  });
+
+  it("older exports without suggestions still import", () => {
+    const old = JSON.parse(exportProfile("Maya", notes, [], now));
+    delete old.suggestions;
+    expect(parseImport(JSON.stringify(old))!.suggestions).toEqual([]);
   });
 });

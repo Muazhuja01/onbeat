@@ -97,6 +97,18 @@ export function judgeMessages(j: JudgeInput): ChatMessage[] {
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+export interface JudgeOptions {
+  endpoints: JudgeEndpoint[];
+  fetchImpl?: typeof fetch;
+  sleep?: (ms: number) => Promise<void>;
+  spent?: Set<string>;
+}
+
+/** Judges one reply scenario. */
+export function judge(input: JudgeInput, opts: JudgeOptions): ReturnType<typeof judgeChat> {
+  return judgeChat(judgeMessages(input), opts);
+}
+
 /**
  * Asks the judge, trying each endpoint in order. On one endpoint a 429 is retried
  * three times after its Retry-After (at most 60 s each); a 400 is retried once
@@ -104,9 +116,9 @@ const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
  * An endpoint that is out of quota (a Retry-After over 60 s, or still 429 after the
  * retries) is added to opts.spent and skipped on later calls that share the set.
  */
-export async function judge(
-  input: JudgeInput,
-  opts: { endpoints: JudgeEndpoint[]; fetchImpl?: typeof fetch; sleep?: (ms: number) => Promise<void>; spent?: Set<string> },
+export async function judgeChat(
+  messages: ChatMessage[],
+  opts: JudgeOptions,
 ): Promise<{ text: string; endpoint: string; model: string; finishReason?: string }> {
   if (opts.endpoints.length === 0) throw new Error("judge failed: no judge endpoint is configured");
   const fetchImpl = opts.fetchImpl ?? fetch;
@@ -124,7 +136,7 @@ export async function judge(
         headers: { "content-type": "application/json", authorization: `Bearer ${ep.apiKey}` },
         body: JSON.stringify({
           model: ep.model,
-          messages: judgeMessages(input),
+          messages,
           temperature: 0,
           max_tokens: JUDGE_MAX_TOKENS,
           ...ep.extraBody,

@@ -10,12 +10,17 @@ import { useSuggestions } from "@/lib/conversation/use-suggestions";
 import { getBrowserHearing } from "@/lib/hearing/browser";
 import type { Hearing, HearingStatus } from "@/lib/hearing/engine";
 import { en } from "@/lib/language-packs/en";
+import { PendingStore } from "@/lib/learning/pending";
+import { clearQueues } from "@/lib/learning/queue";
+import type { PendingSuggestion } from "@/lib/learning/types";
+import { useLearningSession } from "@/lib/learning/use-learning";
 import { getBrowserRegistry, openDemoMemory, openProfileMemory } from "@/lib/memory/browser";
 import type { MemoryStore } from "@/lib/memory/store";
 import { memoryKeyValue } from "@/lib/profiles/kv";
+import { buildNote, type DraftNote } from "@/lib/profiles/notes";
 import { ProfileRegistry } from "@/lib/profiles/registry";
 import { exportFileName, exportProfile, parseImport } from "@/lib/profiles/transfer";
-import { getServerSettings, getSettings, setCloudCaptions, setDigitKeys, setTheme, subscribeSettings } from "@/lib/settings";
+import { getServerSettings, getSettings, learningTold, markLearningTold, setCloudCaptions, setDigitKeys, setLearning, setTheme, subscribeSettings } from "@/lib/settings";
 import { SuggestClient } from "@/lib/suggest/client";
 import type { Note } from "@/lib/types";
 import { getBrowserVoice } from "@/lib/voice/browser";
@@ -36,6 +41,7 @@ import { ReplyList } from "./reply-list";
 import { SettingsPanel } from "./settings-panel";
 import { ResponseGap } from "./response-gap";
 import { SpokenCaption } from "./spoken-caption";
+import { SuggestedNotes } from "./suggested-notes";
 import { VoiceStatus } from "./voice-status";
 
 const subscribeNever = () => () => {};
@@ -57,9 +63,10 @@ export function ConversationScreen() {
 }
 
 /** What fills the page. The conversation stays mounted underneath the others. */
-type View = "loading" | "setup" | "demo-picker" | "notes" | "conversation";
+type View = "loading" | "setup" | "demo-picker" | "notes" | "suggestions" | "conversation";
 
 const SAVE_FAILED = "Couldn't save. Your browser's storage may be full.";
+const LEARNING_NOTICE = "New: OnBeat can suggest notes from your conversations for you to review. Turn it off in Settings.";
 
 function Screen() {
   const announce = useAnnounce();
@@ -153,6 +160,23 @@ function Screen() {
 
   const client = useMemo(() => (memory ? new SuggestClient({ memory, pack: en }) : null), [memory]);
 
+  const activeProfileId = demo ? null : (registry?.active()?.id ?? null);
+  const learning = useLearningSession({
+    kv: registry?.keyValue ?? null,
+    profileId: activeProfileId,
+    memory,
+    // Nothing is queued until the user has been told notes are suggested.
+    enabled: settings.learning && learningTold(),
+  });
+  /** Who the user is talking with and where, for the lines learning keeps. */
+  const lineContext = useCallback(
+    () => ({
+      partnerName: state.partnerId ? memory?.getNote(state.partnerId)?.entities[0] : undefined,
+      placeName: state.placeId ? memory?.getNote(state.placeId)?.entities[0] : undefined,
+    }),
+    [memory, state.partnerId, state.placeId],
+  );
+
   const replyListRef = useRef<HTMLElement>(null);
   const releaseHeld = useCallback(() => dispatch({ type: "releaseHeld" }), []);
   const isHolding = useStableTargets(replyListRef, releaseHeld);
@@ -189,13 +213,16 @@ function Screen() {
       // A quick reaction (e.g. "Thanks!") isn't a phrase the user composed;
       // saving it would pollute their saved phrases.
       if (opts?.isReaction) return;
+      // A reply tapped as it is came from the notes, maybe with an invented detail: only
+      // the user's own words are learned from.
+      if (!state.replies.some((r) => r.text.trim() === t)) void learning.session?.addLine({ speaker: "user", text: t, ...lineContext() });
       void memory?.addPhrase(t, { now: new Date(), placeId: state.placeId, partnerId: state.partnerId }).then(() => {
         // A cached result embeds style examples drawn from phrases, so a new
         // phrase makes the cache stale (mirrors R13's reasoning for choosePersona).
         client?.clearCache();
       });
     },
-    [voice, memory, client, state.placeId, state.partnerId],
+    [voice, memory, client, state.placeId, state.partnerId, state.replies, learning.session, lineContext],
   );
   const stop = useCallback(() => voice?.stop(), [voice]);
 
@@ -219,6 +246,23 @@ function Screen() {
     announcedTurnId.current = lastPartnerTurn.id;
     announce(`${partnerName} said: ${lastPartnerTurn.text}`);
   }, [lastPartnerTurn, partnerName, announce]);
+
+  // Each line from the partner goes to learning once.
+  const learnedTurnIds = useRef(new Set<string>());
+  useEffect(() => {
+    for (const turn of state.turns) {
+      if (turn.speaker !== "partner" || learnedTurnIds.current.has(turn.id)) continue;
+      learnedTurnIds.current.add(turn.id);
+      void learning.session?.addLine({ speaker: "partner", text: turn.text, ...lineContext() });
+    }
+  }, [state.turns, learning.session, lineContext]);
+
+  // Profiles made before learning existed are told once, the first time they open.
+  useEffect(() => {
+    if (!memory || demo || view !== "conversation" || !settings.learning || learningTold()) return;
+    markLearningTold();
+    dispatch({ type: "notice", text: LEARNING_NOTICE });
+  }, [memory, demo, view, settings.learning]);
 
   useReplyShortcuts({
     enabled: !conversationHidden,
@@ -283,6 +327,8 @@ function Screen() {
     }
     // Ask the browser not to clear OnBeat's storage when space runs low. It decides; nothing is shown.
     void navigator.storage?.persist?.().catch(() => {});
+    // The last setup step already said notes will be suggested.
+    markLearningTold();
     setDemo(null);
     bumpProfiles();
     showMemory(store);
@@ -332,11 +378,33 @@ function Screen() {
     announce("Note deleted");
   };
 
+  const keepSuggestion = async (s: PendingSuggestion, draft: DraftNote) => {
+    if (!memory || !learning.session) return;
+    const target = s.noteId ? memory.getNote(s.noteId) : undefined;
+    const note = buildNote(draft, target ? { id: target.id, pinned: target.pinned, now: Date.now() } : { now: Date.now() });
+    try {
+      await memory.upsertNote(note);
+    } catch {
+      dispatch({ type: "notice", text: SAVE_FAILED });
+      return;
+    }
+    // Notes changed, so cached suggestions are stale (R13).
+    client?.clearCache();
+    setNotesVersion((v) => v + 1);
+    await learning.session.pending.remove(s.id);
+    announce("Kept");
+  };
+
+  const toggleLearning = (on: boolean) => {
+    setLearning(on);
+    if (!on && registry) void clearQueues(registry.keyValue, registry.list().map((p) => p.id));
+  };
+
   const exportActive = () => {
     const active = registry?.active();
     if (!active || !memory) return;
     const now = new Date();
-    const url = URL.createObjectURL(new Blob([exportProfile(active.name, memory.notes(), memory.phrases(), now)], { type: "application/json" }));
+    const url = URL.createObjectURL(new Blob([exportProfile(active.name, memory.notes(), memory.phrases(), now, learning.suggestions)], { type: "application/json" }));
     const link = document.createElement("a");
     link.href = url;
     link.download = exportFileName(active.name, now);
@@ -353,12 +421,15 @@ function Screen() {
       dispatch({ type: "notice", text: "That file isn't an OnBeat profile export, so nothing was imported." });
       return;
     }
+    const told = learningTold();
+    markLearningTold();
     let store: MemoryStore;
     let name: string;
     try {
       const profile = await registry.create(registry.uniqueName(parsed.name));
       name = profile.name;
       await registry.persistFor(profile.id).save({ version: 1, notes: parsed.notes, phrases: parsed.phrases });
+      if (parsed.suggestions.length) await (await PendingStore.open(registry.keyValue, profile.id)).replaceAll(parsed.suggestions);
       store = await openProfileMemory(registry, profile.id);
     } catch {
       dispatch({ type: "notice", text: SAVE_FAILED });
@@ -367,7 +438,7 @@ function Screen() {
     setDemo(null);
     bumpProfiles();
     showMemory(store);
-    dispatch({ type: "notice", text: `Imported ${name}.` });
+    dispatch({ type: "notice", text: told || !settings.learning ? `Imported ${name}.` : `Imported ${name}. ${LEARNING_NOTICE}` });
   };
 
   const deleteActive = async () => {
@@ -416,6 +487,8 @@ function Screen() {
             onRename={(name) => void renameActive(name)}
             onDelete={() => void deleteActive()}
             onDemo={() => leaveConversation("demo-picker")}
+            suggestionCount={learning.suggestions.length}
+            onSuggestions={() => leaveConversation("suggestions")}
           />
         )}
       </header>
@@ -445,6 +518,25 @@ function Screen() {
             notes={notes}
             onSave={(note) => void saveNote(note)}
             onRemove={(id) => void removeNote(id)}
+            onDone={() => {
+              setView("conversation");
+              resetFocusToTop();
+            }}
+          />
+        )}
+        {view === "suggestions" && memory && (
+          <SuggestedNotes
+            suggestions={learning.suggestions}
+            notes={notes}
+            onKeep={(s, draft) => void keepSuggestion(s, draft)}
+            onSkip={(id) => {
+              void learning.session?.pending.skip(id);
+              announce("Skipped");
+            }}
+            onSkipAll={() => {
+              void learning.session?.pending.skipAll();
+              announce("Skipped all");
+            }}
             onDone={() => {
               setView("conversation");
               resetFocusToTop();
@@ -485,9 +577,11 @@ function Screen() {
             theme={settings.theme}
             digitKeys={settings.digitKeys}
             cloudCaptions={settings.cloudCaptions}
+            learning={settings.learning}
             onTheme={setTheme}
             onDigitKeys={setDigitKeys}
             onCloudCaptions={setCloudCaptions}
+            onLearning={toggleLearning}
           />
         </div>
       </main>
