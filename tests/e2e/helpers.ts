@@ -14,6 +14,19 @@ export async function prepare(page: Page, theme?: string) {
   await page.route("**/api/suggest", (route) =>
     route.fulfill({ status: 200, contentType: "text/plain", headers: { "x-onbeat-provider": "groq" }, body: MODEL_LINES }),
   );
+  await page.route("**/api/notes-from-document", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        notes: [
+          { kind: "preference", text: "I love chess." },
+          { kind: "about-me", text: "I play online most evenings." },
+        ],
+        truncated: false,
+      }),
+    }),
+  );
   await page.addInitScript((themeName) => {
     if (themeName) localStorage.setItem("onbeat:theme", themeName);
     const spoken: string[] = [];
@@ -39,6 +52,7 @@ export async function prepare(page: Page, theme?: string) {
 
 export async function startWithMaya(page: Page) {
   await page.goto("/");
+  await page.getByRole("button", { name: "Try a demo first" }).click();
   await page.getByRole("button", { name: /^Maya/ }).click();
   await expect(page.getByLabel("Place")).toHaveValue("m-cafe");
 }

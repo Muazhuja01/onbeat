@@ -16,6 +16,7 @@ test("hears the partner, captions them and times the replies", async ({ page }) 
   // Only speech recognition is under test: skip the voice and search model downloads.
   await page.route(/Kokoro|all-MiniLM/, (route) => route.abort());
   await page.goto("/?timer");
+  await page.getByRole("button", { name: "Try a demo first" }).click();
   await page.getByRole("button", { name: /^Maya/ }).click();
   await page.getByRole("button", { name: "Listen" }).click();
   await expect(page.getByText("Listening. Their words appear in the conversation.")).toBeVisible({ timeout: 300_000 });
