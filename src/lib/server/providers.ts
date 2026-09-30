@@ -89,6 +89,9 @@ export interface StreamOptions {
   cooldown?: ProviderCooldown;
   /** Give up on a stream that goes quiet for this long after its first token. */
   idleTimeoutMs?: number;
+  /** Longest answer allowed; three replies need about 400 tokens. */
+  maxTokens?: number;
+  temperature?: number;
 }
 
 async function firstContent(stream: AsyncGenerator<string>, deadline: number): Promise<string | null> {
@@ -173,8 +176,8 @@ export async function streamCompletion(
           model: cfg.model,
           messages,
           stream: true,
-          temperature: 0.6,
-          max_tokens: 400,
+          temperature: opts.temperature ?? 0.6,
+          max_tokens: opts.maxTokens ?? 400,
           ...cfg.extraBody,
         }),
         signal: controller.signal,
