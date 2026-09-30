@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as browserMemory from "@/lib/memory/browser";
@@ -400,6 +400,37 @@ describe("ConversationScreen learning", () => {
     hidePage();
     await waitFor(() => expect(h.learnBodies).toHaveLength(1));
     expect(h.learnBodies[0].lines.map((l) => l.text)).toEqual(["How was your weekend?", "Did you do anything fun?"]);
+  });
+
+  it("speaks a quick phrase without learning from it or changing its tie", async () => {
+    // Setup replaces the store's contents, so add the quick phrase right after it.
+    const realReplace = MemoryStore.prototype.replaceAll;
+    const replaceAll = vi.spyOn(MemoryStore.prototype, "replaceAll").mockImplementation(async function (this: MemoryStore, ...args) {
+      await realReplace.apply(this, args);
+      await this.addQuickPhrase("My usual, please.", {});
+    });
+    const speak = vi.spyOn(h.voice, "speak");
+    const addPhrase = vi.spyOn(MemoryStore.prototype, "addPhrase");
+
+    await setUpPriya();
+    await partnerSays("Your usual order?");
+    const row = await screen.findByRole("group", { name: "Your phrases" });
+    await userEvent.click(within(row).getByRole("button", { name: "My usual, please." }));
+    expect(speak).toHaveBeenCalledWith("My usual, please.");
+    await waitFor(() => expect(addPhrase).toHaveBeenCalled());
+    await addPhrase.mock.results[0].value;
+    hidePage();
+    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 50));
+    // The partner line alone is not sent; a learned user line would have sent both.
+    expect(h.learnBodies).toHaveLength(0);
+    const stored = (addPhrase.mock.contexts[0] as MemoryStore).phrases().find((p) => p.text === "My usual, please.")!;
+    expect(stored.quick).toBe(true);
+    expect(stored.context.partnerId).toBeUndefined();
+
+    replaceAll.mockRestore();
+    speak.mockRestore();
+    addPhrase.mockRestore();
   });
 
   it("never learns in a demo", async () => {

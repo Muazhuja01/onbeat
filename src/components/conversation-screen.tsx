@@ -36,6 +36,7 @@ import { PartnerInput } from "./partner-input";
 import { ProfileMenu } from "./profile-menu";
 import { ProfilePicker } from "./profile-picker";
 import { ProfileSetup } from "./profile-setup";
+import { PhraseRow } from "./phrase-row";
 import { ReactionBar } from "./reaction-bar";
 import { ReplyList } from "./reply-list";
 import { SettingsPanel } from "./settings-panel";
@@ -206,16 +207,16 @@ function Screen() {
   }, [state.replies, announce]);
 
   const speak = useCallback(
-    (text: string, opts?: { isReaction?: boolean }) => {
+    (text: string, opts?: { isReaction?: boolean; quick?: boolean }) => {
       const t = text.trim();
       if (!t || !voice) return;
       void voice.speak(t);
       // A quick reaction (e.g. "Thanks!") isn't a phrase the user composed;
       // saving it would pollute their saved phrases.
       if (opts?.isReaction) return;
-      // A reply tapped as it is came from the notes, maybe with an invented detail: only
-      // the user's own words are learned from.
-      if (!state.replies.some((r) => r.text.trim() === t)) void learning.session?.addLine({ speaker: "user", text: t, ...lineContext() });
+      // A reply tapped as it is came from the notes, maybe with an invented detail, and a
+      // quick phrase was made on purpose: only the user's own new words are learned from.
+      if (!opts?.quick && !state.replies.some((r) => r.text.trim() === t)) void learning.session?.addLine({ speaker: "user", text: t, ...lineContext() });
       void memory?.addPhrase(t, { now: new Date(), placeId: state.placeId, partnerId: state.partnerId }).then(() => {
         // A cached result embeds style examples drawn from phrases, so a new
         // phrase makes the cache stale (mirrors R13's reasoning for choosePersona).
@@ -231,6 +232,13 @@ function Screen() {
   }, []);
 
   const notes = useMemo(() => (memory ? memory.notes() : []), [memory, notesVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+  // setPhrasesVersion is used by later tasks when quick phrases change outside the conversation.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [phrasesVersion, setPhrasesVersion] = useState(0);
+  const quickPhrases = useMemo(
+    () => (memory ? memory.quickPhrases({ partnerId: state.partnerId, placeId: state.placeId }) : []),
+    [memory, state.partnerId, state.placeId, notesVersion, phrasesVersion], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const places = notes.filter((n) => n.kind === "place");
   const people = notes.filter((n) => n.kind === "person");
   const partnerName = (state.partnerId && memory?.getNote(state.partnerId)?.entities[0]) || "Them";
@@ -561,6 +569,7 @@ function Screen() {
           <div className="flex min-w-0 flex-col gap-6 [grid-area:side]">
             <SpokenCaption speaking={state.speaking} lastSpoken={state.lastSpoken} />
             <ReactionBar reactions={state.reactions} onReact={(text) => speak(text, { isReaction: true })} />
+            <PhraseRow phrases={quickPhrases} onSpeak={(text) => speak(text, { quick: true })} />
             <ReplyList ref={replyListRef} replies={state.replies} speaking={state.speaking} status={state.status} onSpeak={speak} onStop={stop} />
             <Composer
               value={state.typed}
