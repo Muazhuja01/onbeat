@@ -10,7 +10,12 @@ export interface LearnScenarioResult {
   /** Null when the judge couldn't be read. */
   verdicts: LearnVerdict[] | null;
   ms: number;
+  /** The model or search failed; nothing was shown. */
   error?: string;
+  /** Texts of the notes sent, kept so a later run can judge without regenerating. */
+  notes?: string[];
+  /** The judge failed (usually quota); verdicts stay null until --rejudge. */
+  judgeError?: string;
 }
 
 export interface LearnSummary {

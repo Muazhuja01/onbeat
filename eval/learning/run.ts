@@ -75,7 +75,37 @@ async function runScenario(sc: LearnScenario, provider: ProviderId, model: strin
   return { shown, notes: notes.map((n) => n.text), ms };
 }
 
+/** Judges one scenario's shown suggestions (majority of `votes` calls, cached). Throws when every judge is out of quota. */
+async function judgeScenario(sc: LearnScenario, shown: ShownSuggestion[], notes: string[], votes: number, ctx: { endpoints: ReturnType<typeof judgeEndpoints>; spent: Set<string>; cache: Record<string, string> }): Promise<LearnVerdict[] | null> {
+  if (shown.length === 0) return [];
+  const persona = personas.find((p) => p.id === sc.persona)!;
+  const partnerName = noteName(sc, sc.partnerId);
+  const messages = learnJudgeMessages({
+    today: EVAL_TODAY,
+    lines: sc.lines.map((l) => ({ ...l, ...(l.speaker === "partner" && partnerName ? { partnerName } : {}) })),
+    notes,
+    expected: sc.expected.map((e) => ({ ...e, ...(e.noteId ? { oldText: persona.notes.find((n) => n.id === e.noteId)?.text } : {}) })),
+    shown,
+  });
+  const sets = [];
+  for (let v = 0; v < votes; v++) {
+    const key = createHash("sha256").update(JSON.stringify({ LEARN_JUDGE_VERSION, messages, v })).digest("hex");
+    ctx.cache[key] ??= (await judgeChat(messages, { endpoints: ctx.endpoints, spent: ctx.spent })).text;
+    writeFileSync(CACHE, JSON.stringify(ctx.cache));
+    sets.push(parseLearnVerdicts(ctx.cache[key], shown.length));
+  }
+  return voteLearn(sets);
+}
+
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+/**
+ * Runs the model on each scenario and judges what it showed. Suggestions are saved even
+ * when the judge fails (quota), and `--rejudge <results.json>` later judges only those,
+ * so a split is never regenerated just because the judge ran out.
+ */
 async function main() {
+  const rejudge = arg("rejudge");
   const split = (arg("split") ?? "dev") as "dev" | "test";
   const models = (arg("models") ?? "groq:qwen/qwen3.8-27b").split(",").map((m) => {
     const [provider, ...rest] = m.split(":");
@@ -84,46 +114,57 @@ async function main() {
   const votes = Number(arg("votes") ?? (split === "test" ? 3 : 1));
   const delay = Number(arg("delay") ?? 3000);
   const only = arg("only");
-  const scenarios = learnScenarios.filter((s) => s.split === split && (!only || s.id === only));
-  const endpoints = judgeEndpoints();
-  const spent = new Set<string>();
-  const cache = loadCache();
+  const ctx = { endpoints: judgeEndpoints(), spent: new Set<string>(), cache: loadCache() };
   mkdirSync(CACHE_DIR, { recursive: true });
   mkdirSync("eval/learning/results", { recursive: true });
 
+  if (rejudge) {
+    const results = JSON.parse(readFileSync(rejudge, "utf8")) as LearnScenarioResult[];
+    for (const r of results) {
+      if (r.error || r.verdicts !== null || !r.notes) continue;
+      const sc = learnScenarios.find((s) => s.id === r.id)!;
+      try {
+        r.verdicts = await judgeScenario(sc, r.shown, r.notes, votes, ctx);
+        delete r.judgeError;
+      } catch (err) {
+        r.judgeError = errorText(err);
+      }
+      console.log(`${r.model} ${r.id}: ${r.verdicts ? "judged" : `still unjudged (${r.judgeError})`}`);
+    }
+    writeFileSync(rejudge, JSON.stringify(results, null, 2));
+    const table = learningMarkdown([summarizeLearning(results[0]?.model ?? "?", results)]);
+    const splitName = rejudge.includes("-test-") ? "test" : "dev";
+    writeFileSync(`eval/learning/results/latest-${splitName}.md`, `${splitName} split, ${votes} judge vote(s)
+
+${table}
+`);
+    console.log(`
+${table}`);
+    return;
+  }
+
+  const scenarios = learnScenarios.filter((s) => s.split === split && (!only || s.id === only));
   const summaries = [];
   for (const m of models) {
     const results: LearnScenarioResult[] = [];
     for (const sc of scenarios) {
-      const persona = personas.find((p) => p.id === sc.persona)!;
+      let run: Awaited<ReturnType<typeof runScenario>>;
       try {
-        const { shown, notes, ms } = await runScenario(sc, m.provider, m.model);
-        let verdicts: LearnVerdict[] | null = [];
-        if (shown.length > 0) {
-          const partnerName = noteName(sc, sc.partnerId);
-          const messages = learnJudgeMessages({
-            today: EVAL_TODAY,
-            lines: sc.lines.map((l) => ({ ...l, ...(l.speaker === "partner" && partnerName ? { partnerName } : {}) })),
-            notes,
-            expected: sc.expected.map((e) => ({ ...e, ...(e.noteId ? { oldText: persona.notes.find((n) => n.id === e.noteId)?.text } : {}) })),
-            shown,
-          });
-          const sets = [];
-          for (let v = 0; v < votes; v++) {
-            const key = createHash("sha256").update(JSON.stringify({ LEARN_JUDGE_VERSION, messages, v })).digest("hex");
-            cache[key] ??= (await judgeChat(messages, { endpoints, spent })).text;
-            writeFileSync(CACHE, JSON.stringify(cache));
-            sets.push(parseLearnVerdicts(cache[key], shown.length));
-          }
-          verdicts = voteLearn(sets);
-        }
-        results.push({ id: sc.id, model: m.label, expected: sc.expected, shown, verdicts, ms });
-        console.log(`${m.label} ${sc.id}: ${shown.length} shown, ${verdicts ? verdicts.filter((v) => v.keep).length : "?"} worth keeping`);
+        run = await runScenario(sc, m.provider, m.model);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        results.push({ id: sc.id, model: m.label, expected: sc.expected, shown: [], verdicts: null, ms: 0, error: message });
-        console.log(`${m.label} ${sc.id}: failed (${message})`);
+        results.push({ id: sc.id, model: m.label, expected: sc.expected, shown: [], verdicts: null, ms: 0, error: errorText(err) });
+        console.log(`${m.label} ${sc.id}: failed (${errorText(err)})`);
+        await sleep(delay);
+        continue;
       }
+      const result: LearnScenarioResult = { id: sc.id, model: m.label, expected: sc.expected, shown: run.shown, notes: run.notes, verdicts: null, ms: run.ms };
+      try {
+        result.verdicts = await judgeScenario(sc, run.shown, run.notes, votes, ctx);
+      } catch (err) {
+        result.judgeError = errorText(err);
+      }
+      results.push(result);
+      console.log(`${m.label} ${sc.id}: ${run.shown.length} shown, ${result.verdicts ? `${result.verdicts.filter((v) => v.keep).length} worth keeping` : `unjudged (${result.judgeError})`}`);
       await sleep(delay);
     }
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -131,8 +172,13 @@ async function main() {
     summaries.push(summarizeLearning(m.label, results));
   }
   const table = learningMarkdown(summaries);
-  writeFileSync(`eval/learning/results/latest-${split}.md`, `${split} split, ${votes} judge vote(s)\n\n${table}\n`);
-  console.log(`\n${split} split, ${votes} judge vote(s)\n`);
+  writeFileSync(`eval/learning/results/latest-${split}.md`, `${split} split, ${votes} judge vote(s)
+
+${table}
+`);
+  console.log(`
+${split} split, ${votes} judge vote(s)
+`);
   console.log(table);
 }
 
