@@ -24,6 +24,7 @@ import { getServerSettings, getSettings, learningTold, markLearningTold, setClou
 import { SuggestClient } from "@/lib/suggest/client";
 import type { Note } from "@/lib/types";
 import { getBrowserVoice } from "@/lib/voice/browser";
+import type { VoiceChoice } from "@/lib/voice/choices";
 import type { VoiceEngine, VoiceMode } from "@/lib/voice/engine";
 import { AnnouncerProvider, useAnnounce } from "./announcer";
 import { CaptionLog } from "./caption-log";
@@ -314,11 +315,11 @@ function Screen() {
     resetFocusToTop();
   };
 
-  const finishSetup = async (name: string, made: Note[]) => {
+  const finishSetup = async (name: string, made: Note[], voiceChoice: VoiceChoice) => {
     if (!registry) return;
     let store: MemoryStore;
     try {
-      const profile = await registry.create(name);
+      const profile = await registry.create(name, voiceChoice);
       store = await openProfileMemory(registry, profile.id);
       await store.replaceAll(made, []);
     } catch {
@@ -508,6 +509,9 @@ function Screen() {
             onDemo={() => setView("demo-picker")}
             onCancel={back}
             onImport={(file) => void importFile(file)}
+            voice={voice}
+            voiceMode={voiceMode}
+            voiceProgress={voiceProgress}
           />
         )}
         {view === "demo-picker" && (

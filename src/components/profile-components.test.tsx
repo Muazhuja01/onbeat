@@ -6,6 +6,7 @@ import { DocumentImport } from "./document-import";
 import { NoteForm } from "./note-form";
 import { NotesEditor } from "./notes-editor";
 import { ProfileMenu } from "./profile-menu";
+import { DEFAULT_VOICE } from "@/lib/voice/choices";
 import { ProfileSetup } from "./profile-setup";
 
 describe("NoteForm", () => {
@@ -121,6 +122,7 @@ describe("ProfileSetup", () => {
     render(<ProfileSetup onDone={vi.fn()} />);
     await userEvent.type(screen.getByLabelText("What's your name?"), "Priya{Enter}");
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByText("OnBeat will suggest notes from your conversations. You choose what to keep. You can turn this off in Settings.")).toBeInTheDocument();
   });
 
@@ -131,6 +133,7 @@ describe("ProfileSetup", () => {
     await userEvent.type(screen.getByLabelText("What's your name?"), "  Maya {Enter}");
     expect(screen.getByRole("heading", { name: "Tell OnBeat about you" })).toHaveFocus();
     await userEvent.type(screen.getByLabelText("About you"), "I type to talk.");
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await userEvent.type(screen.getByLabelText("Name", { selector: "#person-name" }), "Sam");
     await userEvent.type(screen.getByLabelText("Who they are to you"), "my barista");
@@ -153,6 +156,7 @@ describe("ProfileSetup", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Save 1 note" }));
     expect(screen.getByText("1 note from your document will be added.")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await userEvent.click(screen.getByRole("button", { name: "Finish" }));
     expect(onDone.mock.calls[0][1].map((n: Note) => n.text)).toEqual(["I'm Tom.", "Physio on Tuesdays."]);
   });
@@ -162,6 +166,7 @@ describe("ProfileSetup", () => {
     const onDone = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
     render(<ProfileSetup onDone={onDone} />);
     await userEvent.type(screen.getByLabelText("What's your name?"), "Tom{Enter}");
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     const done = screen.getByRole("button", { name: "Finish" });
     await userEvent.click(done);
@@ -179,6 +184,32 @@ describe("ProfileSetup", () => {
     expect(screen.getByLabelText("What's your name?")).toHaveValue("Tom");
     expect(screen.queryByRole("button", { name: "Try a demo first" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+  });
+
+  it("asks for a voice as step 3 of 4 and saves it with the profile", async () => {
+    const onDone = vi.fn();
+    render(<ProfileSetup onDone={onDone} voiceMode="natural" voiceProgress={100} voice={null} />);
+    await userEvent.type(screen.getByLabelText("What's your name?"), "Tom");
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("heading", { name: "How should your voice sound?" })).toHaveFocus();
+    expect(screen.getByText("Step 3 of 4")).toBeVisible();
+    await userEvent.click(screen.getByRole("radio", { name: "Male" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Finish" }));
+    expect(onDone).toHaveBeenCalledWith("Tom", expect.any(Array), { gender: "male", accent: "american", style: "calm", speed: "normal" });
+  });
+
+  it("keeps the default voice on Skip", async () => {
+    const onDone = vi.fn();
+    render(<ProfileSetup onDone={onDone} voiceMode="natural" voiceProgress={100} voice={null} />);
+    await userEvent.type(screen.getByLabelText("What's your name?"), "Maya");
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Male" }));
+    await userEvent.click(screen.getByRole("button", { name: "Skip" }));
+    await userEvent.click(screen.getByRole("button", { name: "Finish" }));
+    expect(onDone.mock.calls[0][2]).toEqual(DEFAULT_VOICE);
   });
 });
 

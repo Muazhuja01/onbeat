@@ -135,6 +135,7 @@ async function setUpPriya() {
   render(<ConversationScreen />);
   await userEvent.type(await screen.findByLabelText("What's your name?"), "Priya{Enter}");
   await userEvent.click(screen.getByRole("button", { name: "Next" }));
+  await userEvent.click(screen.getByRole("button", { name: "Next" }));
   await userEvent.click(screen.getByRole("button", { name: "Finish" }));
   await screen.findByRole("heading", { name: "Replies" });
 }
@@ -297,6 +298,7 @@ describe("ConversationScreen", () => {
     render(<ConversationScreen />);
     await userEvent.type(await screen.findByLabelText("What's your name?"), "Priya{Enter}");
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await userEvent.type(screen.getByLabelText("Name", { selector: "#person-name" }), "Sam");
     await userEvent.type(screen.getByLabelText("Who they are to you"), "my barista");
     await userEvent.click(screen.getByRole("button", { name: "Add person" }));
@@ -318,6 +320,7 @@ describe("ConversationScreen", () => {
     await userEvent.click(screen.getByRole("button", { name: "Demo: Maya" }));
     await userEvent.click(screen.getByRole("button", { name: "Set up your own profile" }));
     await userEvent.type(screen.getByLabelText("What's your name?"), "Priya{Enter}");
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await userEvent.type(screen.getByLabelText("Name", { selector: "#person-name" }), "Sam");
     await userEvent.click(screen.getByRole("button", { name: "Add person" }));

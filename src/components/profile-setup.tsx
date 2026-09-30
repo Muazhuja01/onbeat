@@ -4,13 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import type { DocumentResult } from "@/lib/profiles/document-client";
 import { NOTE_MAX, setupNotes, type DraftNote } from "@/lib/profiles/notes";
 import { cleanName, NAME_MAX } from "@/lib/profiles/registry";
+import { DEFAULT_VOICE, type VoiceChoice } from "@/lib/voice/choices";
+import type { VoiceEngine, VoiceMode } from "@/lib/voice/engine";
 import type { Note } from "@/lib/types";
 import { DocumentImport, draftLabel } from "./document-import";
 import { NoteForm } from "./note-form";
+import { VoicePicker } from "./voice-picker";
 import { fieldLabel, hint, linkButton, primaryButton, secondaryButton, textArea, textField } from "./ui";
 
 interface Props {
-  onDone: (name: string, notes: Note[]) => void | Promise<void>;
+  onDone: (name: string, notes: Note[], voice: VoiceChoice) => void | Promise<void>;
   /** Shown on the first step when there is a demo to try. */
   onDemo?: () => void;
   /** Given when there is a profile or demo to go back to. */
@@ -18,9 +21,13 @@ interface Props {
   /** Restoring an export, e.g. on a new device. Shown on the first step. */
   onImport?: (file: File) => void;
   readDocument?: (file: File) => Promise<DocumentResult>;
+  /** For hearing a sample on the voice step. */
+  voice?: VoiceEngine | null;
+  voiceMode?: VoiceMode;
+  voiceProgress?: number;
 }
 
-const HEADINGS = ["Set up OnBeat", "Tell OnBeat about you", "Who do you talk to, and where?"];
+const HEADINGS = ["Set up OnBeat", "Tell OnBeat about you", "How should your voice sound?", "Who do you talk to, and where?"];
 
 function AddedList({ items, onRemove }: { items: DraftNote[]; onRemove: (i: number) => void }) {
   if (items.length === 0) return null;
@@ -38,11 +45,12 @@ function AddedList({ items, onRemove }: { items: DraftNote[]; onRemove: (i: numb
   );
 }
 
-export function ProfileSetup({ onDone, onDemo, onCancel, onImport, readDocument }: Props) {
+export function ProfileSetup({ onDone, onDemo, onCancel, onImport, readDocument, voice = null, voiceMode = "loading", voiceProgress = 0 }: Props) {
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
   const [about, setAbout] = useState("");
   const [docDrafts, setDocDrafts] = useState<DraftNote[]>([]);
+  const [choice, setChoice] = useState<VoiceChoice>(DEFAULT_VOICE);
   const [importing, setImporting] = useState(false);
   const [people, setPeople] = useState<DraftNote[]>([]);
   const [places, setPlaces] = useState<DraftNote[]>([]);
@@ -69,7 +77,7 @@ export function ProfileSetup({ onDone, onDemo, onCancel, onImport, readDocument 
   return (
     <section aria-labelledby="setup-heading" className="flex max-w-2xl flex-col gap-6">
       <div className="flex flex-col gap-2">
-        <p className={hint}>Step {step + 1} of 3</p>
+        <p className={hint}>Step {step + 1} of 4</p>
         <h2 id="setup-heading" ref={headingRef} tabIndex={-1} className="text-caption font-bold text-balance">
           {HEADINGS[step]}
         </h2>
@@ -202,6 +210,34 @@ export function ProfileSetup({ onDone, onDemo, onCancel, onImport, readDocument 
       {step === 2 && (
         <div className="flex flex-col gap-6">
           <p className="max-w-[60ch] text-body text-muted">
+            Pick how your replies will sound. You can change this any time from your profile menu or Settings.
+          </p>
+          <VoicePicker value={choice} onChange={setChoice} name={clean} voice={voice} mode={voiceMode} progress={voiceProgress} />
+          <div className="flex flex-wrap gap-3">
+            <button type="button" onClick={() => setStep(1)} className={secondaryButton}>
+              Back
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setChoice(DEFAULT_VOICE);
+                setStep(3);
+              }}
+              className={secondaryButton}
+            >
+              Skip
+            </button>
+            <button type="button" onClick={() => setStep(3)} className={primaryButton}>
+              Next
+            </button>
+            {cancel}
+          </div>
+        </div>
+      )}
+
+      {step === 3 && (
+        <div className="flex flex-col gap-6">
+          <p className="max-w-[60ch] text-body text-muted">
             Add a few people and places. They&apos;ll appear in the Talking with and Place lists, so replies can fit who you&apos;re with. You
             can skip this.
           </p>
@@ -217,7 +253,7 @@ export function ProfileSetup({ onDone, onDemo, onCancel, onImport, readDocument 
           </div>
           <p className={hint}>OnBeat will suggest notes from your conversations. You choose what to keep. You can turn this off in Settings.</p>
           <div className="flex flex-wrap gap-3">
-            <button type="button" onClick={() => setStep(1)} className={secondaryButton}>
+            <button type="button" onClick={() => setStep(2)} className={secondaryButton}>
               Back
             </button>
             <button
@@ -226,7 +262,7 @@ export function ProfileSetup({ onDone, onDemo, onCancel, onImport, readDocument 
               onClick={async () => {
                 setFinishing(true);
                 try {
-                  await onDone(clean, setupNotes({ name: clean, about, drafts: [...docDrafts, ...people, ...places] }, Date.now()));
+                  await onDone(clean, setupNotes({ name: clean, about, drafts: [...docDrafts, ...people, ...places] }, Date.now()), choice);
                 } finally {
                   setFinishing(false);
                 }
