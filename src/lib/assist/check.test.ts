@@ -8,7 +8,7 @@ const req: AssistRequest = {
   lines: [
     { id: "u1", speaker: "user", text: "I'd like to prepare for an appointment." },
     { id: "a1", speaker: "assistant", text: "Is it with Dr. Chen at 9:00 on Thursday?" },
-    { id: "u2", speaker: "user", text: "Dr. Chen, Thursday at 10, about my blood pressure. I get dizzy in the mornings." },
+    { id: "u2", speaker: "user", text: "Dr. Chen, Thursday at 10:00, about my blood pressure. I get dizzy in the mornings." },
   ],
   notes: [
     { id: "n1", kind: "about-me", text: "I'm Tom. I'm Deaf and I use ASL." },

@@ -115,4 +115,17 @@ describe("checkProposals", () => {
     const [kept] = checkProposals([add("Ana is my new carer.", ["b"], { noteId: "physio" })], req);
     expect(kept).not.toHaveProperty("noteId");
   });
+
+  it("accepts a full hour like 10:00 when the line says it the same way, but not a different time", () => {
+    const withLines: LearnRequest = {
+      ...req,
+      lines: [
+        { id: "p", speaker: "user", text: "Physio is at 10:00 on Thursday." },
+        { id: "q", speaker: "user", text: "Physio is at 10:30 on Thursday." },
+      ],
+    };
+    const ok = add("I have physio on Thursday 8 October at 10:00.", ["p"]);
+    expect(checkProposals([ok], withLines)).toEqual([ok]);
+    expect(checkProposals([add("I have physio on Thursday 8 October at 10:15.", ["q"])], withLines)).toEqual([]);
+  });
 });

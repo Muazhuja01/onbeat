@@ -4,6 +4,11 @@ import { tokenize } from "@/lib/text";
 import { comingDays } from "./prompt";
 import type { LearnRequest, Proposal } from "./protocol";
 
+/** "9:00" says no more than "9", which a line saying "nine" backs; "9:30" still needs its digits.
+ * "AM"/"PM" in capitals would be checked as a name; written lowercase ("3pm") they never were.
+ * Applied to the note and to the lines it cites, so "10:00" in both still matches. */
+const plainTimes = (t: string) => t.replace(/\b(\d{1,2}):00\b/g, "$1").replace(/\b([AP])\.?M\.?(?![\p{L}])/gu, (m) => m.toLowerCase());
+
 const sameWords = (a: string, b: string) => tokenize(a).join(" ") === tokenize(b).join(" ");
 
 /** A day and month, as in "22 October"; any left after the coming days are taken out is one the model made up. */
@@ -64,12 +69,10 @@ export function checkProposals(proposals: Proposal[], req: LearnRequest): Propos
     });
     const dated = withoutNamedDates(text, cited.join("\n"), req.today);
     if (dated === null) continue;
-    // "9:00" says no more than "9", which a line saying "nine" backs; "9:30" still needs its digits.
-    // "AM"/"PM" in capitals would be checked as a name; written lowercase ("3pm") they never were.
-    const checked = dated.replace(/\b(\d{1,2}):00\b/g, "$1").replace(/\b([AP])\.?M\.?(?![\p{L}])/gu, (m) => m.toLowerCase());
+    const checked = plainTimes(dated);
     // Spec decision 10: the cited lines, plus the old note for an edit. Other sent notes are
     // no source, or a new note could borrow an unrelated note's time or name.
-    const sources = [...cited, ...(p.action === "edit" ? [notes.get(p.noteId ?? "") ?? ""] : [])].join("\n");
+    const sources = plainTimes([...cited, ...(p.action === "edit" ? [notes.get(p.noteId ?? "") ?? ""] : [])].join("\n"));
     if (!extractClaims(checked).every((claim) => claimSupported(claim, sources))) continue;
 
     kept.push(
