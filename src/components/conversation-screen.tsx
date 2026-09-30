@@ -232,8 +232,6 @@ function Screen() {
   }, []);
 
   const notes = useMemo(() => (memory ? memory.notes() : []), [memory, notesVersion]); // eslint-disable-line react-hooks/exhaustive-deps
-  // setPhrasesVersion is used by later tasks when quick phrases change outside the conversation.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [phrasesVersion, setPhrasesVersion] = useState(0);
   const quickPhrases = useMemo(
     () => (memory ? memory.quickPhrases({ partnerId: state.partnerId, placeId: state.placeId }) : []),
@@ -526,6 +524,25 @@ function Screen() {
             notes={notes}
             onSave={(note) => void saveNote(note)}
             onRemove={(id) => void removeNote(id)}
+            phrases={memory.allQuickPhrases()}
+            onAddPhrase={async (text, tie) => {
+              const made = await memory.addQuickPhrase(text, tie);
+              setPhrasesVersion((v) => v + 1);
+              if (made) announce("Phrase saved");
+              return made !== null;
+            }}
+            onUpdatePhrase={async (id, text, tie) => {
+              const ok = await memory.updateQuickPhrase(id, text, tie);
+              setPhrasesVersion((v) => v + 1);
+              if (ok) announce("Phrase saved");
+              return ok;
+            }}
+            onRemovePhrase={(id) =>
+              void memory.removePhrase(id).then(() => {
+                setPhrasesVersion((v) => v + 1);
+                announce("Phrase deleted");
+              })
+            }
             onDone={() => {
               setView("conversation");
               resetFocusToTop();

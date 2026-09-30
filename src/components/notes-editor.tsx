@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { DocumentResult } from "@/lib/profiles/document-client";
 import { buildNote, noteFields } from "@/lib/profiles/notes";
-import type { Note, NoteKind } from "@/lib/types";
+import type { Note, NoteKind, Phrase } from "@/lib/types";
 import { DocumentImport } from "./document-import";
 import { KIND_LABELS, NoteForm } from "./note-form";
+import { QuickPhrasesEditor, type PhraseTie } from "./quick-phrases-editor";
 import { hint, primaryButton, secondaryButton } from "./ui";
 
 const ORDER: NoteKind[] = ["about-me", "person", "place", "routine", "preference"];
@@ -16,9 +17,13 @@ interface Props {
   onRemove: (id: string) => void;
   onDone: () => void;
   readDocument?: (file: File) => Promise<DocumentResult>;
+  phrases?: Phrase[];
+  onAddPhrase?: (text: string, tie: PhraseTie) => Promise<boolean>;
+  onUpdatePhrase?: (id: string, text: string, tie: PhraseTie) => Promise<boolean>;
+  onRemovePhrase?: (id: string) => void;
 }
 
-export function NotesEditor({ notes, onSave, onRemove, onDone, readDocument }: Props) {
+export function NotesEditor({ notes, onSave, onRemove, onDone, readDocument, phrases, onAddPhrase, onUpdatePhrase, onRemovePhrase }: Props) {
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState<NoteKind | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -156,6 +161,17 @@ export function NotesEditor({ notes, onSave, onRemove, onDone, readDocument }: P
           </section>
         );
       })}
+
+      {phrases && onAddPhrase && onUpdatePhrase && onRemovePhrase && (
+        <QuickPhrasesEditor
+          phrases={phrases}
+          people={notes.filter((n) => n.kind === "person")}
+          places={notes.filter((n) => n.kind === "place")}
+          onAdd={onAddPhrase}
+          onUpdate={onUpdatePhrase}
+          onRemove={onRemovePhrase}
+        />
+      )}
 
       <section aria-labelledby="notes-document" className="flex flex-col gap-3 border-t-2 border-ink/15 pt-4">
         <h3 id="notes-document" className="text-reply font-bold">
