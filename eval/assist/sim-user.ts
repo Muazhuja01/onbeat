@@ -18,7 +18,7 @@ export function simUserMessages(brief: string, lines: { speaker: "user" | "assis
     "The chat so far:",
     lines.map((l) => `${l.speaker === "user" ? "You" : "Assistant"}: ${l.text}`).join("\n"),
     "",
-    "Write your next message only. Answer what the assistant asked; don't add facts it didn't ask for unless your brief says you want to tell it. If you have nothing more to add, or the assistant has done what you wanted and asks if there is anything else, reply with a short goodbye followed by " + DONE + ".",
+    "Write your next message only. Answer what the assistant asked; don't add facts it didn't ask for unless your brief says you want to tell it. Don't say goodbye until you've told the assistant everything your brief says you want. If you have nothing more to add, or the assistant has done what you wanted and asks if there is anything else, reply with a short goodbye followed by " + DONE + ".",
   ].join("\n");
   return [
     { role: "system", content: "You play a user in a test. Stay in character. Output only the message you would type." },
@@ -52,4 +52,21 @@ export async function askSimUser(messages: ChatMessage[], opts: { apiKey: string
   // gpt-oss can spend its tokens reasoning and send no message; that must fail the case, not end the chat.
   if (!text) throw new Error(`simulated user: empty reply (finish_reason: ${data.choices?.[0]?.finish_reason ?? "none"})`);
   return text;
+}
+
+/**
+ * The simulated user's side of a chat after the first message: asks for each reply and sends
+ * it, a goodbye included, so the assistant answers the last message too (it may still have
+ * something to propose). Stops after a reply marked done, an empty one, or `turns` replies.
+ */
+export async function chatAsUser(
+  brief: string,
+  turns: number,
+  io: { lines: () => { speaker: "user" | "assistant"; text: string }[]; ask: (messages: ChatMessage[]) => Promise<string>; send: (text: string) => Promise<void> },
+): Promise<void> {
+  for (let turn = 0; turn < turns; turn++) {
+    const { text, done } = parseSimReply(await io.ask(simUserMessages(brief, io.lines())));
+    if (text) await io.send(text);
+    if (done || !text) return;
+  }
 }

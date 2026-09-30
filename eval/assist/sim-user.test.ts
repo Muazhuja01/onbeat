@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { askSimUser, parseSimReply, SIM_MODEL, simUserMessages } from "./sim-user";
+import { askSimUser, chatAsUser, parseSimReply, SIM_MODEL, simUserMessages } from "./sim-user";
 
 describe("simulated user", () => {
   it("sees the brief and the chat from the user's side", () => {
@@ -10,6 +10,11 @@ describe("simulated user", () => {
     expect(user.content).toContain("You want phrases for Sam.");
     expect(user.content).toContain("Assistant: Who are they for?");
     expect(user.content).toContain("You: Make quick phrases");
+  });
+
+  it("is told not to leave before saying everything its brief wants", () => {
+    const [, user] = simUserMessages("You want phrases for Sam.", []);
+    expect(user.content).toContain("Don't say goodbye until you've told the assistant everything your brief says you want.");
   });
 
   it("reads a reply and the done marker", () => {
@@ -49,5 +54,26 @@ describe("askSimUser with no reply", () => {
     const fetchImpl = (async () => new Response(JSON.stringify({ choices: [{ message: { content: null }, finish_reason: "length" }] }), { status: 200 })) as unknown as typeof fetch;
     const cooldown = { isCooling: () => false, block: () => {} };
     await expect(askSimUser([{ role: "user", content: "hi" }], { apiKey: "k", cooldown, fetchImpl })).rejects.toThrow("simulated user: empty reply (finish_reason: length)");
+  });
+});
+
+describe("chatAsUser", () => {
+  const run = async (replies: string[], turns = 7) => {
+    const sent: string[] = [];
+    let i = 0;
+    await chatAsUser("brief", turns, { lines: () => [], ask: async () => replies[i++] ?? "[done]", send: async (t) => void sent.push(t) });
+    return { sent, asked: i };
+  };
+
+  it("sends a goodbye before stopping, so the assistant answers it", async () => {
+    expect(await run(["Thursdays", "Nothing, bye [done]", "never asked"])).toEqual({ sent: ["Thursdays", "Nothing, bye"], asked: 2 });
+  });
+
+  it("stops without sending on a bare done marker", async () => {
+    expect(await run(["[done]"])).toEqual({ sent: [], asked: 1 });
+  });
+
+  it("stops after the given number of replies", async () => {
+    expect(await run(["a", "b", "c"], 2)).toEqual({ sent: ["a", "b"], asked: 2 });
   });
 });

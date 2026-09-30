@@ -10,9 +10,9 @@ import { EVAL_TODAY } from "../learning/scenarios";
 import { loadLocalEnv } from "../learning/env";
 import { withRetry } from "../retry";
 import { assistCases, type AssistCase } from "./cases";
-import { ASSIST_JUDGE_VERSION, assistJudgeMessages, judgeNotes, parseAssistVerdict, shownCard, voteAssist, type AssistVerdict, type ShownCard } from "./judge";
-import { assistMarkdown, summarizeAssist, type AssistCaseResult } from "./score";
-import { askSimUser, parseSimReply, simUserMessages } from "./sim-user";
+import { ASSIST_JUDGE_VERSION, assistJudgeMessages, judgeNotes, readVotes, shownCard, type AssistVerdict, type ShownCard } from "./judge";
+import { assistMarkdown, briefOnlyCards, summarizeAssist, type AssistCaseResult } from "./score";
+import { askSimUser, chatAsUser } from "./sim-user";
 
 loadLocalEnv();
 
@@ -75,14 +75,14 @@ async function runCase(c: AssistCase, model: string, delay: number): Promise<{ l
   if (c.job) await session.chooseJob(c.job);
   else await session.send(c.opener!);
   await sleep(delay);
-  for (let turn = 1; turn < MAX_USER_TURNS; turn++) {
-    const messages = simUserMessages(c.brief, session.state.lines);
-    const reply = await withRetry(`${c.id}:user`, (cooldown) => askSimUser(messages, { apiKey, cooldown }));
-    const { text, done } = parseSimReply(reply);
-    if (done || !text) break;
-    await session.send(text);
-    await sleep(delay);
-  }
+  await chatAsUser(c.brief, MAX_USER_TURNS - 1, {
+    lines: () => session.state.lines,
+    ask: (messages) => withRetry(`${c.id}:user`, (cooldown) => askSimUser(messages, { apiKey, cooldown })),
+    send: async (text) => {
+      await session.send(text);
+      await sleep(delay);
+    },
+  });
   return {
     lines: session.state.lines.map(({ speaker, text }) => ({ speaker, text })),
     cards: session.state.cards.filter((card) => card.state === "open").map(shownCard),
@@ -91,7 +91,7 @@ async function runCase(c: AssistCase, model: string, delay: number): Promise<{ l
   };
 }
 
-/** Judges one case's cards and the user's messages (majority of `votes` calls, cached). Throws when every judge is out of quota or no answer could be read. */
+/** Judges one case's cards and the user's messages (majority of `votes` calls, cached). Throws when every judge is out of quota or any vote's answer can't be read. */
 async function judgeCase(run: { brief: string; expected: AssistCase["expected"]; cards: ShownCard[]; lines: Line[]; notes: string[] }, votes: number, ctx: { endpoints: ReturnType<typeof judgeEndpoints>; spent: Set<string>; cache: Record<string, string> }): Promise<AssistVerdict> {
   const messages = assistJudgeMessages({
     today: EVAL_TODAY,
@@ -101,16 +101,12 @@ async function judgeCase(run: { brief: string; expected: AssistCase["expected"];
     expected: run.expected,
     cards: run.cards.map(({ action, text, oldText, forName }) => ({ action, text, ...(oldText !== undefined ? { oldText } : {}), ...(forName ? { forName } : {}) })),
   });
-  const sets = [];
-  for (let v = 0; v < votes; v++) {
-    const key = createHash("sha256").update(JSON.stringify({ ASSIST_JUDGE_VERSION, messages, v })).digest("hex");
-    ctx.cache[key] ??= (await judgeChat(messages, { endpoints: ctx.endpoints, spent: ctx.spent })).text;
-    writeFileSync(CACHE, JSON.stringify(ctx.cache));
-    sets.push(parseAssistVerdict(ctx.cache[key], run.cards.length));
-  }
-  const verdict = voteAssist(sets);
-  if (!verdict) throw new Error("judge answer unreadable");
-  return verdict;
+  return readVotes(votes, run.cards.length, {
+    cache: ctx.cache,
+    key: (v) => createHash("sha256").update(JSON.stringify({ ASSIST_JUDGE_VERSION, messages, v })).digest("hex"),
+    ask: async () => (await judgeChat(messages, { endpoints: ctx.endpoints, spent: ctx.spent })).text,
+    saveCache: () => writeFileSync(CACHE, JSON.stringify(ctx.cache)),
+  });
 }
 
 /** Cases left out of the numbers: failed runs, and runs the judge didn't (or couldn't) read. */
@@ -119,6 +115,15 @@ function reportLeftOut(results: AssistRunResult[]) {
     if (r.error) console.log(`  left out ${r.model} ${r.id}: failed (${r.error})`);
     else if (!r.verdict) console.log(`  left out ${r.model} ${r.id}: not judged${r.judgeError ? ` (${r.judgeError})` : ""}`);
     else if (r.verdict.leak) console.log(`  void ${r.model} ${r.id}: the simulated user typed a fact outside its brief`);
+  }
+}
+
+/** Cards counted as invented by the brief-only check, with the terms, so a reader can check them. */
+function reportBriefOnly(results: AssistRunResult[]) {
+  for (const r of results) {
+    r.briefOnly?.forEach((terms, i) => {
+      if (terms.length) console.log(`  brief-only ${r.model} ${r.id} #${i + 1} "${r.cards[i].text}": ${terms.join(", ")}`);
+    });
   }
 }
 
@@ -159,6 +164,9 @@ async function main() {
   if (rejudge) {
     const results = JSON.parse(readFileSync(rejudge, "utf8")) as AssistRunResult[];
     for (const r of results) {
+      // Files saved before the brief-only check get it here.
+      const known = assistCases.find((x) => x.id === r.id);
+      if (!r.briefOnly && r.lines && known) r.briefOnly = briefOnlyCards(r.cards, known.briefOnly, r.lines);
       if (r.error || r.verdict !== null || !r.lines || !r.notes) continue;
       const brief = r.brief ?? assistCases.find((x) => x.id === r.id)?.brief;
       if (!brief) {
@@ -178,6 +186,7 @@ async function main() {
     const table = assistMarkdown(split, votes, byModel);
     writeFileSync(`${RESULTS_DIR}/latest-${split}.md`, table);
     reportLeftOut(results);
+    reportBriefOnly(results);
     console.log(`\n${table}`);
     return;
   }
@@ -198,7 +207,7 @@ async function main() {
         await sleep(delay);
         continue;
       }
-      const result: AssistRunResult = { id: c.id, model, expected: c.expected, cards: run.cards, userMessages: run.userMessages, verdict: null, brief: c.brief, lines: run.lines, notes: run.notes };
+      const result: AssistRunResult = { id: c.id, model, expected: c.expected, cards: run.cards, userMessages: run.userMessages, verdict: null, briefOnly: briefOnlyCards(run.cards, c.briefOnly, run.lines), brief: c.brief, lines: run.lines, notes: run.notes };
       if (!noJudge) {
         try {
           result.verdict = await judgeCase({ brief: c.brief, expected: c.expected, ...run }, votes, ctx);
@@ -214,6 +223,7 @@ async function main() {
     writeFileSync(file, JSON.stringify(results, null, 2));
     console.log(`saved ${file}`);
     reportLeftOut(results);
+    reportBriefOnly(results);
     rows.push({ model, summary: summarizeAssist(results) });
   }
   if (noJudge) {

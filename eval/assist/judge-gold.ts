@@ -377,4 +377,45 @@ export const assistGold: AssistGoldEntry[] = [
     ],
     leak: false,
   },
+
+  // Details only the brief has (added in the fix round, labelled before any judge run). The
+  // judge sees the brief and misses these; the brief-only check in score.ts should catch them.
+  {
+    name: "maya-new-dentist: brief-only details",
+    caseId: "maya-new-dentist",
+    lines: mayaNewDentist,
+    cards: [add("Friday 9 October, 3pm: dentist cleaning with Dr. Patel."), add("Smile Dental: My dentist.")],
+    labels: [
+      // She never typed that it is a cleaning.
+      { keep: false, invented: true, sayable: null },
+      // She never typed Smile Dental.
+      { keep: false, invented: true, sayable: null },
+    ],
+    leak: false,
+  },
+  {
+    name: "tom-checkup: brief-only details",
+    caseId: "tom-checkup",
+    lines: tomCheckup,
+    cards: [add("Thursday 8 October, 10:00: blood pressure check with Dr. Chen at Lakeview Clinic."), phrase("I'm here for my check-up.", "Dr. Chen")],
+    labels: [
+      // He asked whether his dose should change; that the visit is a blood pressure check is only in the brief.
+      { keep: false, invented: true, sayable: null },
+      // He never typed "check-up" (his first line is the job button). Never asked for either.
+      { keep: false, invented: true, sayable: true },
+    ],
+    leak: false,
+  },
+  {
+    name: "maya-ruth: brief-only details",
+    caseId: "maya-ruth",
+    lines: mayaRuth,
+    cards: [add("Ruth: My new neighbour. She has a spare key to my home."), phrase("Thanks for checking on me.", "Ruth")],
+    labels: [
+      // The spare key is only in the brief.
+      { keep: false, invented: true, sayable: null },
+      okPhrase,
+    ],
+    leak: false,
+  },
 ];

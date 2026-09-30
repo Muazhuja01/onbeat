@@ -15,6 +15,15 @@ export interface AssistCase {
   opener?: string;
   /** What the simulated user wants and every fact they may type, in plain words. Never shown to the assistant. */
   brief: string;
+  /**
+   * Words from the brief that a card could carry but the user may never type: names, places,
+   * what an appointment is for, the words of a wanted phrase. A card with one that no user line
+   * has is counted as invented whatever the judge says, because the judge misses details it can
+   * see in the brief (RESULTS.md). Days and times are left to the judge, and so are words a user
+   * could easily say another way. A term ending in "*" matches any word starting with it; any
+   * other term allows a plural "s". None may be in the persona's notes.
+   */
+  briefOnly: string[];
   /** Quick phrases the user already has, as [text, tied note id or undefined]. */
   quick?: [string, string | undefined][];
   /** Empty when the right answer is to change nothing. */
@@ -34,6 +43,7 @@ export const assistCases: AssistCase[] = [
     persona: "maya",
     job: "update",
     brief: brief("You want to update your physio day. Your physio moved from Tuesdays to Thursdays. It is still at 10:30."),
+    briefOnly: [],
     expected: [{ action: "edit", noteId: "m-physio", fact: "Physio is on Thursdays at 10:30." }],
     about: "update: a changed day on an existing routine",
   },
@@ -44,6 +54,7 @@ export const assistCases: AssistCase[] = [
     job: null,
     opener: "I have a new carer",
     brief: brief("You want the app to know about your new carer. Her name is Ana. She comes on weekday mornings, from 8 to 10."),
+    briefOnly: ["Ana"],
     expected: [{ action: "add", fact: "New person note: Ana is my carer and comes on weekday mornings from 8 to 10." }],
     about: "update: a new person from a typed first message",
   },
@@ -53,6 +64,7 @@ export const assistCases: AssistCase[] = [
     persona: "maya",
     job: "update",
     brief: brief("You want to update the note about your daughter Leila. She finished university and now works in Montreal."),
+    briefOnly: ["Montreal"],
     expected: [{ action: "edit", noteId: "m-leila", fact: "Leila, my daughter, finished university and now works in Montreal." }],
     about: "update: a person's news replaces what the note said",
   },
@@ -62,6 +74,7 @@ export const assistCases: AssistCase[] = [
     persona: "maya",
     job: "update",
     brief: brief("You want to update your usual order at Blue Door Café. It is now a large soy latte, no sugar."),
+    briefOnly: ["soy"],
     expected: [{ action: "edit", noteId: "m-usual", fact: "My usual order at Blue Door Café is a large soy latte, no sugar." }],
     about: "update: a changed preference keeps the details that still hold",
   },
@@ -71,6 +84,7 @@ export const assistCases: AssistCase[] = [
     persona: "tom",
     job: "update",
     brief: brief("You want to update your job. You are now a UX designer at Brightline Studio."),
+    briefOnly: ["UX", "Brightline"],
     expected: [{ action: "edit", noteId: "t-work", fact: "I work as a UX designer at Brightline Studio." }],
     about: "update: a new job replaces the old one",
   },
@@ -81,6 +95,7 @@ export const assistCases: AssistCase[] = [
     job: null,
     opener: "My doctor changed",
     brief: brief("Dr. Chen retired. Your new family doctor is Dr. Osei, at the same clinic, Lakeview Clinic."),
+    briefOnly: ["Osei", "retired"],
     expected: [{ action: "edit", noteId: "t-doctor", fact: "Dr. Osei at Lakeview Clinic is my family doctor." }],
     about: "update: a typed first message that changes a person note",
   },
@@ -90,6 +105,7 @@ export const assistCases: AssistCase[] = [
     persona: "tom",
     job: "update",
     brief: brief("You want to add an allergy. As well as penicillin, you are allergic to shellfish."),
+    briefOnly: ["shellfish"],
     expected: [{ action: "edit", noteId: "t-allergy", fact: "I'm allergic to penicillin and shellfish." }],
     about: "update: adding to a note keeps what it already said",
   },
@@ -99,6 +115,7 @@ export const assistCases: AssistCase[] = [
     persona: "aisha",
     job: "update",
     brief: brief("You want to update your team stand-up time. It moved to 9:30. It is still every weekday."),
+    briefOnly: [],
     expected: [{ action: "edit", noteId: "a-standup", fact: "Team stand-up is every weekday at 9:30." }],
     about: "update: a changed time on an existing routine",
   },
@@ -108,6 +125,7 @@ export const assistCases: AssistCase[] = [
     persona: "aisha",
     job: "update",
     brief: brief("The Harbor app redesign has shipped. You want the note about it gone."),
+    briefOnly: ["shipped"],
     expected: [{ action: "remove", noteId: "a-harbor", fact: "Remove the note about leading the Harbor app redesign." }],
     about: "update: a finished project is removed",
   },
@@ -117,6 +135,7 @@ export const assistCases: AssistCase[] = [
     persona: "maya",
     job: "update",
     brief: brief("Your dog Biscuit died last month. You want the note about him removed."),
+    briefOnly: [],
     expected: [{ action: "remove", noteId: "m-biscuit", fact: "Remove the note about Biscuit the dog." }],
     about: "update: a removal asked for gently",
   },
@@ -126,6 +145,7 @@ export const assistCases: AssistCase[] = [
     persona: "aisha",
     job: "update",
     brief: brief("You want to check your lunch note. It is still right: you still eat lunch at 12:30 and like the Thai place downstairs. Nothing else needs changing."),
+    briefOnly: [],
     expected: [],
     about: "update: a note that is still right is left alone",
   },
@@ -136,6 +156,7 @@ export const assistCases: AssistCase[] = [
     persona: "tom",
     job: "update",
     brief: brief("Riverside Pharmacy closed. You now use Oak Street Pharmacy for your prescriptions, including your monthly blood pressure medication."),
+    briefOnly: ["Oak Street"],
     expected: [
       { action: "edit", noteId: "t-pharmacy", fact: "Oak Street Pharmacy is where I pick up my prescriptions." },
       { action: "edit", noteId: "t-meds", fact: "I pick up my blood pressure medication at Oak Street Pharmacy every month." },
@@ -148,6 +169,7 @@ export const assistCases: AssistCase[] = [
     persona: "maya",
     job: "update",
     brief: brief("You moved home. You now live in a flat on Birch Road."),
+    briefOnly: ["Birch Road"],
     expected: [{ action: "edit", noteId: "m-home", fact: "Home is my flat on Birch Road." }],
     about: "update: a new address replaces the old one",
   },
@@ -157,6 +179,7 @@ export const assistCases: AssistCase[] = [
     persona: "aisha",
     job: "update",
     brief: brief("Jen left Northline Design. You want the note about her gone."),
+    briefOnly: [],
     expected: [{ action: "remove", noteId: "a-jen", fact: "Remove the note about Jen." }],
     about: "update: a person who left is removed",
   },
@@ -166,6 +189,7 @@ export const assistCases: AssistCase[] = [
     persona: "tom",
     job: "update",
     brief: brief("You want to go through your notes about people. They are all still right. Nothing needs changing."),
+    briefOnly: [],
     expected: [],
     about: "update: a review where nothing changes",
   },
@@ -176,6 +200,7 @@ export const assistCases: AssistCase[] = [
     job: null,
     opener: "I started a new class",
     brief: brief("You started a pottery class. It is on Wednesdays at 7pm."),
+    briefOnly: ["pottery"],
     expected: [{ action: "add", fact: "New routine note: pottery class on Wednesdays at 7pm." }],
     about: "update: a new routine from a typed first message",
   },
@@ -187,6 +212,7 @@ export const assistCases: AssistCase[] = [
     persona: "tom",
     job: "prepare",
     brief: brief("You have a check-up with Dr. Chen on Thursday at 10:00 at Lakeview Clinic. It is a blood pressure check. You want to be able to tell him you've been dizzy in the mornings, and to ask whether your dose should change."),
+    briefOnly: ["blood pressure check", "check-up"],
     expected: [
       { action: "add", fact: "New routine note: check-up with Dr. Chen on Thursday 8 October at 10:00, a blood pressure check." },
       { action: "phrase", fact: "phrase for Dr. Chen: I've been dizzy in the mornings" },
@@ -201,6 +227,7 @@ export const assistCases: AssistCase[] = [
     job: null,
     opener: "I have a dentist appointment on Friday",
     brief: brief("Your dentist appointment is on Friday at 3pm with Dr. Patel at Smile Dental. It is a cleaning. You want to be able to tell the dentist you can't keep your mouth open for long and need breaks."),
+    briefOnly: ["Smile Dental", "clean*", "mouth open", "break*"],
     expected: [
       { action: "add", fact: "New routine note: dentist cleaning with Dr. Patel at Smile Dental on Friday 9 October at 3pm." },
       { action: "add", fact: "New person note: Dr. Patel is my dentist." },
@@ -215,6 +242,7 @@ export const assistCases: AssistCase[] = [
     persona: "aisha",
     job: "prepare",
     brief: brief("You have your performance review with Marco on Wednesday at 2pm. You want to be able to ask him about a promotion, and about working from home on Fridays."),
+    briefOnly: ["performance", "promotion", "from home"],
     expected: [
       { action: "add", fact: "New routine note: performance review with Marco on Wednesday 7 October at 2pm." },
       { action: "phrase", fact: "phrase for Marco: asking about a promotion" },
@@ -228,6 +256,7 @@ export const assistCases: AssistCase[] = [
     persona: "maya",
     job: "prepare",
     brief: brief("You have an appointment at Northside Bank next Tuesday, 13 October, at 11:00, to open a joint account with your daughter Leila. You want to be able to tell the bank staff that you have ALS, you type to talk, and you need time."),
+    briefOnly: ["Northside", "joint account"],
     expected: [
       { action: "add", fact: "New routine note: Northside Bank on Tuesday 13 October at 11:00, opening a joint account with Leila." },
       { action: "add", fact: "New place note: Northside Bank." },
@@ -241,6 +270,7 @@ export const assistCases: AssistCase[] = [
     persona: "tom",
     job: "prepare",
     brief: brief("You're getting a flu jab at Riverside Pharmacy tomorrow at 4pm. You want to be able to tell them you're allergic to penicillin."),
+    briefOnly: ["flu"],
     expected: [
       { action: "add", fact: "New routine note: flu jab at Riverside Pharmacy on Tuesday 6 October at 4pm." },
       { action: "phrase", fact: "phrase for Riverside Pharmacy or Priya: I'm allergic to penicillin" },
@@ -253,6 +283,7 @@ export const assistCases: AssistCase[] = [
     persona: "aisha",
     job: "prepare",
     brief: brief("You have a throat check with Dr. Rao at St Mary's ENT clinic on Monday 12 October at 9:00. You want to be able to tell Dr. Rao that you have a stoma and to please not cover it."),
+    briefOnly: ["Rao", "St Mary", "ENT", "throat", "stoma"],
     expected: [
       { action: "add", fact: "New routine note: throat check with Dr. Rao at St Mary's ENT clinic on Monday 12 October at 9:00." },
       { action: "add", fact: "New person note: Dr. Rao, at St Mary's ENT clinic." },
@@ -267,6 +298,7 @@ export const assistCases: AssistCase[] = [
     persona: "maya",
     job: "prepare",
     brief: brief("You're taking your dog Biscuit to Paws Vet on Friday at 5pm. He is limping on a back leg, and you want to be able to tell the vet that."),
+    briefOnly: ["Paws", "limp*", "back leg"],
     expected: [
       { action: "add", fact: "New routine note: Biscuit to Paws Vet on Friday 9 October at 5pm, limping." },
       { action: "add", fact: "New place note: Paws Vet, Biscuit's vet." },
@@ -280,6 +312,7 @@ export const assistCases: AssistCase[] = [
     persona: "tom",
     job: "prepare",
     brief: brief("You have a job interview at Brightline Studio on Wednesday at 1pm. An ASL interpreter is booked. You want to be able to say: please look at me, not the interpreter."),
+    briefOnly: ["interview", "Brightline", "interpreter"],
     expected: [
       { action: "add", fact: "New routine note: job interview at Brightline Studio on Wednesday 7 October at 1pm, ASL interpreter booked." },
       { action: "add", fact: "New place note: Brightline Studio." },
@@ -293,6 +326,7 @@ export const assistCases: AssistCase[] = [
     persona: "aisha",
     job: "prepare",
     brief: brief('You have a parent-teacher meeting at Hillside School. If asked when it is, you type "3 November at 4pm". You don\'t need any phrases for it.'),
+    briefOnly: ["Hillside", "parent-teacher"],
     expected: [
       { action: "add", fact: "New routine note: parent-teacher meeting at Hillside School on 3 November at 4pm." },
       { action: "add", fact: "New place note: Hillside School." },
@@ -305,6 +339,7 @@ export const assistCases: AssistCase[] = [
     persona: "maya",
     job: "prepare",
     brief: brief("You have a physio assessment at Cedar Health sometime next month. You don't know the day yet. You want to be able to tell them your right hand is weaker."),
+    briefOnly: ["Cedar Health", "assessment", "right hand"],
     expected: [
       { action: "add", fact: "New routine note: physio assessment at Cedar Health next month, day not known yet." },
       { action: "phrase", fact: "phrase for the physio or anyone: my right hand is weaker" },
@@ -318,6 +353,7 @@ export const assistCases: AssistCase[] = [
     persona: "tom",
     job: "prepare",
     brief: brief("You were going to get ready for a check-up with Dr. Chen, but it has been cancelled. Tell the assistant it was cancelled when it asks about the appointment. You want nothing saved."),
+    briefOnly: ["cancel*"],
     expected: [],
     about: "prepare: the appointment is off, so nothing is saved",
   },
@@ -327,6 +363,7 @@ export const assistCases: AssistCase[] = [
     persona: "maya",
     job: "prepare",
     brief: brief("You have an eye test at Clearview Opticians on Thursday at 11:30. You want to be able to tell them you have ALS and can't read small print on screens."),
+    briefOnly: ["Clearview", "eye test", "small print"],
     expected: [
       { action: "add", fact: "New routine note: eye test at Clearview Opticians on Thursday 8 October at 11:30." },
       { action: "add", fact: "New place note: Clearview Opticians." },
@@ -341,6 +378,7 @@ export const assistCases: AssistCase[] = [
     job: null,
     opener: "Help me get ready for the dentist",
     brief: brief("Your dentist appointment is with Dr. Kim at Bright Smile Dental on Monday 12 October at 8:45. You want to be able to say: I'm Deaf, please face me when you talk."),
+    briefOnly: ["Kim", "Bright Smile", "face me"],
     expected: [
       { action: "add", fact: "New routine note: dentist, Dr. Kim at Bright Smile Dental, on Monday 12 October at 8:45." },
       { action: "add", fact: "New person note: Dr. Kim, my dentist." },
@@ -355,6 +393,7 @@ export const assistCases: AssistCase[] = [
     persona: "aisha",
     job: "prepare",
     brief: brief("You're pitching to Lumen Foods at their office on Friday at 10:00, with Marco. You want to be able to say: I'll type my part, it will show on the screen."),
+    briefOnly: ["Lumen", "pitch*"],
     expected: [
       { action: "add", fact: "New routine note: pitch to Lumen Foods at their office on Friday 9 October at 10:00, with Marco." },
       { action: "phrase", fact: "phrase for Lumen Foods or anyone: I'll type my part, it will show on the screen" },
@@ -367,6 +406,7 @@ export const assistCases: AssistCase[] = [
     persona: "maya",
     job: "prepare",
     brief: brief("You have a breathing check with Dr. Ahmed at Cedar Health on Tuesday at 2:30pm. You want to be able to tell Dr. Ahmed you've been more tired than usual, and that you're short of breath at night."),
+    briefOnly: ["Ahmed", "Cedar Health", "breathing", "tired", "short of breath"],
     expected: [
       { action: "add", fact: "New routine note: breathing check with Dr. Ahmed at Cedar Health on Tuesday 6 October at 2:30pm." },
       { action: "add", fact: "New person note: Dr. Ahmed, at Cedar Health." },
@@ -381,6 +421,7 @@ export const assistCases: AssistCase[] = [
     persona: "aisha",
     job: "prepare",
     brief: brief("You wanted to get ready for a meeting with Jen, but it's off. Tell the assistant it's off when it asks about the meeting. You just want to stop; nothing saved."),
+    briefOnly: [],
     expected: [],
     about: "prepare: the user stops, so nothing is saved",
   },
@@ -392,6 +433,7 @@ export const assistCases: AssistCase[] = [
     persona: "maya",
     job: "phrases",
     brief: brief('You want quick phrases for Sam at Blue Door Café: "the usual please", "can you bring it to my table", and "just a small one today".'),
+    briefOnly: ["table", "small one"],
     expected: [
       { action: "phrase", fact: "phrase for Sam: the usual, please" },
       { action: "phrase", fact: "phrase for Sam: can you bring it to my table" },
@@ -405,6 +447,7 @@ export const assistCases: AssistCase[] = [
     persona: "tom",
     job: "phrases",
     brief: brief('You want quick phrases for Priya: "is my prescription ready", "please write it down", and "can I pay by card".'),
+    briefOnly: ["by card"],
     expected: [
       { action: "phrase", fact: "phrase for Priya: is my prescription ready" },
       { action: "phrase", fact: "phrase for Priya: please write it down" },
@@ -418,6 +461,7 @@ export const assistCases: AssistCase[] = [
     persona: "aisha",
     job: "phrases",
     brief: brief('You want quick phrases for team stand-up at the office: "I\'ll type my update", "give me a moment", and "nothing blocking me".'),
+    briefOnly: ["block*"],
     expected: [
       { action: "phrase", fact: "phrase for the Northline Design office: I'll type my update" },
       { action: "phrase", fact: "phrase for the Northline Design office: give me a moment" },
@@ -432,6 +476,7 @@ export const assistCases: AssistCase[] = [
     job: null,
     opener: "I want some phrases for anyone",
     brief: brief('You want quick phrases to use with anyone: "I have ALS and I type to talk", "please give me a moment to type", and "I can hear you fine".'),
+    briefOnly: [],
     expected: [
       { action: "phrase", fact: "phrase for anyone: I have ALS and I type to talk" },
       { action: "phrase", fact: "phrase for anyone: please give me a moment to type" },
@@ -445,6 +490,7 @@ export const assistCases: AssistCase[] = [
     persona: "tom",
     job: "phrases",
     brief: brief('You want quick phrases for taking the bus, to use with anyone: "I\'m Deaf, can you write it down" and "does this bus go to the station".'),
+    briefOnly: ["bus", "station"],
     expected: [
       { action: "phrase", fact: "phrase for anyone: I'm Deaf, can you write it down" },
       { action: "phrase", fact: "phrase for anyone: does this bus go to the station" },
@@ -457,6 +503,7 @@ export const assistCases: AssistCase[] = [
     persona: "aisha",
     job: "phrases",
     brief: brief('You want quick phrases for the Thai place downstairs: "the green curry please" and "to take away".'),
+    briefOnly: ["green curry", "take away"],
     expected: [
       { action: "phrase", fact: "phrase for the Thai place downstairs (or anyone): the green curry, please" },
       { action: "phrase", fact: "phrase for the Thai place downstairs (or anyone): to take away" },
@@ -469,6 +516,7 @@ export const assistCases: AssistCase[] = [
     persona: "maya",
     job: "phrases",
     brief: brief('You want quick phrases for your daughter Leila: "call me when you land", "love you", and "how was your exam".'),
+    briefOnly: ["land*", "exam"],
     expected: [
       { action: "phrase", fact: "phrase for Leila: call me when you land" },
       { action: "phrase", fact: "phrase for Leila: love you" },
@@ -482,6 +530,7 @@ export const assistCases: AssistCase[] = [
     persona: "tom",
     job: "phrases",
     brief: brief('You want quick phrases for Dr. Chen: "can you write that down" and "can you say that again slowly".'),
+    briefOnly: ["slowly"],
     expected: [
       { action: "phrase", fact: "phrase for Dr. Chen: can you write that down" },
       { action: "phrase", fact: "phrase for Dr. Chen: can you say that again slowly" },
@@ -494,6 +543,7 @@ export const assistCases: AssistCase[] = [
     persona: "aisha",
     job: "phrases",
     brief: brief('You want quick phrases for Jen: "want to grab lunch" and "can you check the website build".'),
+    briefOnly: ["build"],
     expected: [
       { action: "phrase", fact: "phrase for Jen: want to grab lunch?" },
       { action: "phrase", fact: "phrase for Jen: can you check the website build?" },
@@ -506,6 +556,7 @@ export const assistCases: AssistCase[] = [
     persona: "maya",
     job: "phrases",
     brief: brief('You want quick phrases for Ruth, your new neighbour. She has a spare key to your home. The phrases: "thanks for checking on me" and "could you walk Biscuit today".'),
+    briefOnly: ["key"],
     expected: [
       { action: "add", fact: "New person note: Ruth is my neighbour and has a spare key." },
       { action: "phrase", fact: "phrase for Ruth: thanks for checking on me" },
@@ -519,6 +570,7 @@ export const assistCases: AssistCase[] = [
     persona: "tom",
     job: "phrases",
     brief: brief('You want a quick phrase for Priya: "please write it down". Nothing else.'),
+    briefOnly: [],
     quick: [["Please write it down.", "t-priya"]],
     expected: [],
     about: "phrases: the phrase already exists, so nothing is added",
@@ -530,6 +582,7 @@ export const assistCases: AssistCase[] = [
     persona: "maya",
     job: "phrases",
     brief: brief('You want quick phrases for physio sessions, to use with anyone: "that hurts", "can we slow down", and "I need a rest".'),
+    briefOnly: ["hurt*", "slow down"],
     expected: [
       { action: "phrase", fact: "phrase for anyone: that hurts" },
       { action: "phrase", fact: "phrase for anyone: can we slow down" },
@@ -543,6 +596,7 @@ export const assistCases: AssistCase[] = [
     persona: "tom",
     job: "phrases",
     brief: brief('You want quick phrases for work meetings, to use with anyone: "please turn on captions" and "can you type that in the chat".'),
+    briefOnly: ["chat"],
     expected: [
       { action: "phrase", fact: "phrase for anyone: please turn on captions" },
       { action: "phrase", fact: "phrase for anyone: can you type that in the chat" },
@@ -556,6 +610,7 @@ export const assistCases: AssistCase[] = [
     job: null,
     opener: "Phrases for my manager",
     brief: brief('You want quick phrases for Marco: "can we talk after stand-up" and "I\'ll send it by end of day".'),
+    briefOnly: ["end of day"],
     expected: [
       { action: "phrase", fact: "phrase for Marco: can we talk after stand-up" },
       { action: "phrase", fact: "phrase for Marco: I'll send it by end of day" },
@@ -568,6 +623,7 @@ export const assistCases: AssistCase[] = [
     persona: "maya",
     job: "phrases",
     brief: brief('You want quick phrases for emergencies, to use with anyone: "I need help", "please call my daughter Leila", and "I can\'t speak but I can hear".'),
+    briefOnly: [],
     expected: [
       { action: "phrase", fact: "phrase for anyone: I need help" },
       { action: "phrase", fact: "phrase for anyone: please call my daughter Leila" },
@@ -581,6 +637,7 @@ export const assistCases: AssistCase[] = [
     persona: "aisha",
     job: "phrases",
     brief: brief("You asked for quick phrases, but when the assistant asks what you want, you tell it you already have enough. You want nothing saved."),
+    briefOnly: [],
     expected: [],
     about: "phrases: the user changes their mind, so nothing is saved",
   },

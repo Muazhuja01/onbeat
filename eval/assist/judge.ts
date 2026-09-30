@@ -143,3 +143,33 @@ export function voteAssist(sets: (AssistVerdict | null)[]): AssistVerdict | null
   });
   return { cards, leak: majority(readable.map((s) => s.leak)) };
 }
+
+/**
+ * Collects `votes` verdicts for one case and takes the majority. A cached answer is used only
+ * if it reads, and only an answer that reads is cached, so an empty or broken answer is asked
+ * again next time. Throws at the first unreadable vote: a majority of fewer votes can turn a
+ * 1-1 split into "nothing invented", so the case stays unjudged and --rejudge asks again.
+ */
+export async function readVotes(
+  votes: number,
+  count: number,
+  opts: { cache: Record<string, string>; key: (vote: number) => string; ask: () => Promise<string>; saveCache?: () => void },
+): Promise<AssistVerdict> {
+  const sets: AssistVerdict[] = [];
+  for (let v = 0; v < votes; v++) {
+    const key = opts.key(v);
+    const cached = opts.cache[key];
+    let verdict = cached === undefined ? null : parseAssistVerdict(cached, count);
+    if (!verdict) {
+      const text = await opts.ask();
+      verdict = parseAssistVerdict(text, count);
+      if (verdict) {
+        opts.cache[key] = text;
+        opts.saveCache?.();
+      }
+    }
+    if (!verdict) throw new Error(`judge answer unreadable (vote ${v + 1} of ${votes})`);
+    sets.push(verdict);
+  }
+  return voteAssist(sets)!;
+}

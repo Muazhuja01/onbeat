@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { assistCases } from "./cases";
-import { assistJudgeMessages, judgeNotes, parseAssistVerdict, shownCard, voteAssist } from "./judge";
+import { assistJudgeMessages, judgeNotes, parseAssistVerdict, readVotes, shownCard, voteAssist } from "./judge";
 
 describe("assist judge", () => {
   it("reads verdicts, with sayable only for phrases", () => {
@@ -59,5 +59,36 @@ describe("judge input", () => {
   it("doesn't count a date worked out from today as invented", () => {
     const [, user] = assistJudgeMessages({ today: "2026-10-05", brief: "", notes: [], lines: [], expected: [], cards: [] });
     expect(user.content).toMatch(/follows from today's date or the date list is not invented/);
+  });
+});
+
+describe("readVotes", () => {
+  const answer = (invented: string[]) => JSON.stringify({ leak: false, cards: [{ n: 1, keep: true, invented, matches: null, sayable: null }] });
+  const asker = (texts: string[]) => {
+    let i = 0;
+    return { ask: async () => texts[i++] ?? "", calls: () => i };
+  };
+
+  it("caches only answers that read, and asks again for a cached broken one", async () => {
+    const cache: Record<string, string> = { v0: "" };
+    const a = asker([answer([]), answer(["3:30pm"]), answer(["3:30pm"])]);
+    const verdict = await readVotes(3, 1, { cache, key: (v) => `v${v}`, ask: a.ask });
+    expect(a.calls()).toBe(3);
+    expect(verdict.cards[0].invented).toEqual(["3:30pm"]);
+    expect(Object.values(cache).every((t) => parseAssistVerdict(t, 1))).toBe(true);
+  });
+
+  it("throws, caching nothing broken, when a vote can't be read, so a 1-1 split never passes as the majority", async () => {
+    const cache: Record<string, string> = {};
+    const a = asker([answer(["3:30pm"]), "", answer([])]);
+    await expect(readVotes(3, 1, { cache, key: (v) => `v${v}`, ask: a.ask })).rejects.toThrow("judge answer unreadable (vote 2 of 3)");
+    expect(cache).toEqual({ v0: answer(["3:30pm"]) });
+  });
+
+  it("reuses readable cached answers without asking", async () => {
+    const cache = { v0: answer([]) };
+    const a = asker([]);
+    await readVotes(1, 1, { cache, key: (v) => `v${v}`, ask: a.ask });
+    expect(a.calls()).toBe(0);
   });
 });
