@@ -1,4 +1,5 @@
 import type { AssistJob } from "@/lib/assist/protocol";
+import { testCases } from "./test-cases";
 
 export interface ExpectedChange {
   action: "add" | "edit" | "remove" | "phrase";
@@ -34,7 +35,7 @@ export interface AssistCase {
 /** Keeps the simulated user from making up an answer to a question its brief doesn't cover. */
 const brief = (text: string) => `${text} If the assistant asks about anything not covered here, say you don't know.`;
 
-/** Today in every case is Monday 5 October 2026 (EVAL_TODAY). */
+/** Today in every case is Monday 5 October 2026 (EVAL_TODAY). The test split lives in test-cases.ts. */
 export const assistCases: AssistCase[] = [
   // Update my information: dev
   {
@@ -149,10 +150,10 @@ export const assistCases: AssistCase[] = [
     expected: [],
     about: "update: a note that is still right is left alone",
   },
-  // Update my information: test
+  // Update my information: dev, held out in round 1
   {
     id: "tom-pharmacy-moved",
-    split: "test",
+    split: "dev",
     persona: "tom",
     job: "update",
     brief: brief("Riverside Pharmacy closed. You now use Oak Street Pharmacy for your prescriptions, including your monthly blood pressure medication."),
@@ -165,7 +166,7 @@ export const assistCases: AssistCase[] = [
   },
   {
     id: "maya-moved-home",
-    split: "test",
+    split: "dev",
     persona: "maya",
     job: "update",
     brief: brief("You moved home. You now live in a flat on Birch Road."),
@@ -175,7 +176,7 @@ export const assistCases: AssistCase[] = [
   },
   {
     id: "aisha-jen-left",
-    split: "test",
+    split: "dev",
     persona: "aisha",
     job: "update",
     brief: brief("Jen left Northline Design. You want the note about her gone."),
@@ -185,7 +186,7 @@ export const assistCases: AssistCase[] = [
   },
   {
     id: "tom-people-fine",
-    split: "test",
+    split: "dev",
     persona: "tom",
     job: "update",
     brief: brief("You want to go through your notes about people. They are all still right. Nothing needs changing."),
@@ -195,7 +196,7 @@ export const assistCases: AssistCase[] = [
   },
   {
     id: "aisha-pottery",
-    split: "test",
+    split: "dev",
     persona: "aisha",
     job: null,
     opener: "I started a new class",
@@ -346,10 +347,10 @@ export const assistCases: AssistCase[] = [
     ],
     about: "prepare: no date given, and none should be made up",
   },
-  // Prepare for an appointment: test
+  // Prepare for an appointment: dev, held out in round 1
   {
     id: "tom-cancelled",
-    split: "test",
+    split: "dev",
     persona: "tom",
     job: "prepare",
     brief: brief("You were going to get ready for a check-up with Dr. Chen, but it has been cancelled. Tell the assistant it was cancelled when it asks about the appointment. You want nothing saved."),
@@ -359,7 +360,7 @@ export const assistCases: AssistCase[] = [
   },
   {
     id: "maya-optician",
-    split: "test",
+    split: "dev",
     persona: "maya",
     job: "prepare",
     brief: brief("You have an eye test at Clearview Opticians on Thursday at 11:30. You want to be able to tell them you have ALS and can't read small print on screens."),
@@ -373,7 +374,7 @@ export const assistCases: AssistCase[] = [
   },
   {
     id: "tom-dentist",
-    split: "test",
+    split: "dev",
     persona: "tom",
     job: null,
     opener: "Help me get ready for the dentist",
@@ -389,7 +390,7 @@ export const assistCases: AssistCase[] = [
   },
   {
     id: "aisha-pitch",
-    split: "test",
+    split: "dev",
     persona: "aisha",
     job: "prepare",
     brief: brief("You're pitching to Lumen Foods at their office on Friday at 10:00, with Marco. You want to be able to say: I'll type my part, it will show on the screen."),
@@ -402,7 +403,7 @@ export const assistCases: AssistCase[] = [
   },
   {
     id: "maya-gp",
-    split: "test",
+    split: "dev",
     persona: "maya",
     job: "prepare",
     brief: brief("You have a breathing check with Dr. Ahmed at Cedar Health on Tuesday at 2:30pm. You want to be able to tell Dr. Ahmed you've been more tired than usual, and that you're short of breath at night."),
@@ -417,7 +418,7 @@ export const assistCases: AssistCase[] = [
   },
   {
     id: "aisha-meeting-off",
-    split: "test",
+    split: "dev",
     persona: "aisha",
     job: "prepare",
     brief: brief("You wanted to get ready for a meeting with Jen, but it's off. Tell the assistant it's off when it asks about the meeting. You just want to stop; nothing saved."),
@@ -575,10 +576,10 @@ export const assistCases: AssistCase[] = [
     expected: [],
     about: "phrases: the phrase already exists, so nothing is added",
   },
-  // Make quick phrases: test
+  // Make quick phrases: dev, held out in round 1
   {
     id: "maya-physio-phrases",
-    split: "test",
+    split: "dev",
     persona: "maya",
     job: "phrases",
     brief: brief('You want quick phrases for physio sessions, to use with anyone: "that hurts", "can we slow down", and "I need a rest".'),
@@ -592,7 +593,7 @@ export const assistCases: AssistCase[] = [
   },
   {
     id: "tom-work-phrases",
-    split: "test",
+    split: "dev",
     persona: "tom",
     job: "phrases",
     brief: brief('You want quick phrases for work meetings, to use with anyone: "please turn on captions" and "can you type that in the chat".'),
@@ -605,7 +606,7 @@ export const assistCases: AssistCase[] = [
   },
   {
     id: "aisha-marco-phrases",
-    split: "test",
+    split: "dev",
     persona: "aisha",
     job: null,
     opener: "Phrases for my manager",
@@ -619,7 +620,7 @@ export const assistCases: AssistCase[] = [
   },
   {
     id: "maya-emergency",
-    split: "test",
+    split: "dev",
     persona: "maya",
     job: "phrases",
     brief: brief('You want quick phrases for emergencies, to use with anyone: "I need help", "please call my daughter Leila", and "I can\'t speak but I can hear".'),
@@ -633,7 +634,7 @@ export const assistCases: AssistCase[] = [
   },
   {
     id: "aisha-enough",
-    split: "test",
+    split: "dev",
     persona: "aisha",
     job: "phrases",
     brief: brief("You asked for quick phrases, but when the assistant asks what you want, you tell it you already have enough. You want nothing saved."),
@@ -641,4 +642,7 @@ export const assistCases: AssistCase[] = [
     expected: [],
     about: "phrases: the user changes their mind, so nothing is saved",
   },
+
+  // Held out from round 2 on
+  ...testCases,
 ];
