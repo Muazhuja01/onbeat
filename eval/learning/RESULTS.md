@@ -45,4 +45,21 @@ Remaining dev miss (D3): the misheard Harbor review became an edit of the Harbor
 
 ## Test split (20 scenarios, 3 judge votes)
 
-Pending. The first attempt ran out of judge quota (Groq free tier, and Cloudflare was already spent) after 10 of 20 scenarios, and that runner lost the unjudged suggestions; it is void, and nothing was changed after it. The runner now keeps suggestions and `--rejudge` finishes them. The second attempt, with the D3 code unchanged, generated all 20 on 2026-09-30 and is being judged as quota allows.
+Run once on 2026-09-30 with the final code (PR #11 head `aab1c95`, which adds the review's check fixes to D3), `qwen/qwen3.8-27b`, Groq paid plan. Each suggestion is judged by the majority of 3 votes.
+
+| Shown | Worth keeping | Invented | Edits right | Recall | Batch p50 |
+|---|---|---|---|---|---|
+| 15 | 100% (15/15) | 7% (1/15) | 100% (4/4) | 93% (14/15) | 442 ms |
+
+Three targets are met. Invented misses its target: 1 of 15 is 7%, and with 15 suggestions a single one is enough to miss under 5%. The five "nothing worth a note" and "other people's business" scenarios in the split produced no suggestion, as they should.
+
+- Invented (`maya-neighbour-key`): the line was "My neighbour Ruth has a spare key if anything happens." The suggestion read "Ruth is my neighbour and has a spare key to my home if I need help." The judge flagged "home", which no line says. It is almost certainly right, but under the rubric it is still an added detail.
+- Recall miss (`tom-flu-jab`): Priya said the flu jab is ready any time this month, no appointment needed. The suggestion kept only "I will pick up my flu jab at Riverside Pharmacy next week." It is true and was kept, but it drops the offer the scenario expected.
+
+Batch time is lower than on dev because the paid plan has no rate-limit waits.
+
+Earlier attempts are void and were not used for tuning. The first ran out of judge quota after 10 of 20 scenarios and its runner lost the unjudged suggestions (the runner now keeps them and `--rejudge` finishes them). The second was generated with the D3 code, which the review then changed.
+
+### The review's check fixes on dev
+
+The final review tightened the server check (an added note may no longer borrow a detail from an unrelated sent note, and an edit's name is now checked). To see whether that costs good suggestions, the 40 dev conversations were sent to the model once more and each batch was checked under both rules (model only, no judge): 36 proposals, 36 kept under the old rule and 36 under the new one. The stricter check dropped nothing on dev.
