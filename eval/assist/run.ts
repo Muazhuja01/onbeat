@@ -10,7 +10,7 @@ import { EVAL_TODAY } from "../learning/scenarios";
 import { loadLocalEnv } from "../learning/env";
 import { withRetry } from "../retry";
 import { assistCases, type AssistCase } from "./cases";
-import { ASSIST_JUDGE_VERSION, assistJudgeMessages, parseAssistVerdict, shownCard, voteAssist, type AssistVerdict, type ShownCard } from "./judge";
+import { ASSIST_JUDGE_VERSION, assistJudgeMessages, judgeNotes, parseAssistVerdict, shownCard, voteAssist, type AssistVerdict, type ShownCard } from "./judge";
 import { assistMarkdown, summarizeAssist, type AssistCaseResult } from "./score";
 import { askSimUser, parseSimReply, simUserMessages } from "./sim-user";
 
@@ -86,7 +86,7 @@ async function runCase(c: AssistCase, model: string, delay: number): Promise<{ l
   return {
     lines: session.state.lines.map(({ speaker, text }) => ({ speaker, text })),
     cards: session.state.cards.filter((card) => card.state === "open").map(shownCard),
-    notes: persona.notes.map((n) => n.text),
+    notes: judgeNotes(c),
     userMessages: session.userCount(),
   };
 }
@@ -135,7 +135,7 @@ function describe(r: AssistRunResult): string {
  * because the judge wasn't there.
  *
  *   --split dev|test   which cases (default dev; with --rejudge, the file's split)
- *   --models a,b       Groq models for the assistant (default: the app's GROQ_MODEL)
+ *   --models a,b       Groq models for the assistant (default: ASSIST_MODEL, else GROQ_MODEL, as the route)
  *   --votes n          judge calls per case, majority wins (default 1 on dev, 3 on test)
  *   --only id,id       just these cases of the split
  *   --delay ms         pause after each assistant turn (default 2000)
@@ -147,7 +147,8 @@ async function main() {
   const noJudge = flag("no-judge");
   const split = (rejudge ? (rejudge.includes("-test-") ? "test" : "dev") : (arg("split") ?? "dev")) as "dev" | "test";
   if (split !== "dev" && split !== "test") throw new Error(`--split must be dev or test, not ${String(split)}`);
-  const models = (arg("models") ?? providerConfigs(process.env).groq.model).split(",");
+  // The same default as /api/assist.
+  const models = (arg("models") ?? providerConfigs({ ...process.env, GROQ_MODEL: process.env.ASSIST_MODEL ?? process.env.GROQ_MODEL }).groq.model).split(",");
   const votes = Number(arg("votes") ?? (split === "test" ? 3 : 1));
   const delay = Number(arg("delay") ?? 2000);
   const only = arg("only")?.split(",");

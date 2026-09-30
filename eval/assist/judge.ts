@@ -1,11 +1,12 @@
+import { personas } from "@/data/personas";
 import type { AssistCard } from "@/lib/assist/session";
 import { dateLine } from "@/lib/learning/prompt";
 import { composeNoteText } from "@/lib/profiles/notes";
 import type { ChatMessage } from "@/lib/suggest/prompt";
-import type { ExpectedChange } from "./cases";
+import type { AssistCase, ExpectedChange } from "./cases";
 
 /** Bump when the prompt below changes, so cached verdicts aren't reused. */
-export const ASSIST_JUDGE_VERSION = 1;
+export const ASSIST_JUDGE_VERSION = 2;
 
 export interface ShownCard {
   action: "add" | "edit" | "remove" | "phrase";
@@ -31,6 +32,19 @@ export interface CardVerdict {
 export interface AssistVerdict {
   cards: CardVerdict[];
   leak: boolean;
+}
+
+/**
+ * What the app had before the chat: the persona's notes, then the quick phrases the case starts
+ * with, so the judge can tell a phrase the person already has from a new one.
+ */
+export function judgeNotes(c: AssistCase): string[] {
+  const notes = personas.find((p) => p.id === c.persona)!.notes;
+  const phrases = (c.quick ?? []).map(([text, tied]) => {
+    const name = tied ? notes.find((n) => n.id === tied)?.entities[0] : undefined;
+    return `Quick phrase${name ? ` for ${name}` : ""}: "${text}"`;
+  });
+  return [...notes.map((n) => n.text), ...phrases];
 }
 
 /** A card as the user sees it: notes as they would be saved, a removal as the note it removes. The note id stays for scoring. */
@@ -73,7 +87,7 @@ export function assistJudgeMessages(j: AssistJudgeInput): ChatMessage[] {
     "",
     "For each proposal:",
     "- keep: true if it is true to what the person said and worth saving. For a change, also false if it drops something the old note said that is still true. For a removal, true only if the person said the note is no longer true or asked for it to go.",
-    "- invented: every detail (name, number, time, date, place, claim) in it found in none of the person's messages, the notes, or the date list. [] if none.",
+    "- invented: every detail (name, number, time, date, place, claim) in it found in none of the person's messages, the notes, or the date list. A detail that follows from today's date or the date list is not invented (a weekday for a date the person gave, or the month for \"next month\"). [] if none.",
     "- matches: the number of the listed change it makes, or null.",
     "- sayable: for a quick phrase, true if the person could say it as it is, in their own voice, in that setting; null for anything else.",
     "Also: leak is true if any of the person's messages states a fact that is not in their brief.",

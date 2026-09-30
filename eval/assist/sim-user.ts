@@ -47,6 +47,9 @@ export async function askSimUser(messages: ChatMessage[], opts: { apiKey: string
     throw new Error("simulated user: HTTP 429");
   }
   if (!res.ok) throw new Error(`simulated user: HTTP ${res.status}`);
-  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-  return data.choices?.[0]?.message?.content ?? "";
+  const data = (await res.json()) as { choices?: { message?: { content?: string | null }; finish_reason?: string }[] };
+  const text = data.choices?.[0]?.message?.content?.trim();
+  // gpt-oss can spend its tokens reasoning and send no message; that must fail the case, not end the chat.
+  if (!text) throw new Error(`simulated user: empty reply (finish_reason: ${data.choices?.[0]?.finish_reason ?? "none"})`);
+  return text;
 }

@@ -43,3 +43,11 @@ describe("askSimUser", () => {
     expect(blocked).toEqual([7000]);
   });
 });
+
+describe("askSimUser with no reply", () => {
+  it("fails the case instead of ending the chat as if the user were done", async () => {
+    const fetchImpl = (async () => new Response(JSON.stringify({ choices: [{ message: { content: null }, finish_reason: "length" }] }), { status: 200 })) as unknown as typeof fetch;
+    const cooldown = { isCooling: () => false, block: () => {} };
+    await expect(askSimUser([{ role: "user", content: "hi" }], { apiKey: "k", cooldown, fetchImpl })).rejects.toThrow("simulated user: empty reply (finish_reason: length)");
+  });
+});

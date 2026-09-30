@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseAssistVerdict, shownCard, voteAssist } from "./judge";
+import { assistCases } from "./cases";
+import { assistJudgeMessages, judgeNotes, parseAssistVerdict, shownCard, voteAssist } from "./judge";
 
 describe("assist judge", () => {
   it("reads verdicts, with sayable only for phrases", () => {
@@ -37,5 +38,26 @@ describe("shownCard", () => {
   it("shows a phrase with who it is for", () => {
     expect(shownCard({ ...base, action: "phrase", phrase: { text: "Is it ready?", forName: "Priya" } })).toEqual({ action: "phrase", text: "Is it ready?", forName: "Priya" });
     expect(shownCard({ ...base, action: "phrase", phrase: { text: "I need help." } })).toEqual({ action: "phrase", text: "I need help." });
+  });
+});
+
+describe("judge input", () => {
+  it("shows the quick phrases the person already has with their notes", () => {
+    const c = assistCases.find((x) => x.id === "tom-have-it")!;
+    const notes = judgeNotes(c);
+    expect(notes).toContain("I'm allergic to penicillin.");
+    expect(notes).toContain('Quick phrase for Priya: "Please write it down."');
+    const [, user] = assistJudgeMessages({ today: "2026-10-05", brief: c.brief, notes, lines: [], expected: [], cards: [] });
+    expect(user.content).toContain('- Quick phrase for Priya: "Please write it down."');
+  });
+
+  it("gives an untied quick phrase no name", () => {
+    const c = { ...assistCases.find((x) => x.id === "tom-have-it")!, quick: [["I need help.", undefined]] as [string, string | undefined][] };
+    expect(judgeNotes(c)).toContain('Quick phrase: "I need help."');
+  });
+
+  it("doesn't count a date worked out from today as invented", () => {
+    const [, user] = assistJudgeMessages({ today: "2026-10-05", brief: "", notes: [], lines: [], expected: [], cards: [] });
+    expect(user.content).toMatch(/follows from today's date or the date list is not invented/);
   });
 });
