@@ -40,8 +40,20 @@ function Source({ line, now }: { line: SourceLine; now: Date }) {
   );
 }
 
-export function SuggestedNotes({ suggestions, notes, onKeep, onSkip, onSkipAll, onDone, now = new Date() }: Props) {
+export function SuggestedNotes({ suggestions: all, notes, onKeep, onSkip, onSkipAll, onDone, now = new Date() }: Props) {
   const [editing, setEditing] = useState<string | null>(null);
+  // A card goes as soon as it is kept or skipped, before saving finishes, so a second tap
+  // (common with tremor) can't keep the same note twice.
+  const [handled, setHandled] = useState<ReadonlySet<string>>(() => new Set());
+  // Read only in event handlers: a second tap can arrive before React re-renders.
+  const handling = useRef(new Set<string>());
+  const suggestions = all.filter((s) => !handled.has(s.id));
+  const handle = (id: string, action: () => void) => {
+    if (handling.current.has(id)) return;
+    handling.current.add(id);
+    setHandled((prev) => new Set(prev).add(id));
+    action();
+  };
   const [confirmingAll, setConfirmingAll] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -92,7 +104,7 @@ export function SuggestedNotes({ suggestions, notes, onKeep, onSkip, onSkipAll, 
                     autoFocus
                     onSave={(draft) => {
                       setEditing(null);
-                      onKeep(s, draft);
+                      handle(s.id, () => onKeep(s, draft));
                       settle();
                     }}
                     onCancel={() => setEditing(null)}
@@ -104,7 +116,7 @@ export function SuggestedNotes({ suggestions, notes, onKeep, onSkip, onSkipAll, 
                       aria-label={`Keep: ${text}`}
                       className={primaryButton}
                       onClick={() => {
-                        onKeep(s, s.draft);
+                        handle(s.id, () => onKeep(s, s.draft));
                         settle();
                       }}
                     >
@@ -118,7 +130,7 @@ export function SuggestedNotes({ suggestions, notes, onKeep, onSkip, onSkipAll, 
                       aria-label={`Skip: ${text}`}
                       className={secondaryButton}
                       onClick={() => {
-                        onSkip(s.id);
+                        handle(s.id, () => onSkip(s.id));
                         settle();
                       }}
                     >

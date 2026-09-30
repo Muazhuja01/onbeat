@@ -67,7 +67,7 @@ describe("SuggestedNotes", () => {
     expect(screen.getByRole("heading", { name: "New note: Routines" })).toBeInTheDocument();
   });
 
-  it("keeps, edits then keeps, and skips", async () => {
+  it("keeps, and edits then keeps", async () => {
     const h = show([add, edit]);
     await userEvent.click(screen.getByRole("button", { name: "Keep: Ana is my new carer." }));
     expect(h.onKeep).toHaveBeenCalledWith(add, add.draft);
@@ -79,8 +79,21 @@ describe("SuggestedNotes", () => {
     await userEvent.click(screen.getByRole("button", { name: "Keep" }));
     expect(h.onKeep).toHaveBeenLastCalledWith(edit, { kind: "routine", text: "I have physio on Thursdays at 11." });
 
+  });
+
+  it("skips", async () => {
+    const h = show([add]);
     await userEvent.click(screen.getByRole("button", { name: "Skip: Ana is my new carer." }));
     expect(h.onSkip).toHaveBeenCalledWith("s1");
+  });
+
+  it("takes a card away as soon as it is kept or skipped, so a double tap can't save it twice", async () => {
+    const h = show([add, edit]);
+    await userEvent.dblClick(screen.getByRole("button", { name: "Keep: Ana is my new carer." }));
+    expect(h.onKeep).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Keep: Ana is my new carer." })).toBeNull();
+    await userEvent.dblClick(screen.getByRole("button", { name: "Skip: I have physio on Thursdays at 10:30." }));
+    expect(h.onSkip).toHaveBeenCalledTimes(1);
   });
 
   it("asks before skipping everything", async () => {
