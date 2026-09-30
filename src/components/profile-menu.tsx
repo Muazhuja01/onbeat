@@ -59,7 +59,7 @@ export function ProfileMenu(props: Props) {
   return (
     <div
       ref={wrapRef}
-      className="relative"
+      className="relative min-w-0 max-w-full"
       onKeyDown={(e) => {
         if (e.key === "Escape" && open) {
           e.stopPropagation();
@@ -73,7 +73,7 @@ export function ProfileMenu(props: Props) {
         aria-expanded={open}
         aria-controls={`${id}-panel`}
         onClick={() => (open ? close(false) : setOpen(true))}
-        className="flex min-h-12 max-w-[16rem] items-center gap-2 rounded-control border-2 border-ink/30 px-4 text-label font-bold transition-[border-color] duration-150 hover:border-ink sm:text-body"
+        className="flex min-h-12 max-w-full sm:max-w-[16rem] items-center gap-2 rounded-control border-2 border-ink/30 px-4 text-label font-bold transition-[border-color] duration-150 hover:border-ink sm:text-body"
       >
         <UserCircle aria-hidden="true" size={22} className="shrink-0" />
         <span className="truncate">{label}</span>

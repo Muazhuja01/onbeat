@@ -126,15 +126,19 @@ for (const theme of [undefined, "dark", "contrast"]) {
   });
 }
 
-test("setup and notes have no sideways scroll at 320 px", async ({ page }) => {
-  await prepare(page);
-  await page.setViewportSize({ width: 320, height: 720 });
-  await page.goto("/");
-  const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-  expect(await overflow()).toBeLessThanOrEqual(0);
-  await setUp(page, "Priya");
-  await menu(page, "Priya").click();
-  expect(await overflow()).toBeLessThanOrEqual(0);
-  await page.getByRole("button", { name: "Your notes" }).click();
-  expect(await overflow()).toBeLessThanOrEqual(0);
-});
+for (const fontSize of ["100%", "200%"]) {
+  test(`setup, menu and notes have no sideways scroll at 320 px (text ${fontSize})`, async ({ page }) => {
+    await prepare(page);
+    await page.setViewportSize({ width: 320, height: 720 });
+    await page.goto("/");
+    await page.evaluate((size) => (document.documentElement.style.fontSize = size), fontSize);
+    const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(await overflow()).toBeLessThanOrEqual(0);
+    await setUp(page, "Priya");
+    await menu(page, "Priya").click();
+    expect(await overflow()).toBeLessThanOrEqual(0);
+    await page.getByRole("button", { name: "Your notes" }).click();
+    await page.getByRole("button", { name: "Edit: Sam: my barista" }).click();
+    expect(await overflow()).toBeLessThanOrEqual(0);
+  });
+}
