@@ -39,6 +39,7 @@ for (const theme of [undefined, "dark", "contrast"]) {
   test(`no accessibility violations (${theme ?? "light"})`, async ({ page }) => {
     await prepare(page, theme);
     await page.goto("/");
+    await page.getByRole("button", { name: "Try a demo first" }).click();
     const picker = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
     expect(picker.violations).toEqual([]);
 
@@ -63,7 +64,7 @@ test("reduced motion makes transitions instant", async ({ page }) => {
   await prepare(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await startWithMaya(page);
-  const duration = await page.getByRole("button", { name: "Example profiles" }).evaluate((el) => getComputedStyle(el).transitionDuration);
+  const duration = await page.getByRole("button", { name: "Demo: Maya" }).evaluate((el) => getComputedStyle(el).transitionDuration);
   expect(parseFloat(duration)).toBeLessThan(0.01);
 });
 

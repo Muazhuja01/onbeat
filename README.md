@@ -2,7 +2,7 @@
 
 OnBeat is a web app for people who can't speak and have to communicate by typing. It listens to the person they're talking with and suggests short replies they can say out loud with one tap.
 
-Try it at https://onbeat-mu.vercel.app (pick an example profile; the speech and voice models download to your browser the first time).
+Try it at https://onbeat-mu.vercel.app (set up a profile, or choose "Try a demo first" to use an example person; the speech and voice models download to your browser the first time).
 
 It's meant for both hearing and Deaf users. The other person's speech is shown as live captions, and every reply the user speaks is shown on screen as well.
 
@@ -22,7 +22,11 @@ Phones already offer captions and type-to-speak. OnBeat tries to shorten the gap
 
 ## Status
 
-Listening works: the other person's speech is captioned in the browser and replies are prepared while they talk. The app passes axe checks in light, dark and high-contrast themes and works with a keyboard alone. A small settings panel sets the theme (it follows the device's contrast setting by default) and turns the number-key shortcuts off for voice control users. Voice and caption settings, notes editing and the first-run flow are next.
+Listening works: the other person's speech is captioned in the browser and replies are prepared while they talk. The app passes axe checks in light, dark and high-contrast themes and works with a keyboard alone. A small settings panel sets the theme (it follows the device's contrast setting by default) and turns the number-key shortcuts off for voice control users.
+
+Profiles: the first visit asks for a name, a short note about the user, and a few people and places. Several people can keep profiles in one browser and switch between them. Notes can be added, edited and deleted at any time, and a profile can be exported to a file and imported again (for a backup or another device). Notes can also be started from a document (.txt, .md, .docx or .pdf): its text is sent to the language model, which suggests short notes, and the user picks which to keep. The example people are behind a demo link and are never saved.
+
+Next: learning from conversations (suggested notes the user confirms), then an assistant chat for updating notes and preparing for conversations.
 
 Results on the held-out test set (60 scenarios written before any tuning) for the default model `qwen/qwen3.8-27b`. Neither target (90% top-3 hit rate, under 5% invented details) is met; the owner accepted these numbers for the deploy. Details, method and known gaps are in [eval/RESULTS.md](eval/RESULTS.md).
 

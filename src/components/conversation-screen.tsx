@@ -10,19 +10,27 @@ import { useSuggestions } from "@/lib/conversation/use-suggestions";
 import { getBrowserHearing } from "@/lib/hearing/browser";
 import type { Hearing, HearingStatus } from "@/lib/hearing/engine";
 import { en } from "@/lib/language-packs/en";
-import { getBrowserMemory } from "@/lib/memory/browser";
-import { MemoryStore } from "@/lib/memory/store";
+import { getBrowserRegistry, openDemoMemory, openProfileMemory } from "@/lib/memory/browser";
+import type { MemoryStore } from "@/lib/memory/store";
+import { memoryKeyValue } from "@/lib/profiles/kv";
+import { ProfileRegistry } from "@/lib/profiles/registry";
+import { exportFileName, exportProfile, parseImport } from "@/lib/profiles/transfer";
 import { getServerSettings, getSettings, setDigitKeys, setTheme, subscribeSettings } from "@/lib/settings";
 import { SuggestClient } from "@/lib/suggest/client";
+import type { Note } from "@/lib/types";
 import { getBrowserVoice } from "@/lib/voice/browser";
 import type { VoiceEngine, VoiceMode } from "@/lib/voice/engine";
 import { AnnouncerProvider, useAnnounce } from "./announcer";
 import { CaptionLog } from "./caption-log";
 import { Composer } from "./composer";
 import { ContextBar } from "./context-bar";
+import { DemoBar } from "./demo-bar";
 import { ListenControl } from "./listen-control";
+import { NotesEditor } from "./notes-editor";
 import { PartnerInput } from "./partner-input";
+import { ProfileMenu } from "./profile-menu";
 import { ProfilePicker } from "./profile-picker";
+import { ProfileSetup } from "./profile-setup";
 import { ReactionBar } from "./reaction-bar";
 import { ReplyList } from "./reply-list";
 import { SettingsPanel } from "./settings-panel";
@@ -48,28 +56,42 @@ export function ConversationScreen() {
   );
 }
 
+/** What fills the page. The conversation stays mounted underneath the others. */
+type View = "loading" | "setup" | "demo-picker" | "notes" | "conversation";
+
+const SAVE_FAILED = "Couldn't save. Your browser's storage may be full.";
+
 function Screen() {
   const announce = useAnnounce();
+  const [registry, setRegistry] = useState<ProfileRegistry | null>(null);
+  // The registry is mutable; this counter re-renders after it changes.
+  const [, setProfilesVersion] = useState(0);
+  const [view, setView] = useState<View>("loading");
+  const [demo, setDemo] = useState<Persona | null>(null);
   const [memory, setMemory] = useState<MemoryStore | null>(null);
   const [notesVersion, setNotesVersion] = useState(0);
-  const [showProfiles, setShowProfiles] = useState(false);
   const [voiceProgress, setVoiceProgress] = useState(0);
   const [state, dispatch] = useReducer(conversationReducer, initialConversation);
 
   useEffect(() => {
     let cancelled = false;
-    void getBrowserMemory()
-      .catch((err) => {
-        // A failed load (e.g. IndexedDB unavailable or blocked) must not
-        // leave the page blank forever: fall back to a session-only store.
-        console.error("getBrowserMemory failed, falling back to a session-only store", err);
-        return MemoryStore.create();
-      })
-      .then((m) => {
-        if (cancelled) return;
-        setMemory(m);
-        if (!m.isDurable) dispatch({ type: "notice", text: "Notes won't be saved in this window." });
-      });
+    void (async () => {
+      let reg: ProfileRegistry;
+      try {
+        reg = await getBrowserRegistry();
+      } catch (err) {
+        // A failed load (e.g. IndexedDB blocked) must not leave the page blank:
+        // profiles then live in memory for this visit.
+        console.error("Loading profiles failed, keeping them for this visit only", err);
+        reg = await ProfileRegistry.open(memoryKeyValue(), { durable: false });
+      }
+      const active = reg.active();
+      const store = active ? await openProfileMemory(reg, active.id).catch(() => null) : null;
+      if (cancelled) return;
+      setRegistry(reg);
+      setMemory(store);
+      setView(store ? "conversation" : "setup");
+    })();
     return () => {
       cancelled = true;
     };
@@ -181,15 +203,13 @@ function Screen() {
     replyListRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
   }, []);
 
-  const [skippedProfiles, setSkippedProfiles] = useState(false);
   const notes = useMemo(() => (memory ? memory.notes() : []), [memory, notesVersion]); // eslint-disable-line react-hooks/exhaustive-deps
   const places = notes.filter((n) => n.kind === "place");
   const people = notes.filter((n) => n.kind === "person");
   const partnerName = (state.partnerId && memory?.getNote(state.partnerId)?.entities[0]) || "Them";
-  const needsProfile = memory !== null && (showProfiles || (notes.length === 0 && !skippedProfiles));
   // The conversation view stays mounted (useStableTargets attaches to the reply
-  // list once, on mount); it is only hidden while loading or picking a profile.
-  const conversationHidden = memory === null || needsProfile;
+  // list once, on mount); it is only hidden while another view is showing.
+  const conversationHidden = memory === null || view !== "conversation";
 
   // Each new line from the partner is announced.
   const lastPartnerTurn = state.turns.findLast((t) => t.speaker === "partner");
@@ -227,36 +247,155 @@ function Screen() {
     document.body.removeAttribute("tabindex");
   };
 
-  const choosePersona = useCallback(
-    async (p: Persona) => {
-      if (!memory) return;
-      // Cancel any request in flight for the old profile first, so its late
-      // result never lands on the new profile's screen.
-      client?.cancel();
-      await memory.replaceAll(p.notes, p.phrases);
-      // Notes and phrases changed, so cached suggestions are stale (R13).
-      client?.clearCache();
-      dispatch({ type: "reset" });
-      gapTimer.reset();
-      dispatch({ type: "setContext", placeId: p.defaultPlaceId, partnerId: p.defaultPartnerId });
-      setNotesVersion((v) => v + 1);
-      setShowProfiles(false);
-      resetFocusToTop();
-    },
-    [memory, client, gapTimer],
-  );
+  const bumpProfiles = () => setProfilesVersion((v) => v + 1);
 
-  const closeProfiles = () => {
-    setSkippedProfiles(true);
-    setShowProfiles(false);
+  /** Another view is about to cover the conversation, so its Stop button goes: stop speech now. */
+  const leaveConversation = (next: View) => {
+    if (state.speaking) stop();
+    setView(next);
+  };
+
+  /** Shows a profile's or demo's notes with a fresh conversation. */
+  const showMemory = (store: MemoryStore, context: { placeId?: string; partnerId?: string } = {}) => {
+    // Cancel any request in flight for the old profile first, so its late
+    // result never lands on the new profile's screen.
+    client?.cancel();
+    if (state.speaking) stop();
+    dispatch({ type: "reset" });
+    gapTimer.reset();
+    dispatch({ type: "setContext", placeId: context.placeId, partnerId: context.partnerId });
+    setMemory(store);
+    setNotesVersion((v) => v + 1);
+    setView("conversation");
     resetFocusToTop();
   };
-  const openOrCloseProfiles = () => {
-    if (needsProfile) return closeProfiles();
-    // The Stop button is about to be hidden, so stop any speech now.
-    if (state.speaking) stop();
-    setShowProfiles(true);
+
+  const finishSetup = async (name: string, made: Note[]) => {
+    if (!registry) return;
+    let store: MemoryStore;
+    try {
+      const profile = await registry.create(name);
+      store = await openProfileMemory(registry, profile.id);
+      await store.replaceAll(made, []);
+    } catch {
+      dispatch({ type: "notice", text: SAVE_FAILED });
+      return;
+    }
+    // Ask the browser not to clear OnBeat's storage when space runs low. It decides; nothing is shown.
+    void navigator.storage?.persist?.().catch(() => {});
+    setDemo(null);
+    bumpProfiles();
+    showMemory(store);
+    dispatch({ type: "notice", text: "You can add or change notes any time from your profile menu." });
   };
+
+  const switchTo = async (id: string) => {
+    if (!registry) return;
+    await registry.setActive(id);
+    const store = await openProfileMemory(registry, id);
+    setDemo(null);
+    bumpProfiles();
+    showMemory(store);
+  };
+
+  const startDemo = async (persona: Persona) => {
+    const store = await openDemoMemory(persona);
+    setDemo(persona);
+    showMemory(store, { placeId: persona.defaultPlaceId, partnerId: persona.defaultPartnerId });
+  };
+
+  const saveNote = async (note: Note) => {
+    if (!memory) return;
+    try {
+      await memory.upsertNote(note);
+    } catch {
+      dispatch({ type: "notice", text: SAVE_FAILED });
+    }
+    // Notes changed, so cached suggestions are stale (R13).
+    client?.clearCache();
+    setNotesVersion((v) => v + 1);
+    announce("Note saved");
+  };
+
+  const removeNote = async (id: string) => {
+    if (!memory) return;
+    try {
+      await memory.removeNote(id);
+    } catch {
+      dispatch({ type: "notice", text: SAVE_FAILED });
+    }
+    client?.clearCache();
+    if (state.placeId === id || state.partnerId === id) {
+      dispatch({ type: "setContext", placeId: state.placeId === id ? undefined : state.placeId, partnerId: state.partnerId === id ? undefined : state.partnerId });
+    }
+    setNotesVersion((v) => v + 1);
+    announce("Note deleted");
+  };
+
+  const exportActive = () => {
+    const active = registry?.active();
+    if (!active || !memory) return;
+    const now = new Date();
+    const url = URL.createObjectURL(new Blob([exportProfile(active.name, memory.notes(), memory.phrases(), now)], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = exportFileName(active.name, now);
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    announce("Profile exported");
+  };
+
+  const importFile = async (file: File) => {
+    if (!registry) return;
+    // Exports are small; anything this big isn't one, so don't read it all into memory.
+    const parsed = file.size > 20 * 1024 * 1024 ? null : parseImport(await file.text());
+    if (!parsed) {
+      dispatch({ type: "notice", text: "That file isn't an OnBeat profile export, so nothing was imported." });
+      return;
+    }
+    let store: MemoryStore;
+    let name: string;
+    try {
+      const profile = await registry.create(registry.uniqueName(parsed.name));
+      name = profile.name;
+      await registry.persistFor(profile.id).save({ version: 1, notes: parsed.notes, phrases: parsed.phrases });
+      store = await openProfileMemory(registry, profile.id);
+    } catch {
+      dispatch({ type: "notice", text: SAVE_FAILED });
+      return;
+    }
+    setDemo(null);
+    bumpProfiles();
+    showMemory(store);
+    dispatch({ type: "notice", text: `Imported ${name}.` });
+  };
+
+  const deleteActive = async () => {
+    const active = registry?.active();
+    if (!registry || !active) return;
+    await registry.remove(active.id);
+    bumpProfiles();
+    const next = registry.active();
+    announce(`Deleted ${active.name}`);
+    if (next) return switchTo(next.id);
+    client?.cancel();
+    if (state.speaking) stop();
+    dispatch({ type: "reset" });
+    setMemory(null);
+    setView("setup");
+  };
+
+  const renameActive = async (name: string) => {
+    const active = registry?.active();
+    if (!registry || !active) return;
+    await registry.rename(active.id, name);
+    bumpProfiles();
+  };
+
+  const profiles = registry?.list() ?? [];
+  const showMenu = view !== "loading" && (profiles.length > 0 || demo !== null);
+  // Setup and the demo picker can go back only to something that is open.
+  const back = memory ? () => setView("conversation") : undefined;
 
   return (
     <>
@@ -264,22 +403,54 @@ function Screen() {
         <p className="text-2xl font-extrabold tracking-tight" translate="no">
           OnBeat
         </p>
-        <button
-          type="button"
-          onClick={openOrCloseProfiles}
-          aria-expanded={needsProfile}
-          className="min-h-12 rounded-control border-2 border-ink/30 px-4 text-label font-bold transition-[border-color] duration-150 hover:border-ink sm:text-body"
-        >
-          Example profiles
-        </button>
+        {showMenu && (
+          <ProfileMenu
+            profiles={profiles}
+            activeId={registry?.active()?.id ?? null}
+            demoName={demo?.name ?? null}
+            onSwitch={(id) => void switchTo(id)}
+            onNotes={() => leaveConversation("notes")}
+            onNew={() => leaveConversation("setup")}
+            onExport={exportActive}
+            onImport={(file) => void importFile(file)}
+            onRename={(name) => void renameActive(name)}
+            onDelete={() => void deleteActive()}
+            onDemo={() => leaveConversation("demo-picker")}
+          />
+        )}
       </header>
       <main id="main" className="mx-auto w-full max-w-[90rem] px-4 pb-[calc(env(safe-area-inset-bottom)+2rem)] lg:px-8">
-        <h1 className="sr-only">Conversation</h1>
+        <h1 className="sr-only">{view === "conversation" ? "Conversation" : "OnBeat"}</h1>
         {/* Always mounted, so screen readers hear the notice when its text changes. */}
         <div role="status">
+          {registry && !registry.durable && (
+            <p className="mb-4 rounded-control border-2 border-ink/30 px-4 py-3 text-body">Profiles and notes won&apos;t be saved in this window.</p>
+          )}
           {state.notice && <p className="mb-4 rounded-control border-2 border-ink/30 px-4 py-3 text-body">{state.notice}</p>}
         </div>
-        {needsProfile && <ProfilePicker personas={personas} onChoose={(p) => void choosePersona(p)} onSkip={closeProfiles} />}
+        {demo && view === "conversation" && <DemoBar name={demo.name} onSetup={() => leaveConversation("setup")} />}
+        {view === "setup" && (
+          <ProfileSetup
+            onDone={finishSetup}
+            onDemo={() => setView("demo-picker")}
+            onCancel={back}
+            onImport={(file) => void importFile(file)}
+          />
+        )}
+        {view === "demo-picker" && (
+          <ProfilePicker personas={personas} onChoose={(p) => void startDemo(p)} onBack={back ?? (() => setView("setup"))} />
+        )}
+        {view === "notes" && memory && (
+          <NotesEditor
+            notes={notes}
+            onSave={(note) => void saveNote(note)}
+            onRemove={(id) => void removeNote(id)}
+            onDone={() => {
+              setView("conversation");
+              resetFocusToTop();
+            }}
+          />
+        )}
         <div className="conv-grid" hidden={conversationHidden}>
           <div className="flex flex-col gap-4 [grid-area:context]">
             <ContextBar

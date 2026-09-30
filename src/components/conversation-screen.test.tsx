@@ -56,7 +56,18 @@ vi.mock("@/lib/hearing/browser", () => ({ getBrowserHearing: () => h.hearing }))
 
 vi.mock("@/lib/memory/browser", async () => {
   const { MemoryStore } = await import("@/lib/memory/store");
-  return { getBrowserMemory: () => MemoryStore.create() };
+  const { ProfileRegistry } = await import("@/lib/profiles/registry");
+  const { memoryKeyValue } = await import("@/lib/profiles/kv");
+  return {
+    // A fresh, empty browser for every render.
+    getBrowserRegistry: () => ProfileRegistry.open(memoryKeyValue()),
+    openProfileMemory: (reg: import("@/lib/profiles/registry").ProfileRegistry, id: string) => MemoryStore.create({ persist: reg.persistFor(id) }),
+    openDemoMemory: async (p: { notes: never[]; phrases: never[] }) => {
+      const store = await MemoryStore.create();
+      await store.replaceAll(p.notes, p.phrases);
+      return store;
+    },
+  };
 });
 
 vi.mock("@/lib/suggest/client", async (importOriginal) => {
@@ -103,6 +114,7 @@ async function partnerSays(text: string) {
 
 async function startWithMaya() {
   render(<ConversationScreen />);
+  await userEvent.click(await screen.findByRole("button", { name: "Try a demo first" }));
   await userEvent.click(await screen.findByRole("button", { name: /^Maya/ }));
   await screen.findByRole("heading", { name: "Replies" });
 }
@@ -150,7 +162,8 @@ describe("ConversationScreen", () => {
     await partnerSays("What size?");
     expect(h.requests).toHaveLength(1);
 
-    await userEvent.click(screen.getByRole("button", { name: "Example profiles" }));
+    await userEvent.click(screen.getByRole("button", { name: "Demo: Maya" }));
+    await userEvent.click(screen.getByRole("button", { name: "Try another demo" }));
     await userEvent.click(await screen.findByRole("button", { name: /^Tom/ }));
     await screen.findByRole("heading", { name: "Replies" });
 
@@ -202,26 +215,27 @@ describe("ConversationScreen", () => {
     expect(composer).toHaveValue("");
   });
 
-  it("stops speech when the example profiles are opened while speaking", async () => {
+  it("stops speech when another view covers the conversation while speaking", async () => {
     await startWithMaya();
     await partnerSays("What size?");
     answer("Large, please.");
     await userEvent.click(screen.getByRole("button", { name: "Large, please." }));
     expect(screen.getByRole("button", { name: "Stop saying: Large, please." })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Example profiles" }));
+    await userEvent.click(screen.getByRole("button", { name: "Demo: Maya" }));
+    expect(h.voice.stop).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Try another demo" }));
     expect(h.voice.stop).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to a session-only memory store when loading memory fails, instead of staying blank", async () => {
+  it("keeps profiles for this visit when loading them fails, instead of staying blank", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(browserMemory, "getBrowserMemory").mockRejectedValueOnce(new Error("indexeddb boom"));
+    vi.spyOn(browserMemory, "getBrowserRegistry").mockRejectedValueOnce(new Error("indexeddb boom"));
 
     render(<ConversationScreen />);
 
-    // The page recovers with a working (session-only) memory store instead
-    // of staying blank forever.
-    await screen.findByRole("heading", { name: "Try it with an example profile" });
-    await screen.findByText("Notes won't be saved in this window.");
+    // The page recovers with profiles kept in memory instead of staying blank forever.
+    await screen.findByRole("heading", { name: "Set up OnBeat" });
+    await screen.findByText("Profiles and notes won't be saved in this window.");
     expect(errorSpy).toHaveBeenCalled();
 
     errorSpy.mockRestore();
@@ -250,12 +264,46 @@ describe("ConversationScreen", () => {
     clearCache.mockRestore();
   });
 
-  it("closes the example profiles on first run with the header button", async () => {
+  it("opens on setup with no profiles, and a finished setup shows the conversation", async () => {
     render(<ConversationScreen />);
-    await screen.findByRole("heading", { name: "Try it with an example profile" });
-    await userEvent.click(screen.getByRole("button", { name: "Example profiles" }));
-    expect(screen.queryByRole("heading", { name: "Try it with an example profile" })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Replies" })).toBeInTheDocument();
+    await userEvent.type(await screen.findByLabelText("What's your name?"), "Priya{Enter}");
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.type(screen.getByLabelText("Name", { selector: "#person-name" }), "Sam");
+    await userEvent.type(screen.getByLabelText("Who they are to you"), "my barista");
+    await userEvent.click(screen.getByRole("button", { name: "Add person" }));
+    await userEvent.click(screen.getByRole("button", { name: "Finish" }));
+    expect(await screen.findByRole("option", { name: "Sam" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Priya" })).toBeInTheDocument();
+    expect(screen.getByText("You can add or change notes any time from your profile menu.")).toBeInTheDocument();
+  });
+
+  it("goes back from the demo list to setup", async () => {
+    render(<ConversationScreen />);
+    await userEvent.click(await screen.findByRole("button", { name: "Try a demo first" }));
+    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByRole("heading", { name: "Set up OnBeat" })).toBeInTheDocument();
+  });
+
+  it("edits notes, and a deleted person leaves the Talking with list", async () => {
+    await startWithMaya();
+    await userEvent.click(screen.getByRole("button", { name: "Demo: Maya" }));
+    await userEvent.click(screen.getByRole("button", { name: "Set up your own profile" }));
+    await userEvent.type(screen.getByLabelText("What's your name?"), "Priya{Enter}");
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.type(screen.getByLabelText("Name", { selector: "#person-name" }), "Sam");
+    await userEvent.click(screen.getByRole("button", { name: "Add person" }));
+    await userEvent.click(screen.getByRole("button", { name: "Finish" }));
+    await screen.findByRole("option", { name: "Sam" });
+    expect(screen.queryByText("Nothing you do here is saved.")).toBeNull();
+    await userEvent.selectOptions(screen.getByLabelText("Talking with"), "Sam");
+
+    await userEvent.click(screen.getByRole("button", { name: "Priya" }));
+    await userEvent.click(screen.getByRole("button", { name: "Your notes" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete: Sam" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("option", { name: "Sam" })).toBeNull());
+    expect(screen.getByLabelText("Talking with")).toHaveValue("");
   });
 });
 
