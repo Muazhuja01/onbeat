@@ -83,6 +83,13 @@ describe("checkProposals", () => {
     expect(checkProposals([add("Ana is my carer.", ["b", "zzz"])], req)).toEqual([]);
   });
 
+  it("keeps an edit to a plural day when the line names the day in the singular", () => {
+    const singular: LearnRequest = { ...req, lines: [{ id: "s", speaker: "user", text: "Physio moved to Thursday at 10:30." }] };
+    const p = edit("I have physio on Thursdays at 10:30.", "physio", ["s"]);
+    expect(checkProposals([p], singular)).toEqual([p]);
+    expect(checkProposals([edit("I have physio on Fridays at 10:30.", "physio", ["s"])], singular)).toEqual([]);
+  });
+
   it("drops an edit of a note that wasn't sent, or one that changes nothing", () => {
     expect(checkProposals([edit("I have physio on Thursdays at 10:30.", "other")], req)).toEqual([]);
     expect(checkProposals([edit("I have physio on Tuesdays at 10:30!")], req)).toEqual([]);
