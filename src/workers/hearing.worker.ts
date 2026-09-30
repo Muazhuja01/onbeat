@@ -1,13 +1,14 @@
 import { AutoModel, env, pipeline, Tensor } from "@huggingface/transformers";
-import { Framer, SAMPLE_RATE } from "@/lib/hearing/audio";
+import { Framer, maxTranscriptTokens, SAMPLE_RATE } from "@/lib/hearing/audio";
 import type { HearingWorkerMessage, HearingWorkerRequest } from "@/lib/hearing/messages";
 import { Segmenter, type SegmentEvent } from "@/lib/hearing/segmenter";
+import { trimRepeatedTail } from "@/lib/hearing/transcript";
 
 env.allowLocalModels = false;
 
 type Progress = { status: string; name?: string; file?: string; loaded?: number; total?: number };
 type AsrOutput = { text: string } | { text: string }[];
-type Transcriber = (audio: Float32Array) => Promise<AsrOutput>;
+type Transcriber = (audio: Float32Array, options?: { max_new_tokens?: number }) => Promise<AsrOutput>;
 // pipeline()'s overloads are too complex for TypeScript here; narrow them (as embedder.worker.ts does).
 type AsrFactory = (
   task: "automatic-speech-recognition",
@@ -114,8 +115,8 @@ function enqueue(task: () => Promise<void>): void {
 async function transcribe(audio: Float32Array): Promise<{ text: string; ms: number }> {
   const { asr } = await models!;
   const started = performance.now();
-  const out = await asr(audio);
-  const text = (Array.isArray(out) ? out.map((o) => o.text).join(" ") : out.text).trim();
+  const out = await asr(audio, { max_new_tokens: maxTranscriptTokens(audio.length) });
+  const text = trimRepeatedTail((Array.isArray(out) ? out.map((o) => o.text).join(" ") : out.text).trim());
   return { text, ms: Math.round(performance.now() - started) };
 }
 

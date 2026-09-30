@@ -61,6 +61,17 @@ export class Resampler {
   }
 }
 
+/**
+ * Most tokens Moonshine may write for this much audio. Transformers.js
+ * defaults to floor(seconds) * 6, which is 0 under a second and 6 under two,
+ * so short questions were cut to their first word or two. A quick "What's
+ * your name?" is about 6 tokens a second; the extra room covers that, and the
+ * cap still stops a decode that starts repeating itself.
+ */
+export function maxTranscriptTokens(samples: number): number {
+  return Math.ceil((samples / SAMPLE_RATE) * 8) + 6;
+}
+
 /** Loudness from 0 to 1 for the level meter (root mean square, scaled so speech fills most of it). */
 export function levelOf(samples: Float32Array): number {
   if (samples.length === 0) return 0;
