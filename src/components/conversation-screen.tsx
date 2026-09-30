@@ -137,9 +137,12 @@ function Screen() {
   }, [voice]);
 
   // The microphone would hear the app's own voice: pause while it speaks and a moment after.
+  // Listening carries on under the setup and voice views, where samples play.
   useEffect(() => {
     if (!voice || !hearing) return;
-    const offs = [voice.on("start", () => hearing.pause()), voice.on("end", () => hearing.resume(400))];
+    const pause = () => hearing.pause();
+    const resume = () => hearing.resume(400);
+    const offs = [voice.on("start", pause), voice.on("end", resume), voice.on("sampleStart", pause), voice.on("sampleEnd", resume)];
     return () => offs.forEach((off) => off());
   }, [voice, hearing]);
 
@@ -348,9 +351,10 @@ function Screen() {
   const switchTo = async (id: string) => {
     if (!registry) return;
     await registry.setActive(id);
-    // Before anything can be spoken for the new profile; the effect below keeps it in step afterwards.
-    setCurrentVoice(profileVoice(registry.active()));
     const store = await openProfileMemory(registry, id);
+    // Only once the new profile has opened, before anything can be spoken for it; the
+    // current-voice effect keeps it in step afterwards.
+    setCurrentVoice(profileVoice(registry.active()));
     setDemo(null);
     bumpProfiles();
     showMemory(store);
@@ -478,6 +482,9 @@ function Screen() {
 
   const activeProfile = demo ? null : (registry?.active() ?? null);
   const activeVoice = activeProfile ? profileVoice(activeProfile) : null;
+  // Settings offers the voice only on the conversation: on setup it would show the old
+  // profile's voice, and changing it would lose what was typed.
+  const settingsVoice = view === "conversation" ? activeVoice : null;
   const saveVoice = async (choice: VoiceChoice) => {
     if (!registry || !activeProfile) return;
     try {
@@ -627,9 +634,9 @@ function Screen() {
             digitKeys={settings.digitKeys}
             cloudCaptions={settings.cloudCaptions}
             learning={settings.learning}
-            voiceLabel={activeVoice ? describeVoice(activeVoice) : undefined}
+            voiceLabel={settingsVoice ? describeVoice(settingsVoice) : undefined}
             voiceBasic={voiceMode === "basic"}
-            onVoice={activeVoice ? () => leaveConversation("voice") : undefined}
+            onVoice={settingsVoice ? () => leaveConversation("voice") : undefined}
             onTheme={setTheme}
             onDigitKeys={setDigitKeys}
             onCloudCaptions={setCloudCaptions}
