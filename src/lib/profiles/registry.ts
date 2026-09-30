@@ -1,3 +1,4 @@
+import { learningKeys } from "@/lib/learning/keys";
 import type { Persist, Snapshot } from "@/lib/memory/persist";
 import { idbKeyValue, memoryKeyValue, type KeyValue } from "./kv";
 
@@ -45,6 +46,11 @@ export class ProfileRegistry {
     return this.state.profiles.find((p) => p.id === this.state.activeId) ?? null;
   }
 
+  /** The storage profiles use. Learning keeps each profile's queue and suggestions here too. */
+  get keyValue(): KeyValue {
+    return this.kv;
+  }
+
   async create(name: string): Promise<ProfileInfo> {
     const clean = cleanName(name);
     if (!clean) throw new Error("A profile needs a name");
@@ -63,6 +69,7 @@ export class ProfileRegistry {
     const profiles = this.state.profiles.filter((p) => p.id !== id);
     const activeId = this.state.activeId === id ? (profiles[0]?.id ?? null) : this.state.activeId;
     await this.kv.del(`profile:${id}`);
+    for (const key of learningKeys(id)) await this.kv.del(key);
     await this.write({ ...this.state, activeId, profiles });
   }
 

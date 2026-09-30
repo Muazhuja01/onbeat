@@ -1,10 +1,13 @@
 import { z } from "zod";
+import type { PendingSuggestion } from "@/lib/learning/types";
 import type { Note, Phrase } from "@/lib/types";
 import { cleanName } from "./registry";
 
+const Kind = z.enum(["person", "place", "routine", "preference", "about-me"]);
+
 const NoteSchema = z.object({
   id: z.string(),
-  kind: z.enum(["person", "place", "routine", "preference", "about-me"]),
+  kind: Kind,
   text: z.string().max(2000),
   entities: z.array(z.string().max(200)).max(50),
   updatedAt: z.number(),
@@ -23,6 +26,18 @@ const PhraseSchema = z.object({
   lastUsed: z.number(),
 });
 
+const SuggestionSchema = z.object({
+  id: z.string(),
+  action: z.enum(["add", "edit"]),
+  draft: z.object({ kind: Kind, name: z.string().max(200).optional(), text: z.string().max(2000) }),
+  noteId: z.string().optional(),
+  oldText: z.string().max(2000).optional(),
+  sources: z
+    .array(z.object({ speaker: z.enum(["user", "partner"]), text: z.string().max(2000), at: z.number(), partnerName: z.string().max(200).optional() }))
+    .max(40),
+  createdAt: z.number(),
+});
+
 const ExportSchema = z.object({
   format: z.literal("onbeat-profile"),
   version: z.literal(1),
@@ -30,10 +45,11 @@ const ExportSchema = z.object({
   profile: z.object({ name: z.string() }),
   notes: z.array(NoteSchema).max(5000),
   phrases: z.array(PhraseSchema).max(20000),
+  suggestions: z.array(SuggestionSchema).max(30).optional(),
 });
 
-export function exportProfile(name: string, notes: Note[], phrases: Phrase[], now: Date): string {
-  return JSON.stringify({ format: "onbeat-profile", version: 1, exportedAt: now.toISOString(), profile: { name }, notes, phrases }, null, 2);
+export function exportProfile(name: string, notes: Note[], phrases: Phrase[], now: Date, suggestions: PendingSuggestion[] = []): string {
+  return JSON.stringify({ format: "onbeat-profile", version: 1, exportedAt: now.toISOString(), profile: { name }, notes, phrases, suggestions }, null, 2);
 }
 
 export function exportFileName(name: string, now: Date): string {
@@ -48,7 +64,7 @@ export function exportFileName(name: string, now: Date): string {
 }
 
 /** Reads an export. Ids are made new so importing one file twice never mixes two profiles. */
-export function parseImport(text: string): { name: string; notes: Note[]; phrases: Phrase[] } | null {
+export function parseImport(text: string): { name: string; notes: Note[]; phrases: Phrase[]; suggestions: PendingSuggestion[] } | null {
   let data: unknown;
   try {
     data = JSON.parse(text);
@@ -71,5 +87,17 @@ export function parseImport(text: string): { name: string; notes: Note[]; phrase
       partnerId: p.context.partnerId ? ids.get(p.context.partnerId) : undefined,
     },
   }));
-  return { name, notes, phrases };
+  // A suggested edit follows its note to the note's new id; if the note isn't in the file, it becomes a new note.
+  const suggestions: PendingSuggestion[] = (parsed.data.suggestions ?? []).map((s) => {
+    const noteId = s.noteId ? ids.get(s.noteId) : undefined;
+    return {
+      id: `s_${crypto.randomUUID()}`,
+      action: noteId ? "edit" : "add",
+      draft: s.draft,
+      ...(noteId ? { noteId, ...(s.oldText ? { oldText: s.oldText } : {}) } : {}),
+      sources: s.sources,
+      createdAt: s.createdAt,
+    };
+  });
+  return { name, notes, phrases, suggestions };
 }
