@@ -19,7 +19,8 @@
     "eval:judge-check": "tsx eval/judge-check.ts",
     "eval:learning": "tsx eval/learning/run.ts",
     "eval:learning-judge-check": "tsx eval/learning/judge-check.ts",
-    "eval:assist": "tsx eval/assist/run.ts"
+    "eval:assist": "tsx eval/assist/run.ts",
+    "eval:assist-judge-check": "tsx eval/assist/judge-check.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "3.8.1",
