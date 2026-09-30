@@ -43,6 +43,14 @@ describe("buildLearnMessages", () => {
     expect(user.content).toContain("Today is Wednesday 30 September 2026.");
   });
 
+  it("steers facts about a known person or place into an edit, and keeps vague times as said", () => {
+    const [, user] = buildLearnMessages({ today: "2026-09-30", lines: [{ id: "L1", speaker: "user", text: "Hi" }], notes: [] });
+    expect(user.content).toContain("A fact about a person or place that has a note is a change to that note, not a new note.");
+    expect(user.content).toContain('Write a date only when a line names the day (a weekday, today, tomorrow, or a date). Keep other time words as they were said ("end of the month").');
+    expect(user.content).toContain("Leave out other people's news (a friend's holiday, a child starting school) unless it changes the person's own plans.");
+    expect(user.content).toContain("Don't say what someone's job or role is unless a line or a note says it.");
+  });
+
   it("says when there are no notes", () => {
     const [, user] = buildLearnMessages({ today: "2026-09-30", lines: [{ id: "L1", speaker: "user", text: "Hi" }], notes: [] });
     expect(user.content).toContain("(none)");
