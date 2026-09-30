@@ -68,6 +68,12 @@ describe("checkProposals", () => {
     expect(checkProposals([add("Anna is my new carer.", ["b"], { kind: "person", name: "Anna" })], req)).toEqual([]);
   });
 
+  it("doesn't let a note borrow a detail from an unrelated sent note", () => {
+    const moved = { ...req, lines: [...req.lines, { id: "f", speaker: "partner" as const, text: "My dentist moved to Friday." }] };
+    expect(checkProposals([add("Dentist on Friday at 10:30.", ["f"])], moved)).toEqual([]);
+    expect(checkProposals([edit("I have physio on Fridays at 10:30. I'm Maya.", "physio", ["f"])], moved)).toEqual([]);
+  });
+
   it("drops a detail that is only in a line the proposal doesn't cite", () => {
     expect(checkProposals([add("My new carer Ana starts on Monday.", ["c"])], req)).toEqual([]);
   });
@@ -86,6 +92,18 @@ describe("checkProposals", () => {
     expect(checkProposals([add("I have physio on Tuesdays at 10:30", ["a"])], req)).toEqual([]);
     const first = add("Ana is my new carer.", ["b"]);
     expect(checkProposals([first, add("Ana is my new carer!", ["b"])], req)).toEqual([first]);
+  });
+
+  it("checks an edit as the kind of note it changes, so a name the model adds is checked too", () => {
+    const people: LearnRequest = {
+      ...req,
+      lines: [{ id: "g", speaker: "partner", text: "Your carer comes in the afternoons now." }],
+      notes: [{ id: "ana", kind: "person", text: "Ana: my carer, weekday mornings" }],
+    };
+    const wrongKind: Proposal = { action: "edit", kind: "routine", name: "Anna", noteId: "ana", text: "comes in the afternoons now", lineIds: ["g"] };
+    expect(checkProposals([wrongKind], people)).toEqual([]);
+    const [kept] = checkProposals([{ ...wrongKind, name: "Ana" }], people);
+    expect(kept).toMatchObject({ kind: "person", name: "Ana" });
   });
 
   it("keeps only the first edit of a note", () => {

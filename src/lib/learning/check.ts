@@ -32,16 +32,20 @@ function withoutNamedDates(text: string, lineText: string, today: string): strin
  * Drops, never repairs, a proposal that cites no line or one that wasn't sent; edits a
  * note that wasn't sent, or into the same words; repeats a sent note or an earlier
  * proposal; writes a date its lines don't name; or states a detail (name, number, time,
- * day) found in none of its cited lines and the sent notes. Only the first edit of each
- * note stays.
+ * day) found in none of its cited lines and, for an edit, the note it changes. Only the
+ * first edit of each note stays.
  */
 export function checkProposals(proposals: Proposal[], req: LearnRequest): Proposal[] {
   const lines = new Map(req.lines.map((l) => [l.id, l]));
   const notes = new Map(req.notes.map((n) => [n.id, n.text]));
+  const kinds = new Map(req.notes.map((n) => [n.id, n.kind]));
   const kept: Proposal[] = [];
   const keptTexts: string[] = [];
 
-  for (const p of proposals) {
+  for (const raw of proposals) {
+    // An edit is checked, and shown, as the kind of note it changes; otherwise a name the
+    // model adds to a person note would never be checked.
+    const p: Proposal = raw.action === "edit" ? { ...raw, kind: kinds.get(raw.noteId ?? "") ?? raw.kind } : raw;
     if (p.lineIds.length === 0 || !p.lineIds.every((id) => lines.has(id))) continue;
     const text = composeNoteText({ kind: p.kind, name: p.name, text: p.text });
     if (!text) continue;
@@ -63,7 +67,9 @@ export function checkProposals(proposals: Proposal[], req: LearnRequest): Propos
     // "9:00" says no more than "9", which a line saying "nine" backs; "9:30" still needs its digits.
     // "AM"/"PM" in capitals would be checked as a name; written lowercase ("3pm") they never were.
     const checked = dated.replace(/\b(\d{1,2}):00\b/g, "$1").replace(/\b([AP])\.?M\.?(?![\p{L}])/gu, (m) => m.toLowerCase());
-    const sources = [...cited, ...notes.values()].join("\n");
+    // Spec decision 10: the cited lines, plus the old note for an edit. Other sent notes are
+    // no source, or a new note could borrow an unrelated note's time or name.
+    const sources = [...cited, ...(p.action === "edit" ? [notes.get(p.noteId ?? "") ?? ""] : [])].join("\n");
     if (!extractClaims(checked).every((claim) => claimSupported(claim, sources))) continue;
 
     kept.push(
