@@ -308,6 +308,20 @@ describe("ConversationScreen", () => {
     expect(screen.getByText("You can add or change notes any time from your profile menu.")).toBeInTheDocument();
   });
 
+  it("prepares the on-screen replies again after a voice is saved", async () => {
+    await setUpPriya();
+    await partnerSays("What size?");
+    answer("Large, please.");
+    const prepare = vi.spyOn(h.voice, "prepare");
+    await userEvent.click(screen.getByRole("button", { name: "Priya" }));
+    await userEvent.click(screen.getByRole("button", { name: /^Voice:/ }));
+    await userEvent.click(screen.getByRole("radio", { name: "Faster" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByRole("heading", { name: "Replies" });
+    await waitFor(() => expect(prepare).toHaveBeenCalledWith("Large, please."));
+    prepare.mockRestore();
+  });
+
   it("goes back from the demo list to setup", async () => {
     render(<ConversationScreen />);
     await userEvent.click(await screen.findByRole("button", { name: "Try a demo first" }));

@@ -24,7 +24,7 @@ import { getServerSettings, getSettings, learningTold, markLearningTold, setClou
 import { SuggestClient } from "@/lib/suggest/client";
 import type { Note } from "@/lib/types";
 import { getBrowserVoice, setCurrentVoice } from "@/lib/voice/browser";
-import { describeVoice, type VoiceChoice } from "@/lib/voice/choices";
+import { describeVoice, speedValue, voiceId, type VoiceChoice } from "@/lib/voice/choices";
 import type { VoiceEngine, VoiceMode } from "@/lib/voice/engine";
 import { AnnouncerProvider, useAnnounce } from "./announcer";
 import { CaptionLog } from "./caption-log";
@@ -165,6 +165,8 @@ function Screen() {
   const activeProfileId = demo ? null : (registry?.active()?.id ?? null);
 
   // Every spoken line uses the open profile's (or demo's) voice.
+  const currentChoice = demo ? demo.voice : profileVoice(registry?.active());
+  const voiceKey = `${voiceId(currentChoice)}|${speedValue(currentChoice)}`;
   useEffect(() => {
     setCurrentVoice(demo ? demo.voice : profileVoice(registry?.active()));
   }, [demo, activeProfileId, profilesVersion, registry]);
@@ -192,7 +194,8 @@ function Screen() {
   useEffect(() => {
     if (!voice) return;
     for (const r of state.replies) voice.prepare(r.text);
-  }, [voice, state.replies]);
+    // A changed voice makes the prepared clips the wrong ones: prepare them again (after the current-voice effect above).
+  }, [voice, state.replies, voiceKey]);
 
   useEffect(() => {
     gapTimer.repliesShown(Date.now(), state.replies, state.repliesAskedAt);
