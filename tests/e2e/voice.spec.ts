@@ -23,8 +23,13 @@ test("choose a voice in setup, hear a sample, change it later", async ({ page })
     expect((await new AxeBuilder({ page: p }).withTags(WCAG).analyze()).violations).toEqual([]);
     await p.getByRole("radio", { name: "Male", exact: true }).check();
     await p.getByRole("radio", { name: "Faster" }).check();
-    await p.getByRole("button", { name: "Play a sample" }).click();
+    // Pressed from the keyboard, the button keeps focus while the sample prepares and plays.
+    const play = p.getByRole("button", { name: "Play a sample" });
+    await expect(play).toBeEnabled();
+    await play.focus();
+    await p.keyboard.press("Enter");
     await expect.poll(() => spoken(p)).toContain("Hi, I'm Tom. This is how I'll sound.");
+    await expect(play).toBeFocused();
   });
   expect((await rates(page)).at(-1)).toBeCloseTo(1.15, 2);
 

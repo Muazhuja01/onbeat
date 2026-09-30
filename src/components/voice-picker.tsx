@@ -38,7 +38,7 @@ export function VoicePicker({ value, onChange, name, voice, mode, progress }: Pi
   // A voice's first sample downloads its file, which can take a few seconds.
   const [preparing, setPreparing] = useState(false);
   const playSample = async () => {
-    if (!voice) return;
+    if (!voice || preparing) return;
     setPreparing(true);
     try {
       await voice.sample(sampleText(name), { voice: voiceId(value), speed: speedValue(value) });
@@ -55,9 +55,11 @@ export function VoicePicker({ value, onChange, name, voice, mode, progress }: Pi
       <div className="flex flex-col gap-2">
         <button
           type="button"
-          disabled={loading || preparing || !voice}
+          disabled={loading || !voice}
+          // Not disabled while preparing: that would drop a keyboard user's focus.
+          aria-disabled={preparing || undefined}
           onClick={() => void playSample()}
-          className={`${secondaryButton} self-start`}
+          className={`${secondaryButton} self-start aria-disabled:cursor-not-allowed aria-disabled:opacity-60`}
         >
           {loading ? `Voice loading, ${progress}%` : preparing ? "Preparing sample" : "Play a sample"}
         </button>

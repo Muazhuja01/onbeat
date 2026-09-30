@@ -47,9 +47,14 @@ describe("VoicePicker", () => {
     voice.sample.mockImplementation(() => new Promise<void>((r) => (finish = r)));
     render(<Harness voice={voice} />);
     await userEvent.click(screen.getByRole("button", { name: "Play a sample" }));
-    expect(screen.getByRole("button", { name: "Preparing sample" })).toBeDisabled();
+    // Marked unavailable but not disabled, so a keyboard user's focus stays on it.
+    const preparing = screen.getByRole("button", { name: "Preparing sample" });
+    expect(preparing).toHaveAttribute("aria-disabled", "true");
+    expect(preparing).toBeEnabled();
+    await userEvent.click(preparing);
+    expect(voice.sample).toHaveBeenCalledTimes(1);
     await act(async () => finish());
-    expect(screen.getByRole("button", { name: "Play a sample" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Play a sample" })).not.toHaveAttribute("aria-disabled");
   });
 
   it("pressing Play a sample twice plays two samples and never calls onChange", async () => {
