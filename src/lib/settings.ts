@@ -11,11 +11,15 @@ export interface Settings {
   digitKeys: boolean;
   /** Send the other person's finished lines to Deepgram Nova-3 for more accurate captions. Off unless the user turns it on. */
   cloudCaptions: boolean;
+  /** Suggest notes from conversations. On unless the user turns it off. */
+  learning: boolean;
 }
 
 const THEME_KEY = "onbeat:theme";
 const DIGIT_KEYS_KEY = "onbeat:digit-keys";
 const CLOUD_CAPTIONS_KEY = "onbeat:cloud-captions";
+const LEARNING_KEY = "onbeat:learning";
+const LEARNING_TOLD_KEY = "onbeat:learning-told";
 
 let current: Settings | null = null;
 const listeners = new Set<() => void>();
@@ -43,12 +47,13 @@ export function getSettings(): Settings {
       theme: THEMES.includes(theme as ThemeChoice) ? (theme as ThemeChoice) : "system",
       digitKeys: read(DIGIT_KEYS_KEY) !== "off",
       cloudCaptions: read(CLOUD_CAPTIONS_KEY) === "on",
+      learning: read(LEARNING_KEY) !== "off",
     };
   }
   return current;
 }
 
-const SERVER_SETTINGS: Settings = { theme: "system", digitKeys: true, cloudCaptions: false };
+const SERVER_SETTINGS: Settings = { theme: "system", digitKeys: true, cloudCaptions: false, learning: true };
 export const getServerSettings = (): Settings => SERVER_SETTINGS;
 
 export function subscribeSettings(cb: () => void): () => void {
@@ -78,7 +83,25 @@ export function setCloudCaptions(on: boolean) {
   update({ cloudCaptions: on });
 }
 
+export function setLearning(on: boolean) {
+  write(LEARNING_KEY, on ? null : "off");
+  update({ learning: on });
+}
+
+/** Set once the user has been told notes are suggested; holds for this page even when storage is blocked. */
+let toldThisPage = false;
+
+export function learningTold(): boolean {
+  return toldThisPage || read(LEARNING_TOLD_KEY) === "yes";
+}
+
+export function markLearningTold() {
+  toldThisPage = true;
+  write(LEARNING_TOLD_KEY, "yes");
+}
+
 /** Drops the cached settings so the next read comes from storage. For tests. */
 export function forgetSettings() {
   current = null;
+  toldThisPage = false;
 }

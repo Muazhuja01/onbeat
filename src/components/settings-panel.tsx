@@ -22,12 +22,14 @@ interface Props {
   theme: ThemeChoice;
   digitKeys: boolean;
   cloudCaptions: boolean;
+  learning: boolean;
   onTheme: (theme: ThemeChoice) => void;
   onDigitKeys: (on: boolean) => void;
   onCloudCaptions: (on: boolean) => void;
+  onLearning: (on: boolean) => void;
 }
 
-export function SettingsPanel({ theme, digitKeys, cloudCaptions, onTheme, onDigitKeys, onCloudCaptions }: Props) {
+export function SettingsPanel({ theme, digitKeys, cloudCaptions, learning, onTheme, onDigitKeys, onCloudCaptions, onLearning }: Props) {
   return (
     <details className="group rounded-control border-2 border-ink/30">
       <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 rounded-control px-4 text-body font-bold [&::-webkit-details-marker]:hidden">
@@ -81,6 +83,22 @@ export function SettingsPanel({ theme, digitKeys, cloudCaptions, onTheme, onDigi
           <p id="cloud-captions-hint" className="text-label text-muted">
             When the other person finishes speaking, their words are sent to Deepgram, through Cloudflare, for a more accurate caption.
             OnBeat doesn&apos;t keep the audio. If the service is busy, the caption from this device is used.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="flex min-h-12 cursor-pointer items-center gap-3 text-body">
+            <input
+              type="checkbox"
+              checked={learning}
+              onChange={(e) => onLearning(e.target.checked)}
+              aria-describedby="learning-hint"
+              className="size-6 shrink-0 accent-ink"
+            />
+            Suggest notes from my conversations
+          </label>
+          <p id="learning-hint" className="text-label text-muted">
+            After a pause, OnBeat sends recent lines from your conversations, and the notes they relate to, to its AI service to spot new facts.
+            Nothing is saved until you choose Keep.
           </p>
         </div>
         <div className="flex flex-col gap-2">

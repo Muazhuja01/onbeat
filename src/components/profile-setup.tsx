@@ -215,6 +215,7 @@ export function ProfileSetup({ onDone, onDemo, onCancel, onImport, readDocument 
             <AddedList items={places} onRemove={(i) => setPlaces(places.filter((_, j) => j !== i))} />
             <NoteForm kind="place" idPrefix="place" submitLabel="Add place" onSave={(d) => setPlaces([...places, d])} />
           </div>
+          <p className={hint}>OnBeat will suggest notes from your conversations. You choose what to keep. You can turn this off in Settings.</p>
           <div className="flex flex-wrap gap-3">
             <button type="button" onClick={() => setStep(1)} className={secondaryButton}>
               Back

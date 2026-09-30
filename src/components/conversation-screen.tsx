@@ -15,7 +15,7 @@ import type { MemoryStore } from "@/lib/memory/store";
 import { memoryKeyValue } from "@/lib/profiles/kv";
 import { ProfileRegistry } from "@/lib/profiles/registry";
 import { exportFileName, exportProfile, parseImport } from "@/lib/profiles/transfer";
-import { getServerSettings, getSettings, setCloudCaptions, setDigitKeys, setTheme, subscribeSettings } from "@/lib/settings";
+import { getServerSettings, getSettings, setCloudCaptions, setDigitKeys, setLearning, setTheme, subscribeSettings } from "@/lib/settings";
 import { SuggestClient } from "@/lib/suggest/client";
 import type { Note } from "@/lib/types";
 import { getBrowserVoice } from "@/lib/voice/browser";
@@ -485,9 +485,11 @@ function Screen() {
             theme={settings.theme}
             digitKeys={settings.digitKeys}
             cloudCaptions={settings.cloudCaptions}
+            learning={settings.learning}
             onTheme={setTheme}
             onDigitKeys={setDigitKeys}
             onCloudCaptions={setCloudCaptions}
+            onLearning={setLearning}
           />
         </div>
       </main>

@@ -117,6 +117,13 @@ describe("DocumentImport", () => {
 });
 
 describe("ProfileSetup", () => {
+  it("says on the last step that notes will be suggested", async () => {
+    render(<ProfileSetup onDone={vi.fn()} />);
+    await userEvent.type(screen.getByLabelText("What's your name?"), "Priya{Enter}");
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("OnBeat will suggest notes from your conversations. You choose what to keep. You can turn this off in Settings.")).toBeInTheDocument();
+  });
+
   it("walks through the steps and builds the notes", async () => {
     const onDone = vi.fn();
     render(<ProfileSetup onDone={onDone} onDemo={vi.fn()} />);
@@ -189,6 +196,22 @@ describe("ProfileMenu", () => {
     onRename: vi.fn(),
     onDelete: vi.fn(),
     onDemo: vi.fn(),
+  });
+
+  it("shows how many suggested notes wait, and opens them", async () => {
+    const h = handlers();
+    const onSuggestions = vi.fn();
+    render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} suggestionCount={3} onSuggestions={onSuggestions} {...h} />);
+    const toggle = screen.getByRole("button", { name: "Maya, 3 suggested notes" });
+    await userEvent.click(toggle);
+    await userEvent.click(screen.getByRole("button", { name: "Suggested notes (3)" }));
+    expect(onSuggestions).toHaveBeenCalled();
+  });
+
+  it("names the button plainly with nothing to review", async () => {
+    render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} suggestionCount={0} onSuggestions={vi.fn()} {...handlers()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Maya" }));
+    expect(screen.getByRole("button", { name: "Suggested notes" })).toBeInTheDocument();
   });
 
   it("switches profile and closes", async () => {
