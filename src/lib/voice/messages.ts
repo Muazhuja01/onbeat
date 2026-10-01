@@ -1,9 +1,15 @@
+/** Where spoken lines come from: Chatterbox waking up, Chatterbox ready, or Chatterbox unavailable (the backup speaks). */
+export type VoiceSource = "waking" | "awake" | "down";
+
 export type VoiceWorkerRequest =
   | { type: "load" }
-  | { type: "generate"; id: number; text: string; voice: string; speed: number };
+  | { type: "generate"; id: number; text: string; voice: string; speed: number; urgent?: boolean }
+  /** A line sent earlier as prepared is now the line being said. Only the router acts on it. */
+  | { type: "urgent"; id: number };
 
 export type VoiceWorkerMessage =
   | { type: "ready" }
   | { type: "progress"; value: number }
-  | { type: "audio"; id: number; samples: Float32Array; sampleRate: number }
-  | { type: "error"; id?: number; message: string };
+  | { type: "audio"; id: number; samples: Float32Array; sampleRate: number; backup?: boolean }
+  | { type: "error"; id?: number; message: string }
+  | { type: "source"; source: VoiceSource };

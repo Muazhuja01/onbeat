@@ -41,7 +41,7 @@ test("choose a voice in setup, hear a sample, change it later", async ({ page })
 
   // Change it from the profile menu.
   await page.getByRole("button", { name: /^Tom/ }).click();
-  await page.getByRole("button", { name: "Voice: Male, American, calm" }).click();
+  await page.getByRole("button", { name: "Voice: Male, American, deep" }).click();
   await expect(page.getByRole("heading", { name: "Your voice" })).toBeFocused();
   await page.getByRole("radio", { name: "Slower" }).check();
   await page.getByRole("button", { name: "Save" }).click();

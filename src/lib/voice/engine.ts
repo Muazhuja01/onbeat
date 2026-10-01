@@ -1,5 +1,5 @@
 import type { WorkerLike } from "@/lib/worker-like";
-import type { VoiceWorkerMessage } from "./messages";
+import type { VoiceSource, VoiceWorkerMessage } from "./messages";
 
 export type VoiceMode = "loading" | "natural" | "basic";
 
@@ -17,13 +17,14 @@ export interface BasicSpeech {
 
 /** One line spoken in a different voice and speed, leaving the current voice alone. */
 export type VoiceOverride = { voice: string; speed: number };
-type Clip = { samples: Float32Array; sampleRate: number };
-type Entry = { promise: Promise<Clip>; value?: Clip };
+type Clip = { samples: Float32Array; sampleRate: number; backup?: boolean };
+type Entry = { id: number; promise: Promise<Clip>; value?: Clip };
 type Job = { id: number; key: string; text: string; voice: string; speed: number; urgent: boolean };
 /**
  * start/end are replies (what the user said); sampleStart/sampleEnd are voice samples.
  * waiting is on while a reply waits for its clip in the chosen voice; fallback names a reply
  * the device voice said because that clip failed or took too long.
+ * backup names a reply said by the backup voice because Chatterbox couldn't make it in time.
  */
 type Events = {
   start: string;
@@ -34,6 +35,8 @@ type Events = {
   progress: number;
   waiting: boolean;
   fallback: string;
+  source: VoiceSource;
+  backup: string;
 };
 
 /**
@@ -52,6 +55,8 @@ export interface VoiceEngineDeps {
   speed: () => number;
   naturalWaitMs?: number;
   cacheSize?: number;
+  /** Lines in progress at once. The Kokoro worker makes one at a time; the router can do more. */
+  parallel?: number;
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
@@ -72,6 +77,8 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
 
 export class VoiceEngine {
   mode: VoiceMode = "loading";
+  source: VoiceSource = "waking";
+  private lastReplies: string[] = [];
   private listeners: { [K in keyof Events]: Set<(v: Events[K]) => void> } = {
     start: new Set(),
     end: new Set(),
@@ -81,13 +88,15 @@ export class VoiceEngine {
     progress: new Set(),
     waiting: new Set(),
     fallback: new Set(),
+    source: new Set(),
+    backup: new Set(),
   };
   private clips = new Map<string, Entry>();
   private pending = new Map<number, { resolve: (c: Clip) => void; reject: (e: Error) => void }>();
-  /** Clips not yet sent to the worker. It makes one at a time, so what is said next goes first. */
+  /** Clips not yet sent to the worker. It has limited room, so what is said next goes first. */
   private queue: Job[] = [];
-  /** The clip the worker is making now. */
-  private busy: number | null = null;
+  /** The clips the worker is making now, by id. */
+  private busy = new Map<number, Job>();
   private nextId = 1;
   private token = 0;
   private playing: { text: string; sample: boolean } | null = null;
@@ -125,6 +134,7 @@ export class VoiceEngine {
    * dropped, so it never works through replies nobody can tap any more.
    */
   prepareReplies(texts: string[]): void {
+    this.lastReplies = texts;
     if (this.mode !== "natural") return;
     const keep = new Set(texts.map((t) => this.keyFor(t.trim())));
     for (const job of this.queue.filter((j) => !j.urgent && !keep.has(j.key))) this.drop(job);
@@ -174,7 +184,10 @@ export class VoiceEngine {
       }
       if (token !== this.token) return;
       this.setWaiting(false);
-      if (clip) await this.deps.audio.play(clip.samples, clip.sampleRate);
+      if (clip) {
+        if (clip.backup && !now.sample && this.source !== "down") this.emit("backup", t);
+        await this.deps.audio.play(clip.samples, clip.sampleRate);
+      }
       else {
         // Not silent: the screen says the device voice said it instead.
         if (natural && !now.sample) this.emit("fallback", t);
@@ -216,11 +229,21 @@ export class VoiceEngine {
       this.clips.delete(key);
       this.clips.set(key, existing);
       const waiting = this.queue.findIndex((j) => j.key === key);
-      if (urgent && waiting > 0) this.queue.unshift({ ...this.queue.splice(waiting, 1)[0], urgent: true });
+      if (urgent && waiting >= 0) {
+        this.queue.unshift({ ...this.queue.splice(waiting, 1)[0], urgent: true });
+        // Now, not when a busy line settles: after idle that can be a whole cold start.
+        this.pump();
+      }
+      // Already sent as a prepared reply and not answered yet: tell the worker it is now being said.
+      const sent = this.busy.get(existing.id);
+      if (urgent && sent && !sent.urgent) {
+        sent.urgent = true;
+        this.deps.worker?.postMessage({ type: "urgent", id: sent.id });
+      }
       return existing;
     }
     const id = this.nextId++;
-    const entry = {} as Entry;
+    const entry = { id } as Entry;
     entry.promise = new Promise<Clip>((resolve, reject) =>
       this.pending.set(id, {
         // Set at once, so a line said right after its clip arrives doesn't wait a tick.
@@ -238,13 +261,18 @@ export class VoiceEngine {
     return entry;
   }
 
-  /** Sends the next queued clip once the worker is free. */
+  /** Sends queued clips while the worker has room. */
   private pump(): void {
-    if (this.busy !== null || !this.deps.worker) return;
-    const job = this.queue.shift();
-    if (!job) return;
-    this.busy = job.id;
-    this.deps.worker.postMessage({ type: "generate", id: job.id, text: job.text, voice: job.voice, speed: job.speed });
+    if (!this.deps.worker) return;
+    const cap = this.deps.parallel ?? 1;
+    // With the router (parallel > 1), a line being said never waits for a slot: the router may be
+    // holding prepared replies until Chatterbox wakes, and it sends urgent lines to the backup.
+    // A one-at-a-time worker keeps its cap; sending early wouldn't make the line sooner.
+    while (this.queue.length && (this.busy.size < cap || (cap > 1 && this.queue[0].urgent))) {
+      const job = this.queue.shift()!;
+      this.busy.set(job.id, job);
+      this.deps.worker.postMessage({ type: "generate", id: job.id, text: job.text, voice: job.voice, speed: job.speed, urgent: job.urgent });
+    }
   }
 
   /** Takes a clip the worker hasn't started off the queue. */
@@ -254,9 +282,9 @@ export class VoiceEngine {
     this.pending.delete(job.id);
   }
 
-  /** A clip finished or failed: the worker is free for the next one. */
+  /** A clip finished or failed: the worker has room for the next one. */
   private settled(id: number): void {
-    if (this.busy === id) this.busy = null;
+    this.busy.delete(id);
     this.pump();
   }
 
@@ -271,7 +299,7 @@ export class VoiceEngine {
       case "audio": {
         const p = this.pending.get(msg.id);
         this.pending.delete(msg.id);
-        p?.resolve({ samples: msg.samples, sampleRate: msg.sampleRate });
+        p?.resolve({ samples: msg.samples, sampleRate: msg.sampleRate, ...(msg.backup ? { backup: true } : {}) });
         this.settled(msg.id);
         return;
       }
@@ -282,13 +310,24 @@ export class VoiceEngine {
           this.pending.clear();
           this.clips.clear();
           this.queue = [];
-          this.busy = null;
+          this.busy.clear();
           return;
         }
         const p = this.pending.get(msg.id);
         this.pending.delete(msg.id);
         p?.reject(new Error(msg.message));
         this.settled(msg.id);
+        return;
+      }
+      case "source": {
+        this.source = msg.source;
+        this.emit("source", msg.source);
+        if (msg.source === "awake") {
+          // Never replay a backup clip once the chosen voice is available.
+          for (const [key, entry] of this.clips) if (entry.value?.backup) this.clips.delete(key);
+          this.prepareReplies(this.lastReplies);
+        }
+        return;
       }
     }
   }

@@ -2,7 +2,7 @@
 
 OnBeat is a web app for people who can't speak and have to communicate by typing. It listens to the person they're talking with and suggests short replies they can say out loud with one tap.
 
-Try it at https://onbeat-mu.vercel.app (set up a profile, or choose "Try a demo first" to use an example person; the speech and voice models download to your browser the first time).
+Try it at https://onbeat-mu.vercel.app (set up a profile, or choose "Try a demo first" to use an example person; the speech models download to your browser the first time).
 
 It's meant for both hearing and Deaf users. The other person's speech is shown as live captions, and every reply the user speaks is shown on screen as well.
 
@@ -19,12 +19,13 @@ Phones already offer captions and type-to-speak. OnBeat tries to shorten the gap
 - The user picks one or types their own. Nothing is spoken until they tap.
 - A reply is discarded if it mentions a name, number or time that isn't in the user's notes or the conversation.
 - Notes are stored in the browser. Only the few notes relevant to the current reply, or to the lines being learned from, are sent to the model. The assistant sends more when it's used: notes up to 12,000 characters, and the quick phrases.
+- Each line the app speaks is sent through OnBeat's server to the voice service on Modal, which makes the audio. It isn't stored or logged.
 
 ## Status
 
 Listening works: the other person's speech is captioned in the browser and replies are prepared while they talk. The app passes axe checks in light, dark and high-contrast themes and works with a keyboard alone. A small settings panel sets the theme (it follows the device's contrast setting by default) and turns the number-key shortcuts off for voice control users.
 
-Profiles: the first visit asks for a name, a short note about the user, how their voice should sound, and a few people and places. Each profile keeps its own voice, which can be changed later from the profile menu or Settings. Each voice downloads a small file the first time it's used. Several people can keep profiles in one browser and switch between them. Notes can be added, edited and deleted at any time, and a profile can be exported to a file and imported again (for a backup or another device). Notes can also be started from a document (.txt, .md, .docx or .pdf): its text is sent to the language model, which suggests short notes, and the user picks which to keep. The example people are behind a demo link and are never saved.
+Profiles: the first visit asks for a name, a short note about the user, how their voice should sound, and a few people and places. Each profile keeps its own voice, which can be changed later from the profile menu or Settings. There are 13 voices in American, Canadian and British accents. Several people can keep profiles in one browser and switch between them. Notes can be added, edited and deleted at any time, and a profile can be exported to a file and imported again (for a backup or another device). Notes can also be started from a document (.txt, .md, .docx or .pdf): its text is sent to the language model, which suggests short notes, and the user picks which to keep. The example people are behind a demo link and are never saved.
 
 Suggested notes: after a pause in a conversation, the recent lines (what the other person said and what the user typed) and the few notes they relate to are sent to the language model, which suggests new notes or changes to existing ones. Each suggestion shows the line it came from, and nothing is saved until the user chooses Keep. Replies the user tapped without changing them are never learned from. It can be turned off in Settings. Measurements are in [eval/learning/RESULTS.md](eval/learning/RESULTS.md).
 
@@ -43,17 +44,21 @@ The judge flags plain answers too often, so the invented rates run high. The cla
 
 ## Planned stack
 
-Next.js and TypeScript, Orama for in-browser search, Transformers.js, Moonshine for speech recognition, Kokoro for text-to-speech, and the Groq and Cloudflare Workers AI APIs.
+Next.js and TypeScript, Orama for in-browser search, Transformers.js, Moonshine for speech recognition, Chatterbox on Modal for text-to-speech, with Kokoro in the browser as the backup voice, and the Groq and Cloudflare Workers AI APIs.
+
+## Voices
+
+The voices are made by Chatterbox (Resemble AI, MIT) from recordings in the CSTR VCTK Corpus (University of Edinburgh, CC BY 4.0). See [voice-server/refs/README.md](voice-server/refs/README.md) for full credits.
 
 ## Run it locally
 
 You need Node 24.
 
 1. `npm install`
-2. Copy `.env.example` to `.env.local` and add free API keys from [Groq](https://console.groq.com/keys) and [Cloudflare Workers AI](https://dash.cloudflare.com) (open Workers AI, then "Use REST API" for the account ID and a token). The app still runs without them, but only past phrases are suggested.
+2. Copy `.env.example` to `.env.local` and add free API keys from [Groq](https://console.groq.com/keys) and [Cloudflare Workers AI](https://dash.cloudflare.com) (open Workers AI, then "Use REST API" for the account ID and a token). The app still runs without them, but only past phrases are suggested. Without the three `MODAL_` settings (see `voice-server/README.md`) every line uses the backup voice.
 3. `npm run dev` and open http://localhost:3000
 
-The first visit downloads the voice (about 90 MB) and the search model (about 23 MB). Pressing Listen downloads speech recognition (about 53 MB) the first time. All are cached by the browser afterwards.
+The first visit downloads the backup voice (about 90 MB) and the search model (about 23 MB). Pressing Listen downloads speech recognition (about 53 MB) the first time. All are cached by the browser afterwards.
 
 Checks: `npm run lint`, `npm run typecheck`, `npm test`, `npm run e2e`.
 

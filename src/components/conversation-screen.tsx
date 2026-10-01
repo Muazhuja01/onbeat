@@ -27,6 +27,7 @@ import type { Note } from "@/lib/types";
 import { getBrowserVoice, setCurrentVoice } from "@/lib/voice/browser";
 import { describeVoice, speedValue, voiceId, type VoiceChoice } from "@/lib/voice/choices";
 import type { VoiceEngine, VoiceMode } from "@/lib/voice/engine";
+import type { VoiceSource } from "@/lib/voice/messages";
 import { AnnouncerProvider, useAnnounce } from "./announcer";
 import { CaptionLog } from "./caption-log";
 import { Composer } from "./composer";
@@ -72,6 +73,7 @@ type View = "loading" | "setup" | "demo-picker" | "notes" | "suggestions" | "voi
 
 const SAVE_FAILED = "Couldn't save. Your browser's storage may be full.";
 const LEARNING_NOTICE = "New: OnBeat can suggest notes from your conversations for you to review. Turn it off in Settings.";
+const VOICE_BACKUP = "Your voice wasn't ready in time, so the backup voice said that.";
 const VOICE_FALLBACK = "Your voice wasn't ready in time, so your device's voice said that.";
 
 function Screen() {
@@ -120,6 +122,8 @@ function Screen() {
   const voice = useSyncExternalStore(subscribeNever, getBrowserVoice, noVoice);
   const subscribeMode = useCallback((cb: () => void) => (voice ? voice.on("mode", cb) : () => {}), [voice]);
   const voiceMode = useSyncExternalStore<VoiceMode>(subscribeMode, () => voice?.mode ?? "loading", () => "loading");
+  const subscribeSource = useCallback((cb: () => void) => (voice ? voice.on("source", cb) : () => {}), [voice]);
+  const voiceSource = useSyncExternalStore<VoiceSource>(subscribeSource, () => voice?.source ?? "waking", () => "waking");
   // Hearing is an external store like the voice (spec 4, hearing unit).
   const hearing = useSyncExternalStore(subscribeNever, getBrowserHearing, noHearing);
   const subscribeHearing = useCallback((cb: () => void) => (hearing ? hearing.on("status", cb) : () => {}), [hearing]);
@@ -141,6 +145,7 @@ function Screen() {
       voice.on("end", (text) => dispatch({ type: "speakEnd", text })),
       voice.on("waiting", setVoiceWaiting),
       voice.on("fallback", () => dispatch({ type: "notice", text: VOICE_FALLBACK })),
+      voice.on("backup", () => dispatch({ type: "notice", text: VOICE_BACKUP })),
     ];
     voice.load();
     return () => offs.forEach((off) => off());
@@ -723,7 +728,7 @@ function Screen() {
               onSpeak={speak}
               onFocusReplies={focusReplies}
             />
-            <VoiceStatus mode={voiceMode} progress={voiceProgress} />
+            <VoiceStatus mode={voiceMode} source={voiceSource} progress={voiceProgress} />
             {showTimer && <ResponseGap gaps={gaps} />}
           </div>
         </div>

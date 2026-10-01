@@ -11,6 +11,9 @@ export async function prepare(page: Page, theme?: string) {
   // No model downloads in tests: the embedder falls back to text search and
   // the voice falls back to the (stubbed) browser speech engine.
   await page.route(/huggingface\.co|hf\.co|cdn-lfs/, (route) => route.abort());
+  // No voice server in tests unless a test asks for one: with Kokoro's download blocked too,
+  // the app falls back to the (stubbed) browser speech engine as before.
+  await page.route("**/api/speak**", (route) => route.fulfill({ status: 503, contentType: "application/json", body: '{"error":"unavailable"}' }));
   await page.route("**/api/suggest", (route) =>
     route.fulfill({ status: 200, contentType: "text/plain", headers: { "x-onbeat-provider": "groq" }, body: MODEL_LINES }),
   );

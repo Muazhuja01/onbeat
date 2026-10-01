@@ -198,7 +198,7 @@ describe("ProfileSetup", () => {
     await userEvent.click(screen.getByRole("radio", { name: "Male" }));
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await userEvent.click(screen.getByRole("button", { name: "Finish" }));
-    expect(onDone).toHaveBeenCalledWith("Tom", expect.any(Array), { gender: "male", accent: "american", style: "calm", speed: "normal" });
+    expect(onDone).toHaveBeenCalledWith("Tom", expect.any(Array), { gender: "male", accent: "american", style: "deep", speed: "normal", v: 2 });
   });
 
   it("keeps the default voice on Skip", async () => {

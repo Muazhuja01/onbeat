@@ -2,7 +2,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_VOICE, MALE_NOTE, type VoiceChoice } from "@/lib/voice/choices";
+import { DEFAULT_VOICE, type VoiceChoice } from "@/lib/voice/choices";
 import type { VoiceEngine } from "@/lib/voice/engine";
 import { VoicePicker, VoiceScreen } from "./voice-picker";
 
@@ -18,17 +18,19 @@ function Harness({ voice, mode = "natural" as const }: { voice: VoiceEngine; mod
 }
 
 describe("VoicePicker", () => {
-  it("changes the styles with the voice and accent, and shows the male note", async () => {
+  it("changes the styles with the voice and accent", async () => {
     render(<Harness voice={fakeVoice()} />);
-    expect(screen.getByRole("radio", { name: "Soft" })).toBeVisible();
+    expect(screen.getByRole("radio", { name: "Clear" })).toBeVisible();
     await userEvent.click(screen.getByRole("radio", { name: "Male" }));
-    expect(screen.getByRole("radio", { name: "Calm" })).toBeChecked();
-    expect(screen.queryByRole("radio", { name: "Soft" })).toBeNull();
-    expect(screen.getByText(MALE_NOTE)).toBeVisible();
+    expect(screen.getByRole("radio", { name: "Deep" })).toBeChecked();
+    expect(screen.queryByRole("radio", { name: "Clear" })).toBeNull();
+    expect(screen.queryByText(/less natural/)).toBeNull();
+    await userEvent.click(screen.getByRole("radio", { name: "Canadian" }));
+    expect(screen.getByRole("radio", { name: "Warm" })).toBeChecked();
     await userEvent.click(screen.getByRole("radio", { name: "British" }));
     const styleRadios = within(screen.getByRole("group", { name: "Style" })).getAllByRole("radio");
     const styleNames = styleRadios.map((r) => r.closest("label")?.textContent ?? "");
-    expect(styleNames).toEqual(["Calm", "Warm"]);
+    expect(styleNames).toEqual(["Calm", "Warm", "Bright", "Gentle"]);
   });
 
   it("plays a sample in the chosen voice and speed", async () => {
@@ -37,7 +39,7 @@ describe("VoicePicker", () => {
     await userEvent.click(screen.getByRole("radio", { name: "Male" }));
     await userEvent.click(screen.getByRole("radio", { name: "Faster" }));
     await userEvent.click(screen.getByRole("button", { name: "Play a sample" }));
-    expect(voice.sample).toHaveBeenCalledWith("Hi, I'm Tom. This is how I'll sound.", { voice: "am_michael", speed: 1.15 });
+    expect(voice.sample).toHaveBeenCalledWith("Hi, I'm Tom. This is how I'll sound.", { voice: "m_us_deep", speed: 1.15 });
     expect(voice.speak).not.toHaveBeenCalled();
   });
 
@@ -87,6 +89,6 @@ describe("VoiceScreen", () => {
     expect(screen.getByRole("heading", { name: "Your voice" })).toHaveFocus();
     await userEvent.click(screen.getByRole("radio", { name: "Male" }));
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(onSave).toHaveBeenCalledWith({ gender: "male", accent: "american", style: "calm", speed: "normal" });
+    expect(onSave).toHaveBeenCalledWith({ gender: "male", accent: "american", style: "deep", speed: "normal", v: 2 });
   });
 });

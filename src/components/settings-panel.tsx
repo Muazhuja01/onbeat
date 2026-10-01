@@ -70,6 +70,7 @@ export function SettingsPanel({ theme, digitKeys, cloudCaptions, learning, voice
               </button>
             </div>
             {voiceBasic && <p className="text-label text-muted">Using your device&apos;s voice</p>}
+            <p className="text-label text-muted">Lines you say are sent through OnBeat to our voice service to be spoken. They aren&apos;t stored.</p>
           </div>
         )}
         <div className="flex flex-col gap-1">

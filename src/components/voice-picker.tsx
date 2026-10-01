@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ACCENTS, GENDERS, MALE_NOTE, SPEEDS, normalizeChoice, sampleText, speedValue, stylesFor, voiceId, type VoiceChoice } from "@/lib/voice/choices";
+import { ACCENTS, GENDERS, SPEEDS, normalizeChoice, sampleText, speedValue, stylesFor, voiceId, type VoiceChoice } from "@/lib/voice/choices";
 import type { VoiceEngine, VoiceMode } from "@/lib/voice/engine";
 import { hint, primaryButton, secondaryButton } from "./ui";
 
@@ -63,7 +63,6 @@ export function VoicePicker({ value, onChange, name, voice, mode, progress }: Pi
         >
           {loading ? `Voice loading, ${progress}%` : preparing ? "Preparing sample" : "Play a sample"}
         </button>
-        {value.gender === "male" && <p className={hint}>{MALE_NOTE}</p>}
         {mode === "basic" && <p className={hint}>Your device&apos;s voice will be used, and it may not match this choice.</p>}
       </div>
     </div>

@@ -268,6 +268,132 @@ describe("VoiceEngine", () => {
     w.emit({ type: "progress", value: 42 });
     expect(progress).toEqual([42]);
   });
+
+  it("keeps up to `parallel` lines in progress, the line being said first, and marks it urgent", () => {
+    const w = new FakeWorker();
+    const a = fakeAudio();
+    const { basic } = fakeBasic();
+    const v = new VoiceEngine({ ...deps(w, a.audio, basic), naturalWaitMs: 5000, parallel: 3 });
+    v.load();
+    w.emit({ type: "ready" });
+    const gens = () => w.sent.filter((m): m is Extract<VoiceWorkerRequest, { type: "generate" }> => m.type === "generate");
+    v.prepareReplies(["A", "B", "C", "D"]);
+    expect(gens().map((g) => g.text)).toEqual(["A", "B", "C"]);
+    expect(gens().every((g) => !g.urgent)).toBe(true);
+    void v.speak("Typed");
+    expect(gens().map((g) => g.text)).toEqual(["A", "B", "C", "Typed"]);
+    expect(gens().at(-1)).toMatchObject({ text: "Typed", urgent: true });
+    // Prepared replies still wait for a free slot.
+    w.emit({ type: "audio", id: gens()[0].id, samples: new Float32Array(1), sampleRate: 24000 });
+    expect(gens().map((g) => g.text)).toEqual(["A", "B", "C", "Typed"]);
+    w.emit({ type: "audio", id: gens()[1].id, samples: new Float32Array(1), sampleRate: 24000 });
+    expect(gens().map((g) => g.text)).toEqual(["A", "B", "C", "Typed", "D"]);
+  });
+
+  it("a line being said goes out at once even when the worker is holding prepared replies", () => {
+    // Like the router while Chatterbox wakes: prepared lines are held, never answered.
+    const w = new FakeWorker();
+    const a = fakeAudio();
+    const { basic } = fakeBasic();
+    const v = new VoiceEngine({ ...deps(w, a.audio, basic), naturalWaitMs: 5000, parallel: 3 });
+    v.load();
+    w.emit({ type: "ready" });
+    const gens = () => w.sent.filter((m): m is Extract<VoiceWorkerRequest, { type: "generate" }> => m.type === "generate");
+    v.prepareReplies(["A", "B", "C"]);
+    expect(gens().map((g) => [g.text, g.urgent])).toEqual([["A", false], ["B", false], ["C", false]]);
+    void v.speak("Typed");
+    expect(gens().at(-1)).toMatchObject({ text: "Typed", urgent: true });
+    v.prepareReplies(["D"]);
+    expect(gens()).toHaveLength(4);
+  });
+
+  it("marks a tapped reply urgent even when it is already first in the queue, and keeps it", () => {
+    const w = new FakeWorker();
+    const a = fakeAudio();
+    const { basic } = fakeBasic();
+    const v = new VoiceEngine({ ...deps(w, a.audio, basic), naturalWaitMs: 5000, parallel: 3 });
+    v.load();
+    w.emit({ type: "ready" });
+    const gens = () => w.sent.filter((m): m is Extract<VoiceWorkerRequest, { type: "generate" }> => m.type === "generate");
+    v.prepareReplies(["A", "B", "C", "D"]);
+    expect(gens().map((g) => g.text)).toEqual(["A", "B", "C"]);
+    void v.speak("D");
+    // Sent at once, before any line settles: after idle a busy line can take a whole cold start.
+    expect(gens().map((g) => g.text)).toEqual(["A", "B", "C", "D"]);
+    expect(gens().at(-1)).toMatchObject({ text: "D", urgent: true });
+    v.prepareReplies(["X", "Y"]);
+    w.emit({ type: "audio", id: gens()[0].id, samples: new Float32Array(1), sampleRate: 24000 });
+    expect(gens().filter((g) => g.text === "D")).toHaveLength(1);
+  });
+
+  it("tells the worker once when a reply it is already making becomes the line being said", async () => {
+    const w = new FakeWorker();
+    const a = fakeAudio();
+    const { basic } = fakeBasic();
+    const v = new VoiceEngine({ ...deps(w, a.audio, basic), naturalWaitMs: 5000, parallel: 3 });
+    v.load();
+    w.emit({ type: "ready" });
+    const gens = () => w.sent.filter((m): m is Extract<VoiceWorkerRequest, { type: "generate" }> => m.type === "generate");
+    const urgents = () => w.sent.filter((m) => m.type === "urgent");
+    v.prepareReplies(["A", "B", "C", "D"]);
+    const b = gens().find((g) => g.text === "B")!;
+    void v.speak("B");
+    void v.speak("B");
+    expect(urgents()).toEqual([{ type: "urgent", id: b.id }]);
+    // Still in the engine's queue: it moves to the front and goes out urgent, no extra message.
+    void v.speak("D");
+    w.emit({ type: "audio", id: gens()[0].id, samples: new Float32Array(1), sampleRate: 24000 });
+    expect(gens().at(-1)).toMatchObject({ text: "D", urgent: true });
+    // Already answered: nothing to tell.
+    void v.speak("A");
+    await vi.waitFor(() => expect(a.played).toEqual([1]));
+    expect(urgents()).toHaveLength(1);
+  });
+
+  it("says when a reply came from the backup voice, but not while the backup is the only voice", async () => {
+    const w = new FakeWorker();
+    const a = fakeAudio();
+    const { basic } = fakeBasic();
+    const v = new VoiceEngine({ ...deps(w, a.audio, basic), naturalWaitMs: 5000 });
+    const backups: string[] = [];
+    v.on("backup", (t) => backups.push(t));
+    v.load();
+    w.emit({ type: "ready" });
+    const first = v.speak("One");
+    w.emit({ type: "audio", id: w.lastGenerate().id, samples: new Float32Array(1), sampleRate: 24000, backup: true });
+    await vi.waitFor(() => expect(a.played).toEqual([1]));
+    a.finish();
+    await first;
+    expect(backups).toEqual(["One"]);
+    w.emit({ type: "source", source: "down" });
+    const second = v.speak("Two");
+    w.emit({ type: "audio", id: w.lastGenerate().id, samples: new Float32Array(1), sampleRate: 24000, backup: true });
+    await vi.waitFor(() => expect(a.played).toEqual([1, 1]));
+    a.finish();
+    await second;
+    expect(backups).toEqual(["One"]);
+  });
+
+  it("reports the source, and once Chatterbox is awake remakes replies that came from the backup", () => {
+    const w = new FakeWorker();
+    const a = fakeAudio();
+    const { basic } = fakeBasic();
+    const v = new VoiceEngine({ ...deps(w, a.audio, basic), parallel: 3 });
+    const sources: string[] = [];
+    v.on("source", (s) => sources.push(s));
+    expect(v.source).toBe("waking");
+    v.load();
+    w.emit({ type: "ready" });
+    v.prepareReplies(["A", "B"]);
+    const [a1, b1] = w.sent.filter((m) => m.type === "generate") as Extract<VoiceWorkerRequest, { type: "generate" }>[];
+    w.emit({ type: "audio", id: a1.id, samples: new Float32Array(1), sampleRate: 24000, backup: true });
+    w.emit({ type: "audio", id: b1.id, samples: new Float32Array(1), sampleRate: 24000 });
+    w.emit({ type: "source", source: "awake" });
+    expect(sources).toEqual(["awake"]);
+    expect(v.source).toBe("awake");
+    const texts = w.sent.flatMap((m) => (m.type === "generate" ? [m.text] : []));
+    expect(texts).toEqual(["A", "B", "A"]);
+  });
 });
 
 describe("voices", () => {
