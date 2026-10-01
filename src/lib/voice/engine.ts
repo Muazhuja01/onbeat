@@ -18,10 +18,30 @@ export interface BasicSpeech {
 /** One line spoken in a different voice and speed, leaving the current voice alone. */
 export type VoiceOverride = { voice: string; speed: number };
 type Clip = { samples: Float32Array; sampleRate: number };
-/** start/end are replies (what the user said); sampleStart/sampleEnd are voice samples. */
-type Events = { start: string; end: string; sampleStart: string; sampleEnd: string; mode: VoiceMode; progress: number };
+type Entry = { promise: Promise<Clip>; value?: Clip };
+type Job = { id: number; key: string; text: string; voice: string; speed: number; urgent: boolean };
+/**
+ * start/end are replies (what the user said); sampleStart/sampleEnd are voice samples.
+ * waiting is on while a reply waits for its clip in the chosen voice; fallback names a reply
+ * the device voice said because that clip failed or took too long.
+ */
+type Events = {
+  start: string;
+  end: string;
+  sampleStart: string;
+  sampleEnd: string;
+  mode: VoiceMode;
+  progress: number;
+  waiting: boolean;
+  fallback: string;
+};
 
-/** A sample's first use of a voice downloads that voice's file, so it can wait much longer than a reply. */
+/**
+ * Once the natural voice is ready, a reply waits this long for its clip rather than being said
+ * in the device's voice, which sounds nothing like the one the user chose. A clip takes a few
+ * seconds on a laptop's processor; a sample's first use of a voice also downloads its file.
+ */
+const REPLY_WAIT_MS = 20_000;
 const SAMPLE_WAIT_MS = 20_000;
 
 export interface VoiceEngineDeps {
@@ -59,12 +79,19 @@ export class VoiceEngine {
     sampleEnd: new Set(),
     mode: new Set(),
     progress: new Set(),
+    waiting: new Set(),
+    fallback: new Set(),
   };
-  private clips = new Map<string, Promise<Clip>>();
+  private clips = new Map<string, Entry>();
   private pending = new Map<number, { resolve: (c: Clip) => void; reject: (e: Error) => void }>();
+  /** Clips not yet sent to the worker. It makes one at a time, so what is said next goes first. */
+  private queue: Job[] = [];
+  /** The clip the worker is making now. */
+  private busy: number | null = null;
   private nextId = 1;
   private token = 0;
   private playing: { text: string; sample: boolean } | null = null;
+  private waitingNow = false;
 
   constructor(private readonly deps: VoiceEngineDeps) {
     if (deps.worker) deps.worker.onmessage = (e: MessageEvent) => this.onWorkerMessage(e.data as VoiceWorkerMessage);
@@ -90,12 +117,23 @@ export class VoiceEngine {
 
   prepare(text: string): void {
     const t = text.trim();
-    if (t && this.mode === "natural") this.clip(t).catch(() => {});
+    if (t && this.mode === "natural") this.clip(t).promise.catch(() => {});
+  }
+
+  /**
+   * Prepares the replies on screen. Clips for earlier replies that the worker hasn't started are
+   * dropped, so it never works through replies nobody can tap any more.
+   */
+  prepareReplies(texts: string[]): void {
+    if (this.mode !== "natural") return;
+    const keep = new Set(texts.map((t) => this.keyFor(t.trim())));
+    for (const job of this.queue.filter((j) => !j.urgent && !keep.has(j.key))) this.drop(job);
+    for (const t of texts) this.prepare(t);
   }
 
   /** Speaks a reply in the current voice. */
   speak(text: string): Promise<void> {
-    return this.play(text, this.deps.naturalWaitMs ?? 1500);
+    return this.play(text, this.deps.naturalWaitMs ?? REPLY_WAIT_MS);
   }
 
   /**
@@ -111,6 +149,7 @@ export class VoiceEngine {
     const was = this.playing;
     this.token++;
     this.playing = null;
+    this.setWaiting(false);
     this.deps.audio.stop();
     this.deps.basic.stop();
     if (was) this.emit(was.sample ? "sampleEnd" : "end", was.text);
@@ -125,10 +164,22 @@ export class VoiceEngine {
     this.playing = now;
     this.emit(now.sample ? "sampleStart" : "start", t);
     try {
-      const clip = this.mode === "natural" ? await withTimeout(this.clip(t, as), waitMs) : null;
+      const natural = this.mode === "natural";
+      let clip: Clip | null = null;
+      if (natural) {
+        const entry = this.clip(t, as, true);
+        // The sample picker shows its own "Preparing sample".
+        if (!entry.value && !now.sample) this.setWaiting(true);
+        clip = entry.value ?? (await withTimeout(entry.promise, waitMs));
+      }
       if (token !== this.token) return;
+      this.setWaiting(false);
       if (clip) await this.deps.audio.play(clip.samples, clip.sampleRate);
-      else await this.deps.basic.speak(t, as?.speed ?? this.deps.speed());
+      else {
+        // Not silent: the screen says the device voice said it instead.
+        if (natural && !now.sample) this.emit("fallback", t);
+        await this.deps.basic.speak(t, as?.speed ?? this.deps.speed());
+      }
     } finally {
       if (token === this.token && this.playing === now) {
         this.playing = null;
@@ -147,23 +198,66 @@ export class VoiceEngine {
     this.emit("mode", mode);
   }
 
-  private clip(text: string, as?: VoiceOverride): Promise<Clip> {
-    const voice = as?.voice ?? this.deps.voice();
-    const speed = as?.speed ?? this.deps.speed();
-    const key = `${voice}|${speed}|${text}`;
+  private setWaiting(on: boolean): void {
+    if (this.waitingNow === on) return;
+    this.waitingNow = on;
+    this.emit("waiting", on);
+  }
+
+  private keyFor(text: string, as?: VoiceOverride): string {
+    return `${as?.voice ?? this.deps.voice()}|${as?.speed ?? this.deps.speed()}|${text}`;
+  }
+
+  /** The clip for a line, made if needed. An urgent one (about to be said) goes to the front. */
+  private clip(text: string, as?: VoiceOverride, urgent = false): Entry {
+    const key = this.keyFor(text, as);
     const existing = this.clips.get(key);
     if (existing) {
       this.clips.delete(key);
       this.clips.set(key, existing);
+      const waiting = this.queue.findIndex((j) => j.key === key);
+      if (urgent && waiting > 0) this.queue.unshift({ ...this.queue.splice(waiting, 1)[0], urgent: true });
       return existing;
     }
     const id = this.nextId++;
-    const promise = new Promise<Clip>((resolve, reject) => this.pending.set(id, { resolve, reject }));
-    promise.catch(() => this.clips.delete(key));
-    this.clips.set(key, promise);
+    const entry = {} as Entry;
+    entry.promise = new Promise<Clip>((resolve, reject) =>
+      this.pending.set(id, {
+        // Set at once, so a line said right after its clip arrives doesn't wait a tick.
+        resolve: (value) => resolve((entry.value = value)),
+        reject,
+      }),
+    );
+    entry.promise.catch(() => this.clips.get(key) === entry && this.clips.delete(key));
+    this.clips.set(key, entry);
     while (this.clips.size > (this.deps.cacheSize ?? 30)) this.clips.delete(this.clips.keys().next().value as string);
-    this.deps.worker?.postMessage({ type: "generate", id, text, voice, speed });
-    return promise;
+    const job: Job = { id, key, text, voice: as?.voice ?? this.deps.voice(), speed: as?.speed ?? this.deps.speed(), urgent };
+    if (urgent) this.queue.unshift(job);
+    else this.queue.push(job);
+    this.pump();
+    return entry;
+  }
+
+  /** Sends the next queued clip once the worker is free. */
+  private pump(): void {
+    if (this.busy !== null || !this.deps.worker) return;
+    const job = this.queue.shift();
+    if (!job) return;
+    this.busy = job.id;
+    this.deps.worker.postMessage({ type: "generate", id: job.id, text: job.text, voice: job.voice, speed: job.speed });
+  }
+
+  /** Takes a clip the worker hasn't started off the queue. */
+  private drop(job: Job): void {
+    this.queue = this.queue.filter((j) => j !== job);
+    this.pending.get(job.id)?.reject(new Error("dropped"));
+    this.pending.delete(job.id);
+  }
+
+  /** A clip finished or failed: the worker is free for the next one. */
+  private settled(id: number): void {
+    if (this.busy === id) this.busy = null;
+    this.pump();
   }
 
   private onWorkerMessage(msg: VoiceWorkerMessage): void {
@@ -176,9 +270,9 @@ export class VoiceEngine {
         return;
       case "audio": {
         const p = this.pending.get(msg.id);
-        if (!p) return;
         this.pending.delete(msg.id);
-        p.resolve({ samples: msg.samples, sampleRate: msg.sampleRate });
+        p?.resolve({ samples: msg.samples, sampleRate: msg.sampleRate });
+        this.settled(msg.id);
         return;
       }
       case "error": {
@@ -187,12 +281,14 @@ export class VoiceEngine {
           for (const p of this.pending.values()) p.reject(new Error(msg.message));
           this.pending.clear();
           this.clips.clear();
+          this.queue = [];
+          this.busy = null;
           return;
         }
         const p = this.pending.get(msg.id);
-        if (!p) return;
         this.pending.delete(msg.id);
-        p.reject(new Error(msg.message));
+        p?.reject(new Error(msg.message));
+        this.settled(msg.id);
       }
     }
   }

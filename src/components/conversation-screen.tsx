@@ -72,6 +72,7 @@ type View = "loading" | "setup" | "demo-picker" | "notes" | "suggestions" | "voi
 
 const SAVE_FAILED = "Couldn't save. Your browser's storage may be full.";
 const LEARNING_NOTICE = "New: OnBeat can suggest notes from your conversations for you to review. Turn it off in Settings.";
+const VOICE_FALLBACK = "Your voice wasn't ready in time, so your device's voice said that.";
 
 function Screen() {
   const announce = useAnnounce();
@@ -85,6 +86,8 @@ function Screen() {
   /** Bumped by New conversation, so the "What they said" box starts empty too. */
   const [conversationKey, setConversationKey] = useState(0);
   const [voiceProgress, setVoiceProgress] = useState(0);
+  /** On while a line waits for its clip in the chosen voice. */
+  const [voiceWaiting, setVoiceWaiting] = useState(false);
   const [state, dispatch] = useReducer(conversationReducer, initialConversation);
 
   useEffect(() => {
@@ -136,6 +139,8 @@ function Screen() {
         navigator.vibrate?.(40);
       }),
       voice.on("end", (text) => dispatch({ type: "speakEnd", text })),
+      voice.on("waiting", setVoiceWaiting),
+      voice.on("fallback", () => dispatch({ type: "notice", text: VOICE_FALLBACK })),
     ];
     voice.load();
     return () => offs.forEach((off) => off());
@@ -147,7 +152,15 @@ function Screen() {
     if (!voice || !hearing) return;
     const pause = () => hearing.pause();
     const resume = () => hearing.resume(400);
-    const offs = [voice.on("start", pause), voice.on("end", resume), voice.on("sampleStart", pause), voice.on("sampleEnd", resume)];
+    // While a line waits for the chosen voice nothing is playing, so the other person is still heard.
+    const waiting = (on: boolean) => (on ? hearing.resume(0) : hearing.pause());
+    const offs = [
+      voice.on("start", pause),
+      voice.on("waiting", waiting),
+      voice.on("end", resume),
+      voice.on("sampleStart", pause),
+      voice.on("sampleEnd", resume),
+    ];
     return () => offs.forEach((off) => off());
   }, [voice, hearing]);
 
@@ -201,7 +214,7 @@ function Screen() {
 
   useEffect(() => {
     if (!voice) return;
-    for (const r of state.replies) voice.prepare(r.text);
+    voice.prepareReplies(state.replies.map((r) => r.text));
     // A changed voice makes the prepared clips the wrong ones: prepare them again (after the current-voice effect above).
   }, [voice, state.replies, voiceKey]);
 
@@ -700,7 +713,7 @@ function Screen() {
             <PartnerInput key={conversationKey} onSubmit={(text) => dispatch({ type: "partnerSaid", id: crypto.randomUUID(), text, at: Date.now() })} />
           </div>
           <div className="flex min-w-0 flex-col gap-6 [grid-area:side]">
-            <SpokenCaption speaking={state.speaking} lastSpoken={state.lastSpoken} />
+            <SpokenCaption speaking={state.speaking} lastSpoken={state.lastSpoken} waiting={voiceWaiting} />
             <ReactionBar reactions={state.reactions} onReact={(text) => speak(text, { isReaction: true })} />
             <PhraseRow phrases={quickPhrases} onSpeak={(text) => speak(text, { quick: true })} />
             <ReplyList ref={replyListRef} replies={state.replies} speaking={state.speaking} status={state.status} onSpeak={speak} onStop={stop} />

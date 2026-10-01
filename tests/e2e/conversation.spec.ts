@@ -40,6 +40,12 @@ test("New conversation clears the screen after asking", async ({ page }) => {
   await expect(page.getByLabel("Type a reply")).toBeFocused();
 });
 
+test("the page is cross-origin isolated, so the in-browser models can use several threads", async ({ page }) => {
+  await prepare(page);
+  await startWithMaya(page);
+  expect(await page.evaluate(() => self.crossOriginIsolated)).toBe(true);
+});
+
 test("typing shows matching past phrases immediately", async ({ page }) => {
   await prepare(page);
   await startWithMaya(page);
