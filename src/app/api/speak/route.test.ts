@@ -63,6 +63,41 @@ describe("/api/speak", () => {
     expect((await POST(req({ text: "Hi", voice: "m_gb_gentle", speed: 1 }))).status).toBe(503);
   });
 
+  it("gives the wake call 55 s for a cold start and each line 25 s", async () => {
+    const { maxDuration } = await import("./route");
+    expect(maxDuration).toBe(60);
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 204 })));
+    await POST(req(undefined, { warm: true, ip: "7.7.7.7" }));
+    expect(timeout).toHaveBeenLastCalledWith(55_000);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array([1]), { status: 200 })));
+    await POST(req({ text: "Hi", voice: "m_gb_gentle", speed: 1 }, { ip: "7.7.7.7" }));
+    expect(timeout).toHaveBeenLastCalledWith(25_000);
+    timeout.mockRestore();
+  });
+
+  it("stops waiting for the voice server when the browser gives up on the line", async () => {
+    let seen: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise<Response>((_, reject) => {
+            seen = init.signal ?? undefined;
+            init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+          }),
+      ),
+    );
+    const client = new AbortController();
+    const r = req({ text: "Hi", voice: "m_gb_gentle", speed: 1 }, { ip: "8.8.8.8" });
+    const pending = POST(new Request(r, { signal: client.signal }));
+    await vi.waitFor(() => expect(seen).toBeDefined());
+    expect(seen!.aborted).toBe(false);
+    client.abort();
+    expect((await pending).status).toBe(503);
+    expect(seen!.aborted).toBe(true);
+  });
+
   it("wakes the voice server, at most 10 times a minute per address", async () => {
     const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);

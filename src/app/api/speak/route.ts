@@ -4,9 +4,12 @@ import { VOICE_IDS } from "@/lib/voice/choices";
 
 const MAX_TEXT = 300;
 const SPEEDS = new Set([0.85, 1, 1.15]);
-// A cold start with the GPU snapshot is about 11 s, 21 s at worst so far.
+// A line on an awake server takes 1 to 2 s.
 const TIMEOUT_MS = 25_000;
-export const maxDuration = 30;
+// A cold start with the GPU snapshot is about 11 s, 21 s at worst so far. A wake call that times
+// out marks the voice down for a minute, so it gets more room than a line.
+const WAKE_TIMEOUT_MS = 55_000;
+export const maxDuration = 60;
 // Three replies per turn of the other person plus what the user says.
 const lines = createRateLimiter({ limit: 90, windowMs: 60_000 });
 const wakes = createRateLimiter({ limit: 10, windowMs: 60_000 });
@@ -28,7 +31,7 @@ export async function POST(request: Request): Promise<Response> {
 
   if (warm) {
     try {
-      const res = await fetch(`${base}/warm`, { method: "POST", headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
+      const res = await fetch(`${base}/warm`, { method: "POST", headers, signal: AbortSignal.timeout(WAKE_TIMEOUT_MS) });
       return res.ok ? new Response(null, { status: 204, headers: { "cache-control": "no-store" } }) : json({ error: "unavailable" }, 503);
     } catch {
       return json({ error: "unavailable" }, 503);
@@ -47,7 +50,9 @@ export async function POST(request: Request): Promise<Response> {
     return json({ error: "invalid_request" }, 400);
 
   try {
-    const res = await fetch(`${base}/speak`, { method: "POST", headers, body: JSON.stringify({ text: line, voice, speed }), signal: AbortSignal.timeout(TIMEOUT_MS) });
+    // The browser gives up on a line after its own wait; stop waiting for it here too.
+    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(TIMEOUT_MS)]);
+    const res = await fetch(`${base}/speak`, { method: "POST", headers, body: JSON.stringify({ text: line, voice, speed }), signal });
     if (!res.ok) return json({ error: "unavailable" }, 503);
     return new Response(await res.arrayBuffer(), { status: 200, headers: { "content-type": "audio/wav", "cache-control": "no-store" } });
   } catch {

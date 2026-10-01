@@ -80,10 +80,11 @@ export async function speakViaServer(req: { text: string; voice: string; speed: 
   return res.arrayBuffer();
 }
 
-/** Starts the voice server; true once it answers that it's ready. */
+/** Starts the voice server; true once it answers that it's ready, false after a minute. */
 export async function warmServer(): Promise<boolean> {
   try {
-    return (await fetch("/api/speak?warm=1", { method: "POST" })).ok;
+    // The route gives a cold start 55 s; a stalled connection must not leave the voice waking.
+    return (await fetch("/api/speak?warm=1", { method: "POST", signal: AbortSignal.timeout(60_000) })).ok;
   } catch {
     return false;
   }
