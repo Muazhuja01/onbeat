@@ -44,7 +44,7 @@ const ROLE_GROUPS: string[][] = [
   ["pharmacist", "chemist"],
   ["nurse"],
   ["optician", "optometrist"],
-  ["physio", "physiotherapist"],
+  ["physio", "physiotherapist", "physiotherapy"],
   ["therapist", "counsellor", "counselor"],
   ["specialist", "consultant", "surgeon"],
   ["vet"],
@@ -93,6 +93,15 @@ export function unbackedRoles(text: string, source: string): string[] {
   return out;
 }
 
+/** Words a bare name can carry with it ("Lumen Foods office.") and still say nothing about it. */
+const NAME_FILLER = new Set(["the", "a", "an", "of", "and", "office", "offices", "clinic", "place", "shop", "store", "building"]);
+
+/** A note that is nothing but a name: every word capitalised, apart from filler. */
+export function nameOnly(text: string): boolean {
+  const words = text.match(/[\p{L}\p{N}'’&-]+/gu) ?? [];
+  return words.length > 0 && words.every((w) => /^\p{Lu}/u.test(w) || NAME_FILLER.has(w.toLowerCase()) || w === "&");
+}
+
 /**
  * Drops, never repairs. Every proposal must cite only the user's own lines: the assistant's
  * lines are its own words and can't be the source of a fact. Note adds and edits then pass
@@ -100,7 +109,8 @@ export function unbackedRoles(text: string, source: string): string[] {
  * two allowances: an am/pm time a line states backs its 24-hour form, and a date a cited
  * line states as typed may be past the coming two weeks. A note may not claim a role or
  * relationship ("my doctor") that no cited line and not the note it edits states; a phrase may
- * not claim one that no cited line and no sent note states.
+ * not claim one that no cited line and no sent note states. A new person or place note that is
+ * only a name is dropped.
  * A removal must name a sent note that isn't also edited. A phrase may not state a name or
  * number found in no user line and no sent note, and may not repeat a quick phrase.
  */
@@ -140,7 +150,9 @@ export function checkAssistProposals(proposals: AssistProposal[], req: AssistReq
     .filter((p) => {
       // A role or relationship ("my doctor") must be stated by a cited line or the note being edited.
       const source = [saidBy(p), p.action === "edit" ? (oldText.get(p.noteId) ?? "") : ""].join("\n");
-      return unbackedRoles(`${p.name ?? ""} ${p.text}`, source).length === 0;
+      if (unbackedRoles(`${p.name ?? ""} ${p.text}`, source).length) return false;
+      // A new person or place note that is only a name ("Ruth.") says nothing worth saving.
+      return !(p.action === "add" && (p.kind === "person" || p.kind === "place") && nameOnly(p.text));
     });
 
   const sent = new Set(req.notes.map((n) => n.id));

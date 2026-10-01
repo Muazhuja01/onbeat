@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkAssistProposals, unbackedRoles, withTypedTimes } from "./check";
+import { checkAssistProposals, nameOnly, unbackedRoles, withTypedTimes } from "./check";
 import type { AssistProposal, AssistRequest } from "./protocol";
 
 const req: AssistRequest = {
@@ -161,6 +161,31 @@ describe("checkAssistProposals", () => {
       expect(unbackedRoles("My appointment with the dentist.", "")).toEqual([]);
       expect(unbackedRoles("Ruth is my neighbour.", "Ruth")).toEqual(["my neighbour"]);
       expect(checkAssistProposals([{ action: "add", kind: "routine", text: "Friday 9 October: cleaning at my dentist.", lineIds: ["u3"] }], r)).toHaveLength(1);
+    });
+  });
+
+  it("lets a line about physiotherapy back 'my physio'", () => {
+    const r: AssistRequest = { ...req, lines: [...req.lines, { id: "u3", speaker: "user", text: "Physiotherapy on Tuesday at Elm Road Clinic." }] };
+    expect(checkAssistProposals([{ action: "add", kind: "place", text: "Elm Road Clinic: where I go to my physio.", lineIds: ["u3"] }], r)).toHaveLength(1);
+    expect(unbackedRoles("Elm Road Clinic: my physio.", "Physiotherapy on Tuesday.")).toEqual([]);
+  });
+
+  describe("name-only notes", () => {
+    const r: AssistRequest = {
+      ...req,
+      lines: [...req.lines, { id: "u3", speaker: "user", text: "Ruth has a spare key. Dr. Lund at Elm Road Clinic. Lumen Foods office." }],
+    };
+    const add = (kind: "person" | "place", text: string): AssistProposal => ({ action: "add", kind, text, lineIds: ["u3"] });
+
+    it("drops a new person or place note that is only a name", () => {
+      expect(checkAssistProposals([add("person", "Ruth.")], r)).toEqual([]);
+      expect(checkAssistProposals([add("place", "Lumen Foods office.")], r)).toEqual([]);
+      expect(nameOnly("Elm Road Clinic")).toBe(true);
+    });
+
+    it("keeps one that says something about them", () => {
+      expect(checkAssistProposals([add("person", "Ruth has a spare key.")], r)).toHaveLength(1);
+      expect(checkAssistProposals([add("person", "Dr. Lund, at Elm Road Clinic.")], r)).toHaveLength(1);
     });
   });
 
