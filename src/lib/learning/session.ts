@@ -13,6 +13,8 @@ import { LearningQueue } from "./queue";
 import type { PendingSuggestion, QueuedLine, Speaker } from "./types";
 
 export interface NewLine {
+  /** Set by the caller for a line that may grow later (see growLine); otherwise made up. */
+  id?: string;
   speaker: Speaker;
   text: string;
   partnerName?: string;
@@ -135,7 +137,7 @@ export class LearningSession {
     const text = line.text.trim().slice(0, LEARN_LINE_MAX);
     if (!this.enabled || !text) return;
     await this.queue.add({
-      id: crypto.randomUUID(),
+      id: line.id ?? crypto.randomUUID(),
       speaker: line.speaker,
       text,
       at: this.now(),
@@ -143,6 +145,21 @@ export class LearningSession {
       ...(line.placeName ? { placeName: line.placeName.slice(0, 80) } : {}),
     });
     this.batcher.lineAdded();
+  }
+
+  /**
+   * The partner carried a line on after a pause, so it grew to `line.text`. A line still waiting
+   * takes the whole text when it fits; otherwise (too long, already sent, or being sent) only the
+   * `added` words go, as a new line, so nothing is learned twice or lost.
+   */
+  async growLine(line: NewLine & { id: string }, added: string): Promise<void> {
+    if (!this.enabled) return;
+    const text = line.text.trim();
+    if (text && text.length <= LEARN_LINE_MAX && !this.batcher.isSending(line.id) && (await this.queue.replace(line.id, text))) {
+      this.batcher.lineAdded();
+      return;
+    }
+    await this.addLine({ ...line, id: undefined, text: added });
   }
 
   /** Turning learning off empties the queue; suggestions already made stay for review. */

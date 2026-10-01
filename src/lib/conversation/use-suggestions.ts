@@ -43,7 +43,8 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
   const [speculation] = useState(() => new Speculation());
 
   const lastPartner = state.turns.findLast((t) => t.speaker === "partner");
-  const partnerTurnId = lastPartner?.id ?? "";
+  // A line keeps its id when it grows (the partner carried on after a pause), so its text is part of the key.
+  const partnerTurnKey = lastPartner ? `${lastPartner.id}\n${lastPartner.text}` : "";
 
   const run = useCallback<Run>(
     async (mode, typed, partnerSaid, priority) => {
@@ -95,34 +96,37 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
     runRef.current = run;
   });
 
-  // The partner finished a turn: ask with the full sentence, unless a request
-  // made while they were talking already covers the same words.
+  // The partner finished a turn, or a piece that grew their last line: ask with the
+  // full line, unless a request made while they were talking already covers the same words.
   useEffect(() => {
-    if (!partnerTurnId) return;
+    if (!partnerTurnKey) return;
     const s = stateRef.current;
     const said = s.turns.findLast((t) => t.speaker === "partner")?.text ?? "";
     const needed = speculation.needsFinal(said);
     speculation.turnDone();
     if (needed) void run("replies+reactions", s.typed, said, "final");
-  }, [partnerTurnId, run, speculation]);
+  }, [partnerTurnKey, run, speculation]);
 
   // The partner is still talking: prepare replies from what they've said so far.
+  // When they are carrying their last line on after a pause, that is the whole line so far.
   const partial = state.partnerPartial;
+  const carried = state.partialJoins ? (lastPartner?.text ?? "") : "";
+  const soFar = carried && partial ? `${carried} ${partial}` : partial;
   const hadPartial = useRef(false);
   useEffect(() => {
-    if (!partial) {
+    if (!soFar) {
       hadPartial.current = false;
       return;
     }
     if (!hadPartial.current) {
       hadPartial.current = true;
-      speculation.newTurn();
+      speculation.newTurn(carried);
     }
     const now = Date.now();
-    if (!speculation.shouldSend(partial, now)) return;
-    speculation.sent(partial, now);
-    void run("replies+reactions", stateRef.current.typed, partial, "speculative").then((ok) => speculation.finished(partial, ok));
-  }, [partial, run, speculation]);
+    if (!speculation.shouldSend(soFar, now)) return;
+    speculation.sent(soFar, now);
+    void run("replies+reactions", stateRef.current.typed, soFar, "speculative").then((ok) => speculation.finished(soFar, ok));
+  }, [soFar, carried, run, speculation]);
 
   // Typing: instant matches from the user's phrases, model after a pause.
   const typed = state.typed;

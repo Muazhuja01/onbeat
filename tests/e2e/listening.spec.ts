@@ -42,6 +42,17 @@ async function hear(page: Page, event: "partial" | "turnEnd", text: string) {
   );
 }
 
+/** A piece of the other person's speech that ended after a pause, with when it started and ended. */
+async function hearPiece(page: Page, text: string, startedAt: number, endedAt: number) {
+  await page.evaluate(
+    ([t, s, e]) => {
+      const w = window as unknown as { __hear: (event: string, value: unknown) => void };
+      w.__hear("turnEnd", { text: t, startedAt: s, endedAt: e });
+    },
+    [text, startedAt, endedAt] as const,
+  );
+}
+
 test("live captions become a line in the conversation and bring replies", async ({ page }) => {
   await prepare(page);
   await installFakeHearing(page);
@@ -138,4 +149,29 @@ test("no accessibility violations while listening", async ({ page }) => {
   await expect(page.getByText("(still talking)")).toBeVisible();
   const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
   expect(result.violations).toEqual([]);
+});
+
+test("a 2 s pause keeps the other person's words in one line, unless that is turned off in Settings", async ({ page }) => {
+  await prepare(page);
+  await installFakeHearing(page);
+  await startWithMaya(page);
+  await page.getByRole("button", { name: "Listen" }).click();
+  const lines = page.getByRole("region", { name: "Conversation" }).getByRole("listitem");
+
+  // Times are given with each piece, so the test needn't wait the 2 s.
+  await hearPiece(page, "So the physio", 10_000, 11_000);
+  await hearPiece(page, "moved to Thursdays.", 13_000, 14_500);
+  await expect(lines).toHaveCount(1);
+  await expect(lines).toContainText("So the physio moved to Thursdays.");
+
+  await page.getByRole("button", { name: "New conversation" }).click();
+  await page.getByRole("button", { name: "Clear" }).click();
+  await page.getByText("Settings").click();
+  await page.getByRole("checkbox", { name: "Keep the other person's pauses in one line" }).uncheck();
+
+  await hearPiece(page, "So the physio", 20_000, 21_000);
+  await hearPiece(page, "moved to Thursdays.", 23_000, 24_500);
+  await expect(lines).toHaveCount(2);
+  await expect(lines.nth(0)).toContainText("So the physio");
+  await expect(lines.nth(1)).toContainText("moved to Thursdays.");
 });

@@ -36,6 +36,8 @@ export interface Turn {
   speaker: "partner" | "user";
   text: string;
   at: number;
+  /** Lines heard through the microphone: when the partner's last word ended (ms since epoch). Typed lines have none. */
+  endedAt?: number;
 }
 
 export interface Reply {

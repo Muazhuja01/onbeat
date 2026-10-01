@@ -24,6 +24,7 @@ interface Props {
   digitKeys: boolean;
   cloudCaptions: boolean;
   learning: boolean;
+  joinLines: boolean;
   voiceLabel?: string;
   voiceBasic?: boolean;
   onVoice?: () => void;
@@ -31,9 +32,10 @@ interface Props {
   onDigitKeys: (on: boolean) => void;
   onCloudCaptions: (on: boolean) => void;
   onLearning: (on: boolean) => void;
+  onJoinLines: (on: boolean) => void;
 }
 
-export function SettingsPanel({ theme, digitKeys, cloudCaptions, learning, voiceLabel, voiceBasic, onVoice, onTheme, onDigitKeys, onCloudCaptions, onLearning }: Props) {
+export function SettingsPanel({ theme, digitKeys, cloudCaptions, learning, joinLines, voiceLabel, voiceBasic, onVoice, onTheme, onDigitKeys, onCloudCaptions, onLearning, onJoinLines }: Props) {
   return (
     <details className="group rounded-control border-2 border-ink/30">
       <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 rounded-control px-4 text-body font-bold [&::-webkit-details-marker]:hidden">
@@ -102,6 +104,21 @@ export function SettingsPanel({ theme, digitKeys, cloudCaptions, learning, voice
           <p id="cloud-captions-hint" className="text-label text-muted">
             When the other person finishes speaking, their words are sent to Deepgram, through Cloudflare, for a more accurate caption.
             OnBeat doesn&apos;t keep the audio. If the service is busy, the caption from this device is used.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="flex min-h-12 cursor-pointer items-center gap-3 text-body">
+            <input
+              type="checkbox"
+              checked={joinLines}
+              onChange={(e) => onJoinLines(e.target.checked)}
+              aria-describedby="join-lines-hint"
+              className="size-6 shrink-0 accent-ink"
+            />
+            Keep the other person&apos;s pauses in one line
+          </label>
+          <p id="join-lines-hint" className="text-label text-muted">
+            When they pause for a moment and carry on, their words stay in one line, so replies answer the whole thing.
           </p>
         </div>
         <div className="flex flex-col gap-1">

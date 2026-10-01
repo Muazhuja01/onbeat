@@ -228,7 +228,7 @@ describe("SettingsPanel", () => {
   it("chooses a theme and turns the number keys off", async () => {
     const onTheme = vi.fn();
     const onDigitKeys = vi.fn();
-    render(<SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} learning={true} onLearning={() => {}} onTheme={onTheme} onDigitKeys={onDigitKeys} onCloudCaptions={() => {}} />);
+    render(<SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} learning={true} joinLines={true} onJoinLines={() => {}} onLearning={() => {}} onTheme={onTheme} onDigitKeys={onDigitKeys} onCloudCaptions={() => {}} />);
     await userEvent.click(screen.getByText("Settings"));
     expect(screen.getByRole("radio", { name: "Match this device" })).toBeChecked();
     await userEvent.click(screen.getByRole("radio", { name: "High contrast" }));
@@ -239,7 +239,7 @@ describe("SettingsPanel", () => {
 
   it("turns clearer captions on, saying where the audio goes", async () => {
     const onCloudCaptions = vi.fn();
-    render(<SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} learning={true} onLearning={() => {}} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={onCloudCaptions} />);
+    render(<SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} learning={true} joinLines={true} onJoinLines={() => {}} onLearning={() => {}} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={onCloudCaptions} />);
     await userEvent.click(screen.getByText("Settings"));
     const box = screen.getByRole("checkbox", { name: "Clearer captions" });
     expect(box).not.toBeChecked();
@@ -251,7 +251,7 @@ describe("SettingsPanel", () => {
   it("turns suggested notes off, saying what is sent", async () => {
     const onLearning = vi.fn();
     render(
-      <SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} learning={true} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={() => {}} onLearning={onLearning} />,
+      <SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} learning={true} joinLines={true} onJoinLines={() => {}} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={() => {}} onLearning={onLearning} />,
     );
     await userEvent.click(screen.getByText("Settings"));
     const box = screen.getByRole("checkbox", { name: "Suggest notes from my conversations" });
@@ -261,8 +261,22 @@ describe("SettingsPanel", () => {
     expect(onLearning).toHaveBeenCalledWith(false);
   });
 
+  it("turns off keeping the other person's pauses in one line, saying what it does", async () => {
+    const onJoinLines = vi.fn();
+    render(
+      <SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} learning={true} joinLines={true} onJoinLines={onJoinLines} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={() => {}} onLearning={() => {}} />,
+    );
+    await userEvent.click(screen.getByText("Settings"));
+    const box = screen.getByRole("checkbox", { name: "Keep the other person's pauses in one line" });
+    expect(box).toBeChecked();
+    expect(box).toHaveAccessibleDescription(/When they pause for a moment and carry on, their words stay in one line/);
+    box.focus();
+    await userEvent.keyboard(" ");
+    expect(onJoinLines).toHaveBeenCalledWith(false);
+  });
+
   it("lists the keyboard shortcuts", async () => {
-    render(<SettingsPanel theme="dark" digitKeys={false} cloudCaptions={false} learning={true} onLearning={() => {}} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={() => {}} />);
+    render(<SettingsPanel theme="dark" digitKeys={false} cloudCaptions={false} learning={true} joinLines={true} onJoinLines={() => {}} onLearning={() => {}} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={() => {}} />);
     await userEvent.click(screen.getByText("Settings"));
     expect(screen.getByRole("radio", { name: "Dark" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /Number keys speak replies/ })).not.toBeChecked();

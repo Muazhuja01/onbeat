@@ -765,3 +765,68 @@ describe("ConversationScreen assistant", () => {
     }
   });
 });
+
+describe("ConversationScreen pauses in one line", () => {
+  /** A piece of the partner's speech, as hearing reports it when they pause. */
+  const piece = (text: string, startedAt: number, endedAt: number) => act(() => h.hear("turnEnd", { text, startedAt, endedAt }));
+  const lines = () => within(screen.getByRole("region", { name: "Conversation" })).getAllByRole("listitem").map((li) => li.textContent);
+  const joinBox = () => screen.getByRole("checkbox", { name: "Keep the other person's pauses in one line" });
+
+  it("adds what they say within 3 s of a pause to the same line, and asks with the whole line", async () => {
+    await startWithMaya();
+    piece("So the physio", 1_000, 2_000);
+    expect(lines()).toEqual(["SamSo the physio"]);
+    act(() => h.hear("speechStart", 4_000));
+    act(() => h.hear("partial", "moved to Thursdays"));
+    // The live caption shows only the new words, under the line they will join.
+    expect(lines()).toEqual(["SamSo the physio", "Sam (still talking)moved to Thursdays…"]);
+    expect(h.requests.at(-1)?.input).toMatchObject({ partnerSaid: "So the physio moved to Thursdays", priority: "speculative" });
+    piece("moved to Thursdays, is that OK?", 4_000, 6_000);
+    expect(lines()).toEqual(["SamSo the physio moved to Thursdays, is that OK?"]);
+    expect(h.requests.at(-1)?.input).toMatchObject({ partnerSaid: "So the physio moved to Thursdays, is that OK?", priority: "final" });
+    // More than 3 s later: a new line.
+    piece("Anything else?", 9_001, 10_000);
+    expect(lines()).toEqual(["SamSo the physio moved to Thursdays, is that OK?", "SamAnything else?"]);
+  });
+
+  it("reads out only the new words when a line grows", async () => {
+    await startWithMaya();
+    piece("So the physio", 1_000, 2_000);
+    await waitFor(() => expect(liveRegion().textContent).toBe("Sam said: So the physio"), { timeout: 2000 });
+    piece("moved to Thursdays", 3_000, 4_000);
+    await waitFor(() => expect(liveRegion().textContent).toBe("Sam said: moved to Thursdays"), { timeout: 2500 });
+  });
+
+  it("keeps each piece on its own line with the setting off", async () => {
+    await startWithMaya();
+    await userEvent.click(screen.getByText("Settings"));
+    expect(joinBox()).toBeChecked();
+    await userEvent.click(joinBox());
+    piece("So the physio", 1_000, 2_000);
+    piece("moved to Thursdays", 3_000, 4_000);
+    expect(lines()).toEqual(["SamSo the physio", "Sammoved to Thursdays"]);
+    await userEvent.click(joinBox());
+  });
+
+  it("never carries a line on across New conversation", async () => {
+    await startWithMaya();
+    piece("So the physio", 1_000, 2_000);
+    await userEvent.click(screen.getByRole("button", { name: "New conversation" }));
+    await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+    piece("moved to Thursdays", 3_000, 4_000);
+    expect(lines()).toEqual(["Sammoved to Thursdays"]);
+  });
+
+  it("learns from the whole line once", async () => {
+    await setUpPriya();
+    piece("Your physio", 1_000, 2_000);
+    piece("moved to Thursdays.", 3_000, 4_000);
+    await userEvent.type(screen.getByLabelText("Type a reply"), "OK, thanks{Enter}");
+    hidePage();
+    await waitFor(() => expect(h.learnBodies).toHaveLength(1));
+    expect(h.learnBodies[0].lines.map((l) => [l.speaker, l.text])).toEqual([
+      ["partner", "Your physio moved to Thursdays."],
+      ["user", "OK, thanks"],
+    ]);
+  });
+});

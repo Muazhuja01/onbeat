@@ -1,4 +1,5 @@
 import type { WorkerLike } from "@/lib/worker-like";
+import { SAMPLE_RATE } from "./audio";
 import type { HearingWorkerMessage } from "./messages";
 import { MicError, type MicSource } from "./mic";
 
@@ -7,9 +8,17 @@ export type HearingStatus = "off" | "loading" | "listening" | "denied" | "unavai
 
 export interface TurnEnd {
   text: string;
+  /**
+   * About when this piece of speech started (ms since epoch): from the length of its audio,
+   * or else when speech start was heard. Missing when neither is known.
+   */
+  startedAt?: number;
   /** When the partner's last word ended (ms since epoch). */
   endedAt: number;
 }
+
+/** A speech start held behind a turn being refined, with the time it arrived. */
+type HeldStart = { type: "speechStart"; at: number };
 
 export type HearingEvents = {
   status: HearingStatus;
@@ -66,10 +75,12 @@ export class HearingEngine implements Hearing {
   private lastLevelAt = -Infinity;
   private hasPartial = false;
   /** Worker messages that arrived while a turn was being refined, kept in order. */
-  private backlog: HearingWorkerMessage[] = [];
+  private backlog: (HearingWorkerMessage | HeldStart)[] = [];
   private refining = false;
   /** Bumped when hearing stops, so a late refined turn is dropped. */
   private epoch = 0;
+  /** When the piece of speech being heard started, for a turn that comes without audio. */
+  private speechStartedAt: number | undefined;
 
   constructor(private readonly deps: HearingDeps) {}
 
@@ -199,10 +210,11 @@ export class HearingEngine implements Hearing {
     this.worker.postMessage({ type: "audio", samples }, [samples.buffer as ArrayBuffer]);
   }
 
-  private onWorkerMessage(msg: HearingWorkerMessage): void {
+  private onWorkerMessage(msg: HearingWorkerMessage | HeldStart): void {
     // Captions must stay in order: the next turn waits for the one being refined.
+    // A speech start keeps the time it arrived, so a slow cloud caption doesn't make the pause look longer.
     if (this.refining && (msg.type === "speechStart" || msg.type === "partial" || msg.type === "turnEnd")) {
-      this.backlog.push(msg);
+      this.backlog.push(msg.type === "speechStart" && !("at" in msg) ? { type: "speechStart", at: this.deps.now?.() ?? Date.now() } : msg);
       return;
     }
     switch (msg.type) {
@@ -224,23 +236,29 @@ export class HearingEngine implements Hearing {
         }
         return;
       case "speechStart":
-        if (this.active) this.emit("speechStart", this.deps.now?.() ?? Date.now());
+        if (!this.active) return;
+        this.speechStartedAt = "at" in msg ? msg.at : (this.deps.now?.() ?? Date.now());
+        this.emit("speechStart", this.speechStartedAt);
         return;
       case "partial":
         if (!this.active) return;
         this.hasPartial = true;
         this.emit("partial", msg.text);
         return;
-      case "turnEnd":
+      case "turnEnd": {
         if (!this.active) return;
-        if (this.deps.refineTurn && msg.audio?.length) void this.refine(msg, msg.audio);
-        else this.endTurn(msg.text, msg.endedAt);
+        // The audio runs up to when the last word ended (with a little padding either side).
+        const startedAt = msg.audio?.length ? msg.endedAt - (msg.audio.length / SAMPLE_RATE) * 1000 : this.speechStartedAt;
+        this.speechStartedAt = undefined;
+        if (this.deps.refineTurn && msg.audio?.length) void this.refine(msg, msg.audio, startedAt);
+        else this.endTurn(msg.text, msg.endedAt, startedAt);
         return;
+      }
     }
   }
 
   /** Refines one turn, then handles what arrived meanwhile, in order. */
-  private async refine(msg: Extract<HearingWorkerMessage, { type: "turnEnd" }>, audio: Float32Array): Promise<void> {
+  private async refine(msg: Extract<HearingWorkerMessage, { type: "turnEnd" }>, audio: Float32Array, startedAt: number | undefined): Promise<void> {
     this.refining = true;
     const epoch = this.epoch;
     let better: string | null = null;
@@ -252,15 +270,15 @@ export class HearingEngine implements Hearing {
     this.refining = false;
     if (epoch !== this.epoch) return;
     // The partner finished this line before any pause for the app's own voice, so it is kept.
-    this.endTurn(better?.trim() || msg.text, msg.endedAt, true);
+    this.endTurn(better?.trim() || msg.text, msg.endedAt, startedAt, true);
     while (this.backlog.length && !this.refining) this.onWorkerMessage(this.backlog.shift()!);
   }
 
-  private endTurn(text: string, endedAt: number, evenIfPaused = false): void {
+  private endTurn(text: string, endedAt: number, startedAt: number | undefined, evenIfPaused = false): void {
     if (evenIfPaused ? this.status !== "listening" : !this.active) return;
     const had = this.hasPartial;
     this.hasPartial = false;
-    if (text) this.emit("turnEnd", { text, endedAt });
+    if (text) this.emit("turnEnd", startedAt === undefined ? { text, endedAt } : { text, startedAt, endedAt });
     else if (had) this.emit("partial", "");
   }
 
