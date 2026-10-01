@@ -155,6 +155,11 @@ export class LearningSession {
     if (this.enabled) this.batcher.pageHidden();
   }
 
+  /** The user cleared the screen for a new conversation: send its lines now, as when the page is hidden. */
+  conversationEnded(): void {
+    this.pageHidden();
+  }
+
   dispose(): void {
     this.batcher.dispose();
   }

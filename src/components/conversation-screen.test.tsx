@@ -384,6 +384,78 @@ describe("ConversationScreen", () => {
   });
 });
 
+describe("ConversationScreen new conversation", () => {
+  const newConversation = () => screen.queryByRole("button", { name: "New conversation" });
+
+  it("shows the button only once there is something to clear", async () => {
+    await startWithMaya();
+    expect(newConversation()).toBeNull();
+    await partnerSays("What size?");
+    expect(newConversation()).toBeInTheDocument();
+  });
+
+  it("asks first, and Cancel changes nothing", async () => {
+    await startWithMaya();
+    await partnerSays("What size?");
+    await userEvent.click(newConversation()!);
+    expect(screen.getByText("Clear this conversation? It isn't saved anywhere.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText("Clear this conversation? It isn't saved anywhere.")).toBeNull();
+    expect(screen.getByText("What size?")).toBeInTheDocument();
+    expect(newConversation()).toHaveFocus();
+  });
+
+  it("clears the lines, replies, last said line and reply box, and keeps the place and person", async () => {
+    await startWithMaya();
+    const place = (screen.getByLabelText("Place") as HTMLSelectElement).value;
+    const person = (screen.getByLabelText("Talking with") as HTMLSelectElement).value;
+    await partnerSays("What size?");
+    answer("Large, please.");
+    await userEvent.click(await screen.findByRole("button", { name: /Large, please./ }));
+    await userEvent.type(screen.getByLabelText("Type a reply"), "and a muffin");
+    await userEvent.type(screen.getByLabelText("What they said"), "Anything");
+
+    await userEvent.click(newConversation()!);
+    await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+    expect(screen.queryByText("What size?")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Large, please./ })).toBeNull();
+    expect(screen.queryByText("Last said")).toBeNull();
+    expect(screen.getByLabelText("Type a reply")).toHaveValue("");
+    expect(screen.getByLabelText("What they said")).toHaveValue("");
+    expect(screen.getByLabelText("Place")).toHaveValue(place);
+    expect(screen.getByLabelText("Talking with")).toHaveValue(person);
+    expect(newConversation()).toBeNull();
+    expect(screen.getByLabelText("Type a reply")).toHaveFocus();
+    // Announcements go out one a second, after the caption line and replies queued above.
+    await waitFor(() => expect(liveRegion()).toHaveTextContent("Conversation cleared."), { timeout: 5000 });
+  });
+
+  it("stops speech and drops a reply that arrives after clearing", async () => {
+    await startWithMaya();
+    await partnerSays("What size?");
+    answer("Large, please.");
+    await userEvent.click(await screen.findByRole("button", { name: /Large, please./ }));
+    await partnerSays("Anything else?");
+    await userEvent.click(newConversation()!);
+    await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(h.voice.stop).toHaveBeenCalled();
+    answer("No, thank you.");
+    expect(screen.queryByRole("button", { name: /No, thank you./ })).toBeNull();
+  });
+
+  it("sends the finished conversation's lines for suggested notes", async () => {
+    await setUpPriya();
+    await partnerSays("Your new carer Ana starts on Monday.");
+    await userEvent.type(screen.getByLabelText("Type a reply"), "Great, thanks for telling me{Enter}");
+    expect(h.learnBodies).toHaveLength(0);
+    await userEvent.click(newConversation()!);
+    await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+    await waitFor(() => expect(h.learnBodies).toHaveLength(1));
+    expect(h.learnBodies[0].lines.map((l) => l.text)).toEqual(["Your new carer Ana starts on Monday.", "Great, thanks for telling me"]);
+  });
+});
+
 describe("ConversationScreen listening", () => {
   it("starts listening from the Listen button", async () => {
     await startWithMaya();
