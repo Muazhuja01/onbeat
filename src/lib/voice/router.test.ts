@@ -17,10 +17,40 @@ function wav(n = 4): ArrayBuffer {
 class FakeKokoro implements WorkerLike {
   sent: VoiceWorkerRequest[] = [];
   onmessage: ((e: MessageEvent) => void) | null = null;
-  postMessage(m: unknown) { this.sent.push(m as VoiceWorkerRequest); }
+  /** Ids sent and not answered yet, oldest first, and the most there ever were at once. */
+  open: number[] = [];
+  maxOpen = 0;
+  /** Answers each line by itself, a tick later. */
+  auto = false;
+  postMessage(m: unknown) {
+    const msg = m as VoiceWorkerRequest;
+    this.sent.push(msg);
+    if (msg.type !== "generate") return;
+    this.open.push(msg.id);
+    this.maxOpen = Math.max(this.maxOpen, this.open.length);
+    if (this.auto) queueMicrotask(() => this.answer(msg.id));
+  }
   terminate() {}
-  emit(m: VoiceWorkerMessage) { this.onmessage?.({ data: m } as MessageEvent); }
+  emit(m: VoiceWorkerMessage) {
+    if ((m.type === "audio" || m.type === "error") && m.id !== undefined) this.open = this.open.filter((id) => id !== m.id);
+    this.onmessage?.({ data: m } as MessageEvent);
+  }
+  /** Answers the oldest line Kokoro has, or the given one. */
+  answer(id = this.open[0]) { this.emit({ type: "audio", id, samples: new Float32Array(2), sampleRate: 24000 }); }
   gens() { return this.sent.filter((m): m is Extract<VoiceWorkerRequest, { type: "generate" }> => m.type === "generate"); }
+}
+
+/** A speak whose answers the test gives. An abort rejects it unless `abortable` is false. */
+function heldSpeak(abortable = true) {
+  const calls: { text: string; resolve: (b: ArrayBuffer) => void; reject: (e: unknown) => void }[] = [];
+  const speak = vi.fn<RouterDeps["speak"]>(
+    (req, signal) =>
+      new Promise<ArrayBuffer>((resolve, reject) => {
+        calls.push({ text: req.text, resolve, reject });
+        if (abortable) signal.addEventListener("abort", () => reject(new Error("aborted")));
+      }),
+  );
+  return { speak, calls, texts: () => calls.map((c) => c.text) };
 }
 
 function setUp(over: Partial<RouterDeps> = {}) {
@@ -35,6 +65,13 @@ function setUp(over: Partial<RouterDeps> = {}) {
   return { kokoro, warm, speak, router, got, gen, wake: (ok: boolean) => warmAnswer(ok) };
 }
 const types = (got: VoiceWorkerMessage[]) => got.map((m) => (m.type === "source" ? `source:${m.source}` : m.type));
+/** The ids answered with a clip or an error, in order. */
+const answered = (got: VoiceWorkerMessage[]) => got.flatMap((m) => ((m.type === "audio" || m.type === "error") && m.id !== undefined ? [m.id] : []));
+async function awake(t: ReturnType<typeof setUp>) {
+  t.router.postMessage({ type: "load" });
+  t.wake(true);
+  await vi.waitFor(() => expect(types(t.got)).toContain("source:awake"));
+}
 
 describe("VoiceRouter", () => {
   beforeEach(() => vi.useFakeTimers());
@@ -91,6 +128,7 @@ describe("VoiceRouter", () => {
 
   it("two failed lines mean down; a wake call every 60 s brings it back", async () => {
     const t = setUp({ speak: vi.fn(async () => { throw new SpeakError(503); }) });
+    t.kokoro.auto = true;
     t.router.postMessage({ type: "load" });
     t.wake(true);
     await vi.waitFor(() => expect(types(t.got)).toContain("source:awake"));
@@ -133,6 +171,7 @@ describe("VoiceRouter", () => {
   it("a 4xx answer or a line over 300 characters goes to Kokoro without counting toward down", async () => {
     const speak = vi.fn(async () => { throw new SpeakError(429); });
     const t = setUp({ speak });
+    t.kokoro.auto = true;
     t.router.postMessage({ type: "load" });
     t.wake(true);
     await vi.waitFor(() => expect(types(t.got)).toContain("source:awake"));
@@ -233,6 +272,161 @@ describe("VoiceRouter", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     expect(t.kokoro.gens()).toHaveLength(0);
     expect(t.got.filter((m) => m.type === "audio" || m.type === "error")).toHaveLength(1);
+  });
+
+  it("keeps one prepared line at a time with Chatterbox; the others wait their turn", async () => {
+    const s = heldSpeak();
+    const t = setUp({ speak: s.speak });
+    await awake(t);
+    t.gen(1, "A");
+    t.gen(2, "B");
+    t.gen(3, "C");
+    expect(s.texts()).toEqual(["A"]);
+    s.calls[0].resolve(wav());
+    await vi.waitFor(() => expect(s.texts()).toEqual(["A", "B"]));
+    // A prepared line's wait starts when it is sent, not while it waits its turn.
+    await vi.advanceTimersByTimeAsync(20_000);
+    s.calls[1].resolve(wav());
+    await vi.waitFor(() => expect(s.texts()).toEqual(["A", "B", "C"]));
+    s.calls[2].resolve(wav());
+    await vi.waitFor(() => expect(answered(t.got)).toEqual([1, 2, 3]));
+    expect(t.got.filter((m) => m.type === "audio").every((m) => !("backup" in m))).toBe(true);
+    expect(t.kokoro.gens()).toHaveLength(0);
+  });
+
+  it("a line being said goes to Chatterbox at once, not behind the prepared ones", async () => {
+    const s = heldSpeak();
+    const t = setUp({ speak: s.speak });
+    await awake(t);
+    t.gen(1, "A");
+    t.gen(2, "B");
+    t.gen(3, "C");
+    t.gen(4, "Typed", true);
+    expect(s.texts()).toEqual(["A", "Typed"]);
+    s.calls[1].resolve(wav());
+    await vi.waitFor(() => expect(answered(t.got)).toEqual([4]));
+    // The prepared turn is still A's.
+    expect(s.texts()).toEqual(["A", "Typed"]);
+    s.calls[0].resolve(wav());
+    await vi.waitFor(() => expect(s.texts()).toEqual(["A", "Typed", "B"]));
+  });
+
+  it("a waiting prepared line that becomes the line being said goes to Chatterbox at once, with the 6 s wait", async () => {
+    const s = heldSpeak();
+    const t = setUp({ speak: s.speak });
+    await awake(t);
+    t.gen(1, "A");
+    t.gen(2, "B");
+    t.gen(3, "C");
+    t.router.postMessage({ type: "urgent", id: 3 });
+    expect(s.texts()).toEqual(["A", "C"]);
+    await vi.advanceTimersByTimeAsync(5900);
+    expect(t.kokoro.gens()).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(t.kokoro.gens()).toEqual([{ type: "generate", id: 3, text: "C", voice: "bm_george", speed: 1, urgent: true }]);
+    s.calls[0].resolve(wav());
+    await vi.waitFor(() => expect(s.texts()).toEqual(["A", "C", "B"]));
+  });
+
+  it("while down, Kokoro gets one line at a time, the line being said first", async () => {
+    const t = setUp();
+    t.router.postMessage({ type: "load" });
+    t.kokoro.emit({ type: "ready" });
+    t.wake(false);
+    await vi.waitFor(() => expect(types(t.got)).toContain("source:down"));
+    t.gen(1, "A");
+    t.gen(2, "B");
+    t.gen(3, "C");
+    expect(t.kokoro.gens().map((g) => g.text)).toEqual(["A"]);
+    t.gen(4, "Typed", true);
+    expect(t.kokoro.gens().map((g) => g.text)).toEqual(["A"]);
+    t.kokoro.answer();
+    expect(t.kokoro.gens().map((g) => g.text)).toEqual(["A", "Typed"]);
+    t.kokoro.answer();
+    t.kokoro.answer();
+    t.kokoro.answer();
+    expect(t.kokoro.gens().map((g) => g.text)).toEqual(["A", "Typed", "B", "C"]);
+    expect(t.kokoro.maxOpen).toBe(1);
+    expect(answered(t.got)).toEqual([1, 4, 2, 3]);
+  });
+
+  it("a line waiting for Kokoro that becomes the line being said goes next", () => {
+    const t = setUp();
+    t.router.postMessage({ type: "load" });
+    t.kokoro.emit({ type: "ready" });
+    t.router.postMessage({ type: "generate", id: 1, text: "x".repeat(301), voice: "m_gb_gentle", speed: 1, urgent: false });
+    t.router.postMessage({ type: "generate", id: 2, text: "y".repeat(301), voice: "m_gb_gentle", speed: 1, urgent: false });
+    t.router.postMessage({ type: "generate", id: 3, text: "z".repeat(301), voice: "m_gb_gentle", speed: 1, urgent: false });
+    t.router.postMessage({ type: "urgent", id: 3 });
+    t.kokoro.answer();
+    expect(t.kokoro.gens().map((g) => [g.id, g.urgent])).toEqual([[1, false], [3, true]]);
+    expect(t.kokoro.maxOpen).toBe(1);
+  });
+
+  it("prepared lines waiting for Chatterbox go to Kokoro when it goes down, each answered once", async () => {
+    const s = heldSpeak();
+    const t = setUp({ speak: s.speak });
+    t.kokoro.auto = true;
+    await awake(t);
+    t.gen(1, "A");
+    t.gen(2, "B");
+    t.gen(3, "C");
+    s.calls[0].reject(new SpeakError(503));
+    await vi.waitFor(() => expect(s.texts()).toEqual(["A", "B"]));
+    s.calls[1].reject(new SpeakError(503));
+    await vi.waitFor(() => expect(answered(t.got)).toEqual([1, 2, 3]));
+    expect(types(t.got)).toContain("source:down");
+    expect(t.kokoro.gens().map((g) => g.text)).toEqual(["A", "B", "C"]);
+    expect(s.speak).toHaveBeenCalledTimes(2);
+    expect(t.kokoro.maxOpen).toBe(1);
+  });
+
+  it("prepared lines waiting for Chatterbox wait again while it wakes after idle, then go one at a time", async () => {
+    const s = heldSpeak(false);
+    const t = setUp({ speak: s.speak });
+    await awake(t);
+    t.gen(1, "A");
+    t.gen(2, "B");
+    await vi.advanceTimersByTimeAsync(300_001);
+    t.gen(3, "C");
+    expect(t.warm).toHaveBeenCalledTimes(2);
+    expect(t.got.at(-1)).toEqual({ type: "source", source: "waking" });
+    s.calls[0].resolve(wav());
+    await vi.waitFor(() => expect(answered(t.got)).toEqual([1]));
+    expect(s.texts()).toEqual(["A"]);
+    t.wake(true);
+    await vi.waitFor(() => expect(s.texts()).toEqual(["A", "B"]));
+    s.calls[1].resolve(wav());
+    await vi.waitFor(() => expect(s.texts()).toEqual(["A", "B", "C"]));
+    s.calls[2].resolve(wav());
+    await vi.waitFor(() => expect(answered(t.got)).toEqual([1, 2, 3]));
+  });
+
+  it("a line being said held while Kokoro loads goes to Kokoro once it is ready", async () => {
+    const t = setUp();
+    t.router.postMessage({ type: "load" });
+    t.gen(1, "Now", true);
+    t.gen(2, "Later");
+    expect(t.kokoro.gens()).toHaveLength(0);
+    t.kokoro.emit({ type: "ready" });
+    expect(t.kokoro.gens().map((g) => g.text)).toEqual(["Now"]);
+    t.wake(true);
+    await vi.waitFor(() => expect(t.speak).toHaveBeenCalledTimes(1));
+    expect(t.speak.mock.calls[0][0]).toMatchObject({ text: "Later" });
+  });
+
+  it("when Kokoro fails to load, each line it had is answered once", async () => {
+    const t = setUp();
+    t.router.postMessage({ type: "load" });
+    t.wake(false);
+    await vi.waitFor(() => expect(types(t.got)).toContain("source:down"));
+    t.gen(1, "A");
+    t.gen(2, "B");
+    t.kokoro.emit({ type: "error", message: "blocked" });
+    // The worker also fails the line it was making.
+    t.kokoro.emit({ type: "error", id: 1, message: "blocked" });
+    expect(answered(t.got)).toEqual([1, 2]);
+    expect(t.kokoro.gens()).toHaveLength(1);
   });
 
   it("works with no Kokoro at all", async () => {

@@ -40,8 +40,19 @@ export class VoiceRouter implements WorkerLike {
   private readySent = false;
   private failures = 0;
   private lastLineAt = 0;
+  /** Lines waiting for Chatterbox to wake. */
   private held: Generate[] = [];
-  private kokoroJobs = new Set<number>();
+  /**
+   * The voice server and Kokoro both make lines in the order they arrive, so the router keeps
+   * the lines back itself: one prepared line at a time with Chatterbox (a line being said goes
+   * at once, behind that one at most), and one line at a time with Kokoro, the line being said first.
+   */
+  private queued: Generate[] = [];
+  /** The line sent to Chatterbox as prepared and not answered yet. */
+  private preparedId: number | null = null;
+  private kokoroQueue: Generate[] = [];
+  /** The line Kokoro is making. */
+  private kokoroBusy: Generate | null = null;
   /** Lines sent to Chatterbox and not answered yet, with when each gives up. */
   private inFlight = new Map<number, InFlight>();
   private waking: Promise<void> | null = null;
@@ -69,13 +80,17 @@ export class VoiceRouter implements WorkerLike {
       clearTimeout(f.timer);
       f.ctrl.abort();
     }
+    this.held = [];
+    this.queued = [];
+    this.kokoroQueue = [];
     this.deps.kokoro?.terminate();
   }
 
   /**
-   * A line sent earlier as prepared is now being said. Held: handle it as urgent now. With
-   * Chatterbox: it gets the urgent wait from now (never longer than it had), then goes to Kokoro.
-   * Lines already with Kokoro, answered or unknown need nothing.
+   * A line sent earlier as prepared is now being said. Held: handle it as urgent now. Waiting its
+   * turn for Chatterbox: it goes at once. Waiting for Kokoro: it goes next. With Chatterbox: it
+   * gets the urgent wait from now (never longer than it had), then goes to Kokoro. Lines Kokoro is
+   * making, answered or unknown need nothing.
    */
   private nowUrgent(id: number): void {
     const at = this.held.findIndex((j) => j.id === id);
@@ -86,6 +101,16 @@ export class VoiceRouter implements WorkerLike {
         this.viaKokoro(job);
       } else this.held[at] = job;
       return;
+    }
+    const waiting = this.queued.findIndex((j) => j.id === id);
+    if (waiting >= 0) {
+      const [job] = this.queued.splice(waiting, 1);
+      return void this.viaChatterbox({ ...job, urgent: true });
+    }
+    const backup = this.kokoroQueue.findIndex((j) => j.id === id);
+    if (backup >= 0) {
+      const [job] = this.kokoroQueue.splice(backup, 1);
+      return this.viaKokoro({ ...job, urgent: true });
     }
     const f = this.inFlight.get(id);
     if (!f || f.job.urgent) return;
@@ -116,7 +141,12 @@ export class VoiceRouter implements WorkerLike {
   private wake(): Promise<void> {
     this.waking ??= (async () => {
       // A retry while down stays down (lines keep going to Kokoro) until it succeeds.
-      if (this.source !== "down") this.setSource("waking");
+      if (this.source !== "down") {
+        this.setSource("waking");
+        // Prepared lines waiting their turn wait for the wake now, like new ones.
+        this.held.unshift(...this.queued);
+        this.queued = [];
+      }
       const ok = await this.deps.warm().catch(() => false);
       this.waking = null;
       if (ok) this.setAwake();
@@ -134,14 +164,15 @@ export class VoiceRouter implements WorkerLike {
     this.setSource("awake");
     const held = this.held;
     this.held = [];
-    for (const job of held) void this.viaChatterbox(job);
+    for (const job of held) this.toChatterbox(job);
   }
 
   private setDown(): void {
     this.setSource("down");
-    const held = this.held;
+    const waiting = [...this.queued, ...this.held];
+    this.queued = [];
     this.held = [];
-    for (const job of held) this.viaKokoro(job);
+    for (const job of waiting) this.viaKokoro(job);
     if (!this.retryTimer)
       this.retryTimer = setTimeout(() => {
         this.retryTimer = null;
@@ -160,10 +191,26 @@ export class VoiceRouter implements WorkerLike {
   private route(job: Generate): void {
     if (job.text.length > MAX_LINE) return this.viaKokoro(job);
     if (this.source === "awake" && Date.now() - this.lastLineAt > (this.deps.idleMs ?? 300_000)) void this.wake();
-    if (this.source === "awake") return void this.viaChatterbox(job);
+    if (this.source === "awake") return this.toChatterbox(job);
     if (this.source === "down") return this.viaKokoro(job);
     if (job.urgent && this.kokoroReady && !this.kokoroFailed) return this.viaKokoro(job);
     this.held.push(job);
+  }
+
+  /** A line being said goes at once; a prepared one waits its turn. */
+  private toChatterbox(job: Generate): void {
+    if (job.urgent) return void this.viaChatterbox(job);
+    this.queued.push(job);
+    this.nextPrepared();
+  }
+
+  /** Sends the next prepared line when Chatterbox is awake and has none. */
+  private nextPrepared(): void {
+    if (this.source !== "awake" || this.preparedId !== null) return;
+    const job = this.queued.shift();
+    if (!job) return;
+    this.preparedId = job.id;
+    void this.viaChatterbox(job);
   }
 
   private async viaChatterbox(job: Generate): Promise<void> {
@@ -178,46 +225,71 @@ export class VoiceRouter implements WorkerLike {
       this.post({ type: "audio", id: job.id, samples, sampleRate });
     } catch (err) {
       const aboutTheRequest = err instanceof SpeakError && err.status >= 400 && err.status < 500;
-      if (!aboutTheRequest && ++this.failures >= 2) this.setDown();
-      // f.job, not job: the line may have become urgent while it was in flight.
+      const down = !aboutTheRequest && ++this.failures >= 2;
+      // f.job, not job: the line may have become urgent while it was in flight. It goes to Kokoro
+      // before the prepared lines that were waiting behind it.
       this.viaKokoro(f.job);
+      if (down) this.setDown();
     } finally {
       clearTimeout(f.timer);
       this.inFlight.delete(job.id);
+      if (this.preparedId === job.id) this.preparedId = null;
+      this.nextPrepared();
     }
   }
 
+  /** Kokoro makes one line at a time; the line being said goes first. */
   private viaKokoro(job: Generate): void {
     if (!this.deps.kokoro || this.kokoroFailed) {
       this.post({ type: "error", id: job.id, message: "No backup voice" });
       return;
     }
-    this.kokoroJobs.add(job.id);
+    if (job.urgent) this.kokoroQueue.unshift(job);
+    else this.kokoroQueue.push(job);
+    this.nextKokoro();
+  }
+
+  private nextKokoro(): void {
+    if (this.kokoroBusy || !this.deps.kokoro || this.kokoroFailed) return;
+    const job = this.kokoroQueue.shift();
+    if (!job) return;
+    this.kokoroBusy = job;
     this.deps.kokoro.postMessage({ type: "generate", id: job.id, text: job.text, voice: backupVoice(job.voice), speed: job.speed, urgent: job.urgent });
   }
 
   private fromKokoro(msg: VoiceWorkerMessage): void {
     switch (msg.type) {
-      case "ready":
+      case "ready": {
         this.kokoroReady = true;
         this.sendReady();
+        // Lines being said were held only because there was no backup yet.
+        const now = this.held.filter((j) => j.urgent);
+        this.held = this.held.filter((j) => !j.urgent);
+        for (const job of now) this.viaKokoro(job);
         return;
+      }
       case "progress":
         this.post(msg);
         return;
       case "audio":
-        this.kokoroJobs.delete(msg.id);
+        // Only the line Kokoro was given: nothing is answered twice.
+        if (msg.id !== this.kokoroBusy?.id) return;
+        this.kokoroBusy = null;
         this.post({ ...msg, backup: true });
+        this.nextKokoro();
         return;
       case "error":
         if (msg.id === undefined) {
           this.kokoroFailed = true;
-          for (const id of this.kokoroJobs) this.post({ type: "error", id, message: msg.message });
-          this.kokoroJobs.clear();
+          const lost = [...(this.kokoroBusy ? [this.kokoroBusy] : []), ...this.kokoroQueue];
+          this.kokoroBusy = null;
+          this.kokoroQueue = [];
+          for (const job of lost) this.post({ type: "error", id: job.id, message: msg.message });
           this.noVoiceLeft();
-        } else {
-          this.kokoroJobs.delete(msg.id);
+        } else if (msg.id === this.kokoroBusy?.id) {
+          this.kokoroBusy = null;
           this.post(msg);
+          this.nextKokoro();
         }
         return;
       case "source":
