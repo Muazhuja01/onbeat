@@ -93,19 +93,6 @@ export function unbackedRoles(text: string, source: string): string[] {
   return out;
 }
 
-/** Words that say a thing ended or ask for a note to go; a removal needs one in a cited line. */
-const ENDED =
-  /\b(?:remov(?:e|ed|es|ing)|delet(?:e|ed|es|ing)|get rid|take (?:it|that|this) (?:off|out)|forget|gone|left|leaving|leaves|no longer|any ?more|no more|died|dead|passed away|stop(?:ped|s)?|finish(?:ed|es)?|ended|over now|closed|closing|shut|cancel(?:l?ed|s)?|called off|(?:is|it's|its|was) off|quit|retired|moved (?:away|out)|broke up|split up|sold|not true|isn't true|not happening)\b/i;
-
-const DAY_OR_MONTH = new RegExp(`^(?:(?:mon|tues|wednes|thurs|fri|satur|sun)days?|${MONTHS})$`, "i");
-
-/** The names a text states (capitalised words, not days or months), lowercased, in order. */
-function namesIn(text: string): string[] {
-  return extractClaims(text)
-    .filter((c) => /^\p{Lu}/u.test(c) && !DAY_OR_MONTH.test(c))
-    .map((c) => c.toLowerCase());
-}
-
 /**
  * Drops, never repairs. Every proposal must cite only the user's own lines: the assistant's
  * lines are its own words and can't be the source of a fact. Note adds and edits then pass
@@ -114,9 +101,7 @@ function namesIn(text: string): string[] {
  * line states as typed may be past the coming two weeks. A note may not claim a role or
  * relationship ("my doctor") that no cited line and not the note it edits states; a phrase may
  * not claim one that no cited line and no sent note states.
- * A removal must name a sent note that isn't also edited, cite a line that says the thing
- * ended or asks for the note to go, and not come with a new person or place note about a name
- * the removed note has (that is an edit). A phrase may not state a name or
+ * A removal must name a sent note that isn't also edited. A phrase may not state a name or
  * number found in no user line and no sent note, and may not repeat a quick phrase.
  */
 export function checkAssistProposals(proposals: AssistProposal[], req: AssistRequest): AssistProposal[] {
@@ -160,16 +145,10 @@ export function checkAssistProposals(proposals: AssistProposal[], req: AssistReq
 
   const sent = new Set(req.notes.map((n) => n.id));
   const edited = new Set(notes.flatMap((p) => (p.action === "edit" ? [p.noteId] : [])));
-  // The person or place each new person or place note is about: its first name.
-  const addedAbout = new Set(notes.flatMap((p) => (p.action === "add" && (p.kind === "person" || p.kind === "place") ? namesIn(`${p.name ?? ""} ${p.text}`).slice(0, 1) : [])));
   const removals: AssistProposal[] = [];
   for (const p of cited) {
     if (p.action !== "remove") continue;
     if (!sent.has(p.noteId) || edited.has(p.noteId) || removals.some((r) => r.action === "remove" && r.noteId === p.noteId)) continue;
-    // Only when a cited line says it ended or asks for it to go.
-    if (!ENDED.test(saidBy(p))) continue;
-    // A new note about the same person or place with it should have been an edit.
-    if (namesIn(oldText.get(p.noteId) ?? "").some((n) => addedAbout.has(n))) continue;
     removals.push(p);
   }
 

@@ -35,57 +35,9 @@ describe("checkAssistProposals", () => {
     expect(keep({ action: "add", kind: "routine", text: "Thursday 8 October, 9:15: seeing Dr. Chen.", lineIds: ["u2"] })).toEqual([]);
   });
 
-  const closed: AssistRequest = { ...req, lines: [...req.lines, { id: "u3", speaker: "user", text: "Riverside Pharmacy closed, so I don't go there any more." }] };
-
   it("keeps a removal of a sent note, drops one of a note that wasn't sent", () => {
-    expect(checkAssistProposals([{ action: "remove", noteId: "n3", lineIds: ["u3"] }], closed)).toHaveLength(1);
-    expect(checkAssistProposals([{ action: "remove", noteId: "n9", lineIds: ["u3"] }], closed)).toEqual([]);
-  });
-
-  describe("removals", () => {
-    const team: AssistRequest = {
-      ...req,
-      job: "update",
-      notes: [...req.notes, { id: "n4", kind: "person", text: "Jen sits next to me and works on the website team." }, { id: "n5", kind: "person", text: "Priya is the pharmacist at Riverside Pharmacy." }],
-    };
-    const say = (...texts: string[]): AssistRequest => ({ ...team, lines: [...team.lines, ...texts.map((text, i) => ({ id: `u${i + 3}`, speaker: "user" as const, text }))] });
-    const remove = (noteId: string, lineIds = ["u3"]): AssistProposal => ({ action: "remove", noteId, lineIds });
-
-    it("keeps a removal when a cited line says the thing ended", () => {
-      expect(checkAssistProposals([remove("n4")], say("Jen left"))).toHaveLength(1);
-      expect(checkAssistProposals([remove("n4")], say("Jen doesn't work here anymore."))).toHaveLength(1);
-      expect(checkAssistProposals([remove("n5")], say("Priya is no longer at the pharmacy."))).toHaveLength(1);
-      expect(checkAssistProposals([remove("n3")], say("I stopped taking that medication."))).toHaveLength(1);
-    });
-
-    it("keeps a removal the person asks for", () => {
-      expect(checkAssistProposals([remove("n4")], say("Remove the note about Jen."))).toHaveLength(1);
-      expect(checkAssistProposals([remove("n4")], say("Please delete Jen."))).toHaveLength(1);
-    });
-
-    it("drops a removal nobody asked for", () => {
-      expect(checkAssistProposals([remove("n5")], say("Pharmacy changed to Oak Street Pharmacy."))).toEqual([]);
-      expect(checkAssistProposals([remove("n4")], say("Jen moved to the mobile team."))).toEqual([]);
-      expect(keep(remove("n3", ["u2"]))).toEqual([]);
-    });
-
-    it("needs the cited line to say it, not another line", () => {
-      const r = say("Jen left", "Priya is still at Riverside.");
-      expect(checkAssistProposals([remove("n5", ["u4"])], r)).toEqual([]);
-      expect(checkAssistProposals([remove("n4", ["u3"])], r)).toHaveLength(1);
-    });
-
-    it("drops a removal that comes with a new note about the same person, and keeps the new note", () => {
-      const r = say("Priya left Riverside, she's at Oak Street Pharmacy now.");
-      const add: AssistProposal = { action: "add", kind: "person", text: "Priya is the pharmacist at Oak Street Pharmacy.", lineIds: ["u3"] };
-      expect(checkAssistProposals([remove("n5"), add], r)).toEqual([add]);
-    });
-
-    it("keeps a removal that comes with a new note about someone else", () => {
-      const r = say("Jen left, Sam took over from her on the website team.");
-      const add: AssistProposal = { action: "add", kind: "person", text: "Sam works on the website team.", lineIds: ["u3"] };
-      expect(checkAssistProposals([remove("n4"), add], r).map((p) => p.action)).toEqual(["add", "remove"]);
-    });
+    expect(keep({ action: "remove", noteId: "n3", lineIds: ["u2"] })).toHaveLength(1);
+    expect(keep({ action: "remove", noteId: "n9", lineIds: ["u2"] })).toEqual([]);
   });
 
   it("drops a removal of a note that is also edited", () => {
@@ -216,10 +168,10 @@ describe("checkAssistProposals", () => {
     const out = checkAssistProposals(
       [
         { action: "phrase", text: "I get dizzy in the mornings.", lineIds: ["u2"] },
-        { action: "remove", noteId: "n3", lineIds: ["u3"] },
+        { action: "remove", noteId: "n3", lineIds: ["u2"] },
         { action: "add", kind: "routine", text: "Thursday 8 October, 10:00: seeing Dr. Chen about my blood pressure.", lineIds: ["u2"] },
       ],
-      closed,
+      req,
     );
     expect(out.map((p) => p.action)).toEqual(["add", "remove", "phrase"]);
   });
