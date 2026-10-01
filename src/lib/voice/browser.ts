@@ -1,6 +1,7 @@
 import { en } from "@/lib/language-packs/en";
 import { DEFAULT_VOICE, speedValue, voiceId, type VoiceChoice } from "./choices";
 import { VoiceEngine, type AudioOut, type BasicSpeech } from "./engine";
+import { SpeakError, VoiceRouter } from "./router";
 
 export function webAudioOut(): AudioOut {
   let ctx: AudioContext | null = null;
@@ -72,12 +73,30 @@ export function setCurrentVoice(choice: VoiceChoice): void {
   current = { voice: voiceId(choice), speed: speedValue(choice) };
 }
 
+/** One line from the voice server, through OnBeat's own route. */
+export async function speakViaServer(req: { text: string; voice: string; speed: number }, signal: AbortSignal): Promise<ArrayBuffer> {
+  const res = await fetch("/api/speak", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(req), signal });
+  if (!res.ok) throw new SpeakError(res.status);
+  return res.arrayBuffer();
+}
+
+/** Starts the voice server; true once it answers that it's ready. */
+export async function warmServer(): Promise<boolean> {
+  try {
+    return (await fetch("/api/speak?warm=1", { method: "POST" })).ok;
+  } catch {
+    return false;
+  }
+}
+
 let engine: VoiceEngine | null = null;
 
 export function getBrowserVoice(): VoiceEngine {
   if (engine) return engine;
-  const worker =
+  const kokoro =
     typeof Worker === "undefined" ? null : new Worker(new URL("../../workers/voice.worker.ts", import.meta.url), { type: "module" });
-  engine = new VoiceEngine({ worker, audio: webAudioOut(), basic: browserBasicSpeech(), voice: () => current.voice, speed: () => current.speed });
+  // The engine's load() sends the wake call, so the voice server starts when the app opens.
+  const worker = new VoiceRouter({ kokoro, speak: speakViaServer, warm: warmServer });
+  engine = new VoiceEngine({ worker, audio: webAudioOut(), basic: browserBasicSpeech(), voice: () => current.voice, speed: () => current.speed, parallel: 3 });
   return engine;
 }

@@ -18,9 +18,12 @@ const h = vi.hoisted(() => {
     progress: new Set(),
     waiting: new Set(),
     fallback: new Set(),
+    source: new Set(),
+    backup: new Set(),
   };
   const voice = {
     mode: "basic" as const,
+    source: "waking" as const,
     on(event: string, cb: Listener) {
       listeners[event].add(cb);
       return () => listeners[event].delete(cb);
@@ -527,6 +530,12 @@ describe("ConversationScreen voice", () => {
     await startWithMaya();
     act(() => h.emit("fallback", "Hello there"));
     expect(await screen.findByText("Your voice wasn't ready in time, so your device's voice said that.")).toBeInTheDocument();
+  });
+
+  it("tells the user when the backup voice said a line", async () => {
+    await startWithMaya();
+    act(() => h.emit("backup", "Hello"));
+    expect(await screen.findByText("Your voice wasn't ready in time, so the backup voice said that.")).toBeVisible();
   });
 
   it("speaks in Tom's voice when his demo opens", async () => {
