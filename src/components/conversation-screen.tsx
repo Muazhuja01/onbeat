@@ -82,6 +82,8 @@ function Screen() {
   const [demo, setDemo] = useState<Persona | null>(null);
   const [memory, setMemory] = useState<MemoryStore | null>(null);
   const [notesVersion, setNotesVersion] = useState(0);
+  /** Bumped by New conversation, so the "What they said" box starts empty too. */
+  const [conversationKey, setConversationKey] = useState(0);
   const [voiceProgress, setVoiceProgress] = useState(0);
   const [state, dispatch] = useReducer(conversationReducer, initialConversation);
 
@@ -335,6 +337,19 @@ function Screen() {
     hearing?.stop();
     gapTimer.reset();
     leaveConversation("assistant");
+  };
+
+  /** Clears the screen for the next conversation; who, where and listening stay as they are. */
+  const newConversation = () => {
+    // Like a profile switch: a late reply for the old conversation must never appear.
+    client?.cancel();
+    if (state.speaking) stop();
+    dispatch({ type: "reset" });
+    gapTimer.reset();
+    setConversationKey((k) => k + 1);
+    learning.session?.conversationEnded();
+    announce("Conversation cleared.");
+    document.getElementById("composer")?.focus();
   };
 
   /** Shows a profile's or demo's notes with a fresh conversation. */
@@ -681,8 +696,8 @@ function Screen() {
             <ListenControl hearing={hearing} status={hearingStatus} progress={hearingProgress} onToggle={toggleListening} />
           </div>
           <div className="flex min-w-0 flex-col gap-6 [grid-area:log]">
-            <CaptionLog turns={state.turns} partnerName={partnerName} partial={state.partnerPartial} />
-            <PartnerInput onSubmit={(text) => dispatch({ type: "partnerSaid", id: crypto.randomUUID(), text, at: Date.now() })} />
+            <CaptionLog turns={state.turns} partnerName={partnerName} partial={state.partnerPartial} onNewConversation={newConversation} />
+            <PartnerInput key={conversationKey} onSubmit={(text) => dispatch({ type: "partnerSaid", id: crypto.randomUUID(), text, at: Date.now() })} />
           </div>
           <div className="flex min-w-0 flex-col gap-6 [grid-area:side]">
             <SpokenCaption speaking={state.speaking} lastSpoken={state.lastSpoken} />

@@ -19,6 +19,27 @@ test("a partner line produces checked replies that can be spoken", async ({ page
   await expect.poll(() => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken)).toContain("Large, please.");
 });
 
+test("New conversation clears the screen after asking", async ({ page }) => {
+  await prepare(page);
+  await startWithMaya(page);
+  await expect(page.getByRole("button", { name: "New conversation" })).toHaveCount(0);
+  await page.getByLabel("What they said").fill("What size would you like?");
+  await page.getByRole("button", { name: "Add" }).click();
+  await page.getByRole("button", { name: "Large, please." }).click();
+  await expect(page.getByRole("region", { name: "What you said" })).toContainText("Large, please.");
+
+  await page.getByRole("button", { name: "New conversation" }).click();
+  await expect(page.getByText("Clear this conversation? It isn't saved anywhere.")).toBeVisible();
+  const asking = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
+  expect(asking.violations).toEqual([]);
+
+  await page.getByRole("button", { name: "Clear" }).click();
+  await expect(page.getByText("What the other person says will appear here in large text.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Large, please." })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "What you said" })).toHaveCount(0);
+  await expect(page.getByLabel("Type a reply")).toBeFocused();
+});
+
 test("typing shows matching past phrases immediately", async ({ page }) => {
   await prepare(page);
   await startWithMaya(page);
