@@ -4,12 +4,23 @@ import { assistCases } from "./cases";
 import { statesTerm } from "./score";
 
 describe("assistCases", () => {
-  it("has 48 cases, 16 per job, 32 dev and 16 test, unique ids", () => {
-    expect(assistCases).toHaveLength(48);
-    expect(new Set(assistCases.map((c) => c.id)).size).toBe(48);
-    expect(assistCases.filter((c) => c.split === "test")).toHaveLength(16);
+  it("has 80 cases, 48 dev and 32 test, unique ids", () => {
+    expect(assistCases).toHaveLength(80);
+    expect(new Set(assistCases.map((c) => c.id)).size).toBe(80);
+    const dev = assistCases.filter((c) => c.split === "dev");
+    const test = assistCases.filter((c) => c.split === "test");
+    expect(dev).toHaveLength(48);
+    expect(test).toHaveLength(32);
     const job = (c: (typeof assistCases)[number]) => c.job ?? c.about.split(":")[0];
-    for (const j of ["update", "prepare", "phrases"]) expect(assistCases.filter((c) => job(c) === j)).toHaveLength(16);
+    for (const j of ["update", "prepare", "phrases"]) expect(dev.filter((c) => job(c) === j)).toHaveLength(16);
+    expect(["update", "prepare", "phrases"].map((j) => test.filter((c) => job(c) === j).length)).toEqual([11, 11, 10]);
+    for (const c of assistCases) if (c.job) expect(c.about.split(":")[0], c.id).toBe(c.job);
+  });
+
+  it("holds out at least 5 typed first messages and 5 cases that change nothing", () => {
+    const test = assistCases.filter((c) => c.split === "test");
+    expect(test.filter((c) => c.job === null).length).toBeGreaterThanOrEqual(5);
+    expect(test.filter((c) => c.expected.length === 0).length).toBeGreaterThanOrEqual(5);
   });
 
   it("names only notes the persona has, and gives an opener when there is no job", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkAssistProposals, withTypedTimes } from "./check";
+import { checkAssistProposals, nameOnly, unbackedRoles, withTypedTimes } from "./check";
 import type { AssistProposal, AssistRequest } from "./protocol";
 
 const req: AssistRequest = {
@@ -104,6 +104,89 @@ describe("checkAssistProposals", () => {
     expect(checkAssistProposals([{ ...p, text: "4 November, 16:00: parent-teacher meeting at Hillside School." }], far)).toEqual([]);
     expect(checkAssistProposals([{ ...p, text: "Tuesday 3 November, 16:00: parent-teacher meeting at Hillside School." }], far)).toEqual([]);
     expect(checkAssistProposals([{ ...p, text: "3 November, 17:00: parent-teacher meeting at Hillside School." }], far)).toEqual([]);
+  });
+
+  describe("roles and relationships", () => {
+    const say = (text: string): AssistRequest => ({ ...req, lines: [...req.lines, { id: "u3", speaker: "user", text }] });
+    const person = (text: string): AssistProposal => ({ action: "add", kind: "person", text, lineIds: ["u3"] });
+
+    it("drops a person note that gives someone a role they only named", () => {
+      const r = say("It's with Dr. Ahmed on Tuesday.");
+      expect(checkAssistProposals([person("Dr. Ahmed is my doctor.")], r)).toEqual([]);
+      expect(checkAssistProposals([person("Dr. Ahmed: my new eye doctor.")], r)).toEqual([]);
+      expect(checkAssistProposals([{ action: "add", kind: "routine", text: "Tuesday 6 October: seeing my doctor, Dr. Ahmed.", lineIds: ["u3"] }], r)).toEqual([]);
+    });
+
+    it("drops a relationship the person never typed", () => {
+      const r = say("Ruth is walking Biscuit today.");
+      expect(checkAssistProposals([person("Ruth is my neighbour.")], r)).toEqual([]);
+      expect(checkAssistProposals([person("Ruth is my carer.")], r)).toEqual([]);
+      expect(checkAssistProposals([person("Ruth is my best friend.")], r)).toEqual([]);
+    });
+
+    it("keeps a role the cited line states", () => {
+      expect(checkAssistProposals([person("Dr. Chen is my doctor.")], say("my doctor Dr. Chen"))).toHaveLength(1);
+      expect(checkAssistProposals([person("Ruth is my new neighbour.")], say("Ruth is my new neighbour."))).toHaveLength(1);
+      expect(checkAssistProposals([person("Ruth is my neighbor.")], say("Ruth lives next door, she's my neighbour."))).toHaveLength(1);
+      expect(checkAssistProposals([person("Dr. Ahmed is my doctor.")], say("Dr. Ahmed is my GP now."))).toHaveLength(1);
+    });
+
+    it("keeps a note that states only what was typed about someone", () => {
+      const r = say("It's with Dr. Ahmed on Tuesday, a breathing check.");
+      expect(checkAssistProposals([person("Dr. Ahmed: breathing check on Tuesday.")], r)).toHaveLength(1);
+    });
+
+    it("checks the role against the line that is cited, not another line", () => {
+      const r: AssistRequest = { ...req, lines: [...req.lines, { id: "u3", speaker: "user", text: "Ruth has a spare key." }, { id: "u4", speaker: "user", text: "My neighbour is kind." }] };
+      expect(checkAssistProposals([person("Ruth is my neighbour.")], r)).toEqual([]);
+      expect(checkAssistProposals([{ ...person("Ruth is my neighbour."), lineIds: ["u3", "u4"] }], r)).toHaveLength(1);
+    });
+
+    it("lets an edit keep a role the note it changes already states", () => {
+      const r = say("Dr. Chen moved to Elm Road Clinic.");
+      const edit: AssistProposal = { action: "edit", kind: "person", noteId: "n2", text: "Dr. Chen at Elm Road Clinic is my family doctor.", lineIds: ["u3"] };
+      expect(checkAssistProposals([edit], r)).toEqual([edit]);
+      expect(checkAssistProposals([{ ...edit, text: "Dr. Chen at Elm Road Clinic is my family doctor and my neighbour." }], r)).toEqual([]);
+    });
+
+    it("drops a phrase with a role no line or note states, and keeps one a note states", () => {
+      const r = say("I want to ask Dr. Ahmed about my breathing.");
+      expect(checkAssistProposals([{ action: "phrase", text: "Can my neighbour come in with me?", lineIds: ["u3"] }], r)).toEqual([]);
+      expect(checkAssistProposals([{ action: "phrase", text: "Can you ask my doctor to call me?", lineIds: ["u3"] }], r)).toHaveLength(1);
+      expect(checkAssistProposals([{ action: "phrase", text: "Can you check my breathing?", for: "Dr. Ahmed", lineIds: ["u3"] }], r)).toHaveLength(1);
+    });
+
+    it("doesn't read a role word after a preposition as a claim", () => {
+      const r = say("I have a cleaning at the dentist on Friday.");
+      expect(unbackedRoles("My appointment with the dentist.", "")).toEqual([]);
+      expect(unbackedRoles("Ruth is my neighbour.", "Ruth")).toEqual(["my neighbour"]);
+      expect(checkAssistProposals([{ action: "add", kind: "routine", text: "Friday 9 October: cleaning at my dentist.", lineIds: ["u3"] }], r)).toHaveLength(1);
+    });
+  });
+
+  it("lets a line about physiotherapy back 'my physio'", () => {
+    const r: AssistRequest = { ...req, lines: [...req.lines, { id: "u3", speaker: "user", text: "Physiotherapy on Tuesday at Elm Road Clinic." }] };
+    expect(checkAssistProposals([{ action: "add", kind: "place", text: "Elm Road Clinic: where I go to my physio.", lineIds: ["u3"] }], r)).toHaveLength(1);
+    expect(unbackedRoles("Elm Road Clinic: my physio.", "Physiotherapy on Tuesday.")).toEqual([]);
+  });
+
+  describe("name-only notes", () => {
+    const r: AssistRequest = {
+      ...req,
+      lines: [...req.lines, { id: "u3", speaker: "user", text: "Ruth has a spare key. Dr. Lund at Elm Road Clinic. Lumen Foods office." }],
+    };
+    const add = (kind: "person" | "place", text: string): AssistProposal => ({ action: "add", kind, text, lineIds: ["u3"] });
+
+    it("drops a new person or place note that is only a name", () => {
+      expect(checkAssistProposals([add("person", "Ruth.")], r)).toEqual([]);
+      expect(checkAssistProposals([add("place", "Lumen Foods office.")], r)).toEqual([]);
+      expect(nameOnly("Elm Road Clinic")).toBe(true);
+    });
+
+    it("keeps one that says something about them", () => {
+      expect(checkAssistProposals([add("person", "Ruth has a spare key.")], r)).toHaveLength(1);
+      expect(checkAssistProposals([add("person", "Dr. Lund, at Elm Road Clinic.")], r)).toHaveLength(1);
+    });
   });
 
   it("puts notes first, then removals, then phrases", () => {

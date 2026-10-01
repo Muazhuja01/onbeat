@@ -1,6 +1,6 @@
 import type { MemoryStore } from "@/lib/memory/store";
 import type { KeyValue } from "@/lib/profiles/kv";
-import { hasName, NOTE_MAX, noteFields } from "@/lib/profiles/notes";
+import { editName, hasName, NOTE_MAX, noteFields } from "@/lib/profiles/notes";
 import { COMMON_WORDS } from "@/lib/suggest/common-words";
 import { tokenize } from "@/lib/text";
 import type { Note } from "@/lib/types";
@@ -67,7 +67,7 @@ export async function relatedNotes(memory: MemoryStore, lines: QueuedLine[]): Pr
 export function toPending(p: Proposal, lines: Map<string, QueuedLine>, memory: MemoryStore, now: number): PendingSuggestion {
   const target = p.action === "edit" && p.noteId ? memory.getNote(p.noteId) : undefined;
   const kind = target?.kind ?? p.kind;
-  const name = hasName(kind) ? (p.name ?? (target ? noteFields(target).name : "")) : "";
+  const name = target ? editName(target, p.name, p.text) : hasName(kind) ? (p.name ?? "") : "";
   return {
     id: `s_${crypto.randomUUID()}`,
     action: target ? "edit" : "add",
