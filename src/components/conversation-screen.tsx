@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { personas, type Persona } from "@/data/personas";
+import { ASSISTANT_ENABLED } from "@/lib/assist/enabled";
 import { conversationReducer, initialConversation } from "@/lib/conversation/reducer";
 import { GapTimer, loadGaps, saveGap } from "@/lib/conversation/response-gap";
 import { useReplyShortcuts } from "@/lib/conversation/use-shortcuts";
@@ -552,7 +553,7 @@ function Screen() {
             onDemo={() => goTo("demo-picker")}
             suggestionCount={learning.suggestions.length}
             onSuggestions={() => goTo("suggestions")}
-            onAssistant={demo ? undefined : openAssistant}
+            onAssistant={demo || !ASSISTANT_ENABLED ? undefined : openAssistant}
           />
         )}
       </header>

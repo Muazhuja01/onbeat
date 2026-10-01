@@ -74,6 +74,12 @@ const h = vi.hoisted(() => {
   return { voice, setCurrentVoice, emit, requests, hearing, hear, learnBodies, setLearnAnswer, postLearn };
 });
 
+const flags = vi.hoisted(() => ({ assistant: true }));
+vi.mock("@/lib/assist/enabled", () => ({
+  get ASSISTANT_ENABLED() {
+    return flags.assistant;
+  },
+}));
 vi.mock("@/lib/voice/browser", () => ({ getBrowserVoice: () => h.voice, setCurrentVoice: h.setCurrentVoice }));
 vi.mock("@/lib/hearing/browser", () => ({ getBrowserHearing: () => h.hearing }));
 vi.mock("@/lib/learning/client", () => ({ postLearnBatch: (body: import("@/lib/learning/protocol").LearnRequest) => h.postLearn(body) }));
@@ -624,5 +630,17 @@ describe("ConversationScreen assistant", () => {
     await userEvent.click(screen.getByRole("button", { name: "Suggested notes" }));
     expect(screen.queryByRole("heading", { name: "Assistant" })).toBeNull();
     expect(screen.queryByText(/Leave without keeping/)).toBeNull();
+  });
+
+  it("leaves the assistant out of the menu until it is switched on", async () => {
+    flags.assistant = false;
+    try {
+      await setUpPriya();
+      await userEvent.click(screen.getByRole("button", { name: "Priya" }));
+      expect(screen.getByRole("button", { name: "Your notes" })).toBeVisible();
+      expect(screen.queryByRole("button", { name: "Assistant" })).toBeNull();
+    } finally {
+      flags.assistant = true;
+    }
   });
 });
