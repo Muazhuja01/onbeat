@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { aboutMeText, buildNote, composeNoteText, guessEntities, noteFields, NOTE_MAX, setupNotes } from "./notes";
+import type { Note } from "@/lib/types";
+import { aboutMeText, buildNote, composeNoteText, editName, guessEntities, noteFields, NOTE_MAX, setupNotes } from "./notes";
 
 describe("guessEntities", () => {
   it("finds names, joined when they run together, and skips ordinary words", () => {
@@ -68,5 +69,32 @@ describe("composeNoteText", () => {
     expect(composeNoteText({ kind: "routine", name: "ignored", text: "  Physio on Thursdays. " })).toBe("Physio on Thursdays.");
     const draft = { kind: "place" as const, name: "Home", text: "my flat on Cedar Street" };
     expect(buildNote(draft, { now: 1 }).text).toBe(composeNoteText(draft));
+  });
+});
+
+describe("editName", () => {
+  const home: Note = { id: "m-home", kind: "place", text: "Home is my apartment on Cedar Street.", entities: ["Cedar Street"], updatedAt: 0 };
+  const sam: Note = { id: "sam", kind: "person", text: "Sam is the barista at Blue Door Café.", entities: ["Sam"], updatedAt: 0 };
+  const labelled: Note = { id: "ana", kind: "person", text: "Ana: my carer", entities: ["Ana"], updatedAt: 0 };
+
+  it("drops a stored name that a whole new sentence no longer mentions", () => {
+    expect(editName(home, undefined, "Home is my flat on Birch Road.")).toBe("");
+    expect(editName(home, "Cedar Street", "Home is my flat on Birch Road.")).toBe("");
+  });
+
+  it("keeps the stored name for a fragment, a mention or a label", () => {
+    expect(editName(sam, undefined, "moving to Leeds in May")).toBe("Sam");
+    expect(editName(sam, undefined, "Sam is moving to Leeds in May.")).toBe("Sam");
+    expect(editName(labelled, undefined, "My carer on weekday mornings.")).toBe("Ana");
+  });
+
+  it("keeps a name the old note started with when the new text doesn't start with another", () => {
+    const named: Note = { id: "home", kind: "place", text: "Home is my flat on Oak Road.", entities: ["Home"], updatedAt: 0 };
+    expect(editName(named, undefined, "My flat on Elm Road.")).toBe("Home");
+    expect(editName(sam, undefined, "Jo is the barista at Blue Door Café.")).toBe("");
+  });
+
+  it("uses a new name the edit sends", () => {
+    expect(editName(home, "Birch Road", "Home is my flat on Birch Road.")).toBe("Birch Road");
   });
 });

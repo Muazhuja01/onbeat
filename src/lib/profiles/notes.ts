@@ -75,10 +75,13 @@ export function noteFields(note: Note): { name: string; text: string } {
 /**
  * The name an edit of a person or place note is saved with. A name the edit gives that isn't
  * the stored one is used as given. The stored name stays when the note held it as a "Name: "
- * label, when the new text still mentions it, or when the new text doesn't start with another
- * name ("moving to Leeds in May" is still about Sam). A sentence-form note ("Dr. Chen at
- * Lakeview Clinic is my family doctor.") edited to "Dr. Osei at Lakeview Clinic is my family
- * doctor." must not get "Dr. Chen: " in front.
+ * label, when the new text still mentions it, when the new text is a fragment ("moving to
+ * Leeds in May" is still about Sam), or when the old note started with the name and the new
+ * text doesn't start with another one ("My flat on Elm Road." is still Home). So
+ * "Dr. Chen at Lakeview Clinic is my family doctor." edited to "Dr. Osei at Lakeview Clinic
+ * is my family doctor." doesn't get "Dr. Chen: " in front, and "Home is my apartment on Cedar
+ * Street." edited to "Home is my flat on Birch Road." doesn't get "Cedar Street: ", since the
+ * name sat inside the old sentence and the new one replaced it.
  */
 export function editName(target: Note, sent: string | undefined, text: string): string {
   if (!hasName(target.kind)) return "";
@@ -89,9 +92,11 @@ export function editName(target: Note, sent: string | undefined, text: string): 
   const labelled = stored.text !== target.text;
   const escaped = stored.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const mentioned = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu").test(text);
+  const fragment = /^\p{Ll}/u.test(text.trim());
+  const wasSubject = new RegExp(`^${escaped}(?![\\p{L}\\p{N}])`, "iu").test(target.text.trim());
   const first = text.trim().replace(/^(?:Dr|Mr|Mrs|Ms|Mx)\.?\s+/, "").match(WORD)?.[0] ?? "";
   const startsWithName = /^\p{Lu}/u.test(first) && first !== "I" && !COMMON_WORDS.has(first.toLowerCase());
-  return labelled || mentioned || !startsWithName ? stored.name : "";
+  return labelled || mentioned || fragment || (wasSubject && !startsWithName) ? stored.name : "";
 }
 
 /** Replies speak for the user, so the main note says who they are. */
