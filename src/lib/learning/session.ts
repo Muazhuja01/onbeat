@@ -149,13 +149,13 @@ export class LearningSession {
 
   /**
    * The partner carried a line on after a pause, so it grew to `line.text`. A line still waiting
-   * takes the whole text; one already sent, or being sent, gets only the `added` words as a new line,
-   * so nothing is learned twice or lost.
+   * takes the whole text when it fits; otherwise (too long, already sent, or being sent) only the
+   * `added` words go, as a new line, so nothing is learned twice or lost.
    */
   async growLine(line: NewLine & { id: string }, added: string): Promise<void> {
     if (!this.enabled) return;
-    const text = line.text.trim().slice(0, LEARN_LINE_MAX);
-    if (text && !this.batcher.isSending(line.id) && (await this.queue.replace(line.id, text))) {
+    const text = line.text.trim();
+    if (text && text.length <= LEARN_LINE_MAX && !this.batcher.isSending(line.id) && (await this.queue.replace(line.id, text))) {
       this.batcher.lineAdded();
       return;
     }

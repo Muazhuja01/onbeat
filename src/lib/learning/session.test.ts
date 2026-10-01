@@ -195,6 +195,19 @@ describe("LearningSession", () => {
     expect(post.mock.calls[1][0].lines.map((l) => l.text)).toEqual(["is that OK?", "Yes."]);
   });
 
+  it("sends the added words as their own line when the grown line would be too long to learn whole", async () => {
+    const post = answer(() => []);
+    const { session } = await open(post);
+    const start = "word ".repeat(80).trim();
+    const added = "more ".repeat(40).trim();
+    expect(`${start} ${added}`.length).toBeGreaterThan(500);
+    await session.addLine({ id: "t1", speaker: "partner", text: start });
+    await session.growLine({ id: "t1", speaker: "partner", text: `${start} ${added}` }, added);
+    session.pageHidden();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(post.mock.calls[0][0].lines.map((l) => l.text)).toEqual([start, added]);
+  });
+
   it("doesn't change a line while it is being sent: the added words go as their own line", async () => {
     let release!: (r: LearnResult) => void;
     const post = vi.fn<Post>(() => new Promise<LearnResult>((r) => (release = r)));

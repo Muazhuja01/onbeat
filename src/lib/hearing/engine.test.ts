@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkerLike } from "@/lib/worker-like";
-import { HearingEngine, type HearingDeps, type HearingStatus } from "./engine";
+import { HearingEngine, type HearingDeps, type HearingStatus, type TurnEnd } from "./engine";
 import type { HearingWorkerMessage } from "./messages";
 import { MicError, type MicSource } from "./mic";
 
@@ -318,13 +318,17 @@ describe("HearingEngine with cloud captions", () => {
 
   it("uses the cloud text for a finished turn", async () => {
     const cloud = manualCloud();
-    const { worker, events } = await listening(cloud.refineTurn);
+    const { engine, worker, events } = await listening(cloud.refineTurn);
+    const turns: TurnEnd[] = [];
+    engine.on("turnEnd", (t) => turns.push(t));
     worker.reply({ type: "partial", text: "Can I have your", ms: 50 });
-    worker.reply({ type: "turnEnd", text: "Can I have your", endedAt: 1, ms: 50, audio: audio() });
+    worker.reply({ type: "turnEnd", text: "Can I have your", endedAt: 1_000, ms: 50, audio: audio() });
     expect(events).toEqual(["partial:Can I have your"]);
     cloud.calls[0].answer("Can I have your name?");
     await flush();
     expect(events).toEqual(["partial:Can I have your", "turn:Can I have your name?"]);
+    // Two samples at 16 kHz: the piece started 0.125 ms before it ended.
+    expect(turns).toEqual([{ text: "Can I have your name?", startedAt: 999.875, endedAt: 1_000 }]);
     expect(Array.from(cloud.calls[0].audio)).toEqual([Math.fround(0.1), Math.fround(0.2)]);
   });
 
