@@ -501,7 +501,7 @@ describe("ConversationScreen listening", () => {
 });
 
 describe("ConversationScreen voice", () => {
-  const MALE = { gender: "male", accent: "american", style: "calm", speed: "normal" };
+  const MALE = { gender: "male", accent: "american", style: "deep", speed: "normal", v: 2 };
   const lastVoice = () => h.setCurrentVoice.mock.calls.at(-1)?.[0];
 
   it("prepares only the replies on screen, in order", async () => {

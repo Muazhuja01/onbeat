@@ -111,16 +111,22 @@ describe("voice", () => {
   it("keeps a profile's voice, and uses the default when none is stored", async () => {
     const kv = memoryKeyValue();
     const r = await ProfileRegistry.open(kv);
-    const tom = await r.create("Tom", { gender: "male", accent: "american", style: "calm", speed: "normal" });
+    const tom = await r.create("Tom", { gender: "male", accent: "canadian", style: "warm", speed: "normal", v: 2 });
     const maya = await r.create("Maya");
-    expect(profileVoice(r.list().find((p) => p.id === tom.id))).toEqual({ gender: "male", accent: "american", style: "calm", speed: "normal" });
+    expect(profileVoice(r.list().find((p) => p.id === tom.id))).toEqual({ gender: "male", accent: "canadian", style: "warm", speed: "normal", v: 2 });
     expect(profileVoice(r.list().find((p) => p.id === maya.id))).toEqual(DEFAULT_VOICE);
-    await r.setVoice(maya.id, { gender: "female", accent: "british", style: "clear", speed: "faster" });
+    await r.setVoice(maya.id, { gender: "female", accent: "british", style: "bright", speed: "faster", v: 2 });
     const reopened = await ProfileRegistry.open(kv);
-    expect(profileVoice(reopened.list().find((p) => p.id === maya.id))?.style).toBe("clear");
+    expect(profileVoice(reopened.list().find((p) => p.id === maya.id))?.style).toBe("bright");
+  });
+
+  it("moves a stored Kokoro choice to the nearest Chatterbox voice", () => {
+    const old = { gender: "male", accent: "american", style: "calm", speed: "slower" } as unknown as import("@/lib/voice/choices").VoiceChoice;
+    expect(profileVoice({ id: "x", name: "X", createdAt: 0, voice: old })).toEqual({ gender: "male", accent: "american", style: "deep", speed: "slower", v: 2 });
   });
 
   it("treats a stored value that isn't a valid choice as the default", () => {
-    expect(profileVoice({ id: "x", name: "X", createdAt: 0, voice: { gender: "male", accent: "british", style: "deep", speed: "normal" } })).toEqual(DEFAULT_VOICE);
+    const odd = { gender: "male", accent: "british", style: "deep", speed: "normal" } as unknown as import("@/lib/voice/choices").VoiceChoice;
+    expect(profileVoice({ id: "x", name: "X", createdAt: 0, voice: odd })).toEqual(DEFAULT_VOICE);
   });
 });

@@ -92,10 +92,16 @@ describe("suggested notes in exports", () => {
 });
 
 describe("voice in export files", () => {
-  const male = { gender: "male" as const, accent: "british" as const, style: "calm", speed: "slower" as const };
+  const male = { gender: "male" as const, accent: "british" as const, style: "gentle", speed: "slower" as const, v: 2 as const };
 
   it("carries the voice", () => {
     expect(parseImport(exportProfile("Tom", [], [], now, [], male))!.voice).toEqual(male);
+  });
+
+  it("moves a Kokoro voice in an older file to the nearest Chatterbox voice", () => {
+    const file = JSON.parse(exportProfile("Tom", [], [], now));
+    file.profile.voice = { gender: "female", accent: "british", style: "clear", speed: "normal" };
+    expect(parseImport(JSON.stringify(file))!.voice).toEqual({ gender: "female", accent: "british", style: "bright", speed: "normal", v: 2 });
   });
 
   it("imports older files, and files with an unknown voice, with the default", () => {

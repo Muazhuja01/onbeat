@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { PendingSuggestion } from "@/lib/learning/types";
 import type { Note, Phrase } from "@/lib/types";
-import { DEFAULT_VOICE, isVoiceChoice, type VoiceChoice } from "@/lib/voice/choices";
+import { DEFAULT_VOICE, migrateChoice, type VoiceChoice } from "@/lib/voice/choices";
 import { cleanName } from "./registry";
 
 const Kind = z.enum(["person", "place", "routine", "preference", "about-me"]);
@@ -104,6 +104,6 @@ export function parseImport(text: string): { name: string; notes: Note[]; phrase
   });
   const given = parsed.data.profile.voice;
   // Rebuilt field by field, so nothing else in the file is stored with the profile.
-  const voice: VoiceChoice = isVoiceChoice(given) ? { gender: given.gender, accent: given.accent, style: given.style, speed: given.speed } : DEFAULT_VOICE;
+  const voice: VoiceChoice = migrateChoice(given) ?? DEFAULT_VOICE;
   return { name, notes, phrases, suggestions, voice };
 }

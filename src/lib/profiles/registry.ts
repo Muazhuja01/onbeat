@@ -1,7 +1,7 @@
 import { learningKeys } from "@/lib/learning/keys";
 import { retireProfile } from "@/lib/learning/lifecycle";
 import type { Persist, Snapshot } from "@/lib/memory/persist";
-import { DEFAULT_VOICE, isVoiceChoice, type VoiceChoice } from "@/lib/voice/choices";
+import { DEFAULT_VOICE, migrateChoice, type VoiceChoice } from "@/lib/voice/choices";
 import { idbKeyValue, memoryKeyValue, type KeyValue } from "./kv";
 
 export interface ProfileInfo {
@@ -12,9 +12,9 @@ export interface ProfileInfo {
   voice?: VoiceChoice;
 }
 
-/** The profile's voice when it is a valid choice, else the default. */
+/** The profile's voice, with an older Kokoro choice moved to the nearest Chatterbox voice; else the default. */
 export function profileVoice(p: ProfileInfo | null | undefined): VoiceChoice {
-  return p && isVoiceChoice(p.voice) ? p.voice : DEFAULT_VOICE;
+  return migrateChoice(p?.voice) ?? DEFAULT_VOICE;
 }
 
 interface RegistryState {

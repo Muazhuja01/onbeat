@@ -73,7 +73,7 @@ export const personas: Persona[] = [
       n("t-doctor", "person", "Dr. Chen at Lakeview Clinic is my family doctor.", ["Dr. Chen", "Lakeview Clinic"]),
       n("t-work", "about-me", "I work as a graphic designer."),
     ],
-    voice: { gender: "male", accent: "american", style: "calm", speed: "normal" },
+    voice: { gender: "male", accent: "american", style: "deep", speed: "normal", v: 2 },
     phrases: [
       p("t-p1", "I'm here to pick up a prescription.", 10, "t-pharmacy"),
       p("t-p2", "Can you type that for me?", 8),
