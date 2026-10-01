@@ -16,6 +16,8 @@ const h = vi.hoisted(() => {
     sampleEnd: new Set(),
     mode: new Set(),
     progress: new Set(),
+    waiting: new Set(),
+    fallback: new Set(),
   };
   const voice = {
     mode: "basic" as const,
@@ -25,6 +27,7 @@ const h = vi.hoisted(() => {
     },
     load: () => {},
     prepare: () => {},
+    prepareReplies: (() => {}) as (texts: string[]) => void,
     speak: async (text: string) => {
       for (const cb of listeners.start) cb(text);
     },
@@ -343,13 +346,13 @@ describe("ConversationScreen", () => {
     await setUpPriya();
     await partnerSays("What size?");
     answer("Large, please.");
-    const prepare = vi.spyOn(h.voice, "prepare");
+    const prepare = vi.spyOn(h.voice, "prepareReplies");
     await userEvent.click(screen.getByRole("button", { name: "Priya" }));
     await userEvent.click(screen.getByRole("button", { name: /^Voice:/ }));
     await userEvent.click(screen.getByRole("radio", { name: "Faster" }));
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     await screen.findByRole("heading", { name: "Replies" });
-    await waitFor(() => expect(prepare).toHaveBeenCalledWith("Large, please."));
+    await waitFor(() => expect(prepare).toHaveBeenCalledWith(["Large, please."]));
     prepare.mockRestore();
   });
 
@@ -483,11 +486,48 @@ describe("ConversationScreen listening", () => {
     act(() => h.emit("end", "Large, please."));
     expect(h.hearing.resume).toHaveBeenCalledWith(400);
   });
+
+  it("keeps listening while a reply waits for the voice, and pauses once it plays", async () => {
+    await startWithMaya();
+    await partnerSays("What size?");
+    answer("Large, please.");
+    await userEvent.click(screen.getByRole("button", { name: "Large, please." }));
+    act(() => h.emit("waiting", true));
+    expect(h.hearing.resume).toHaveBeenLastCalledWith(0);
+    vi.mocked(h.hearing.pause).mockClear();
+    act(() => h.emit("waiting", false));
+    expect(h.hearing.pause).toHaveBeenCalled();
+  });
 });
 
 describe("ConversationScreen voice", () => {
   const MALE = { gender: "male", accent: "american", style: "calm", speed: "normal" };
   const lastVoice = () => h.setCurrentVoice.mock.calls.at(-1)?.[0];
+
+  it("prepares only the replies on screen, in order", async () => {
+    const prepare = vi.spyOn(h.voice, "prepareReplies");
+    await startWithMaya();
+    await partnerSays("What size?");
+    answer("Large, please.", "Medium, please.");
+    await waitFor(() => expect(prepare).toHaveBeenLastCalledWith(["Large, please.", "Medium, please."]));
+    prepare.mockRestore();
+  });
+
+  it("says the voice is getting ready while a line waits for it", async () => {
+    await startWithMaya();
+    await userEvent.type(screen.getByLabelText("Type a reply"), "Hello there{Enter}");
+    act(() => h.emit("waiting", true));
+    const said = screen.getByRole("region", { name: "What you said" });
+    expect(within(said).getByText("Getting your voice ready…")).toBeInTheDocument();
+    act(() => h.emit("waiting", false));
+    expect(within(said).queryByText("Getting your voice ready…")).toBeNull();
+  });
+
+  it("says when the device voice said a line instead of the chosen one", async () => {
+    await startWithMaya();
+    act(() => h.emit("fallback", "Hello there"));
+    expect(await screen.findByText("Your voice wasn't ready in time, so your device's voice said that.")).toBeInTheDocument();
+  });
 
   it("speaks in Tom's voice when his demo opens", async () => {
     render(<ConversationScreen />);

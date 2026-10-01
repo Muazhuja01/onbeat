@@ -99,15 +99,124 @@ describe("VoiceEngine", () => {
     await done;
   });
 
-  it("falls back to basic when the natural clip is too slow", async () => {
+  it("uses the device voice and says so when the chosen voice takes too long", async () => {
     const w = new FakeWorker();
     const a = fakeAudio();
     const { basic, spoken } = fakeBasic();
     const v = new VoiceEngine(deps(w, a.audio, basic));
+    const fellBack: string[] = [];
+    v.on("fallback", (t) => fellBack.push(t));
     v.load();
     w.emit({ type: "ready" });
     await v.speak("Slow one");
     expect(spoken).toEqual(["Slow one"]);
+    expect(fellBack).toEqual(["Slow one"]);
+  });
+
+  it("uses the device voice and says so when the clip fails", async () => {
+    const w = new FakeWorker();
+    const a = fakeAudio();
+    const { basic, spoken } = fakeBasic();
+    const v = new VoiceEngine({ ...deps(w, a.audio, basic), naturalWaitMs: 5000 });
+    const fellBack: string[] = [];
+    v.on("fallback", (t) => fellBack.push(t));
+    v.load();
+    w.emit({ type: "ready" });
+    const done = v.speak("Broken");
+    w.emit({ type: "error", id: w.lastGenerate().id, message: "boom" });
+    await done;
+    expect(spoken).toEqual(["Broken"]);
+    expect(fellBack).toEqual(["Broken"]);
+  });
+
+  it("waits for the chosen voice instead of using the device voice, and says it is waiting", async () => {
+    const w = new FakeWorker();
+    const a = fakeAudio();
+    const { basic } = fakeBasic();
+    const v = new VoiceEngine({ ...deps(w, a.audio, basic), naturalWaitMs: 5000 });
+    const waiting: boolean[] = [];
+    v.on("waiting", (on) => waiting.push(on));
+    v.load();
+    w.emit({ type: "ready" });
+    const done = v.speak("Take your time");
+    await new Promise((r) => setTimeout(r, 120));
+    expect(basic.speak).not.toHaveBeenCalled();
+    expect(waiting).toEqual([true]);
+    w.emit({ type: "audio", id: w.lastGenerate().id, samples: new Float32Array(6), sampleRate: 24000 });
+    await vi.waitFor(() => expect(a.played).toEqual([6]));
+    expect(waiting).toEqual([true, false]);
+    a.finish();
+    await done;
+    expect(basic.speak).not.toHaveBeenCalled();
+  });
+
+  it("doesn't say it is waiting when the clip is already made", async () => {
+    const w = new FakeWorker();
+    const a = fakeAudio();
+    const { basic } = fakeBasic();
+    const v = new VoiceEngine(deps(w, a.audio, basic));
+    const waiting: boolean[] = [];
+    v.on("waiting", (on) => waiting.push(on));
+    v.load();
+    w.emit({ type: "ready" });
+    v.prepare("Ready");
+    w.emit({ type: "audio", id: w.lastGenerate().id, samples: new Float32Array(3), sampleRate: 24000 });
+    const done = v.speak("Ready");
+    await vi.waitFor(() => expect(a.played).toEqual([3]));
+    a.finish();
+    await done;
+    expect(waiting).toEqual([]);
+  });
+
+  it("makes one clip at a time, and a line being said goes ahead of replies still waiting", async () => {
+    const w = new FakeWorker();
+    const a = fakeAudio();
+    const { basic } = fakeBasic();
+    const v = new VoiceEngine({ ...deps(w, a.audio, basic), naturalWaitMs: 5000 });
+    v.load();
+    w.emit({ type: "ready" });
+    const texts = () => w.sent.flatMap((m) => (m.type === "generate" ? [m.text] : []));
+    v.prepareReplies(["A", "B", "C"]);
+    expect(texts()).toEqual(["A"]);
+    const done = v.speak("Typed");
+    expect(texts()).toEqual(["A"]);
+    w.emit({ type: "audio", id: w.lastGenerate().id, samples: new Float32Array(1), sampleRate: 24000 });
+    expect(texts()).toEqual(["A", "Typed"]);
+    w.emit({ type: "audio", id: w.lastGenerate().id, samples: new Float32Array(2), sampleRate: 24000 });
+    await vi.waitFor(() => expect(a.played).toEqual([2]));
+    expect(texts()).toEqual(["A", "Typed", "B"]);
+    a.finish();
+    await done;
+  });
+
+  it("a tapped reply that is waiting its turn moves to the front", () => {
+    const w = new FakeWorker();
+    const a = fakeAudio();
+    const { basic } = fakeBasic();
+    const v = new VoiceEngine({ ...deps(w, a.audio, basic), naturalWaitMs: 5000 });
+    v.load();
+    w.emit({ type: "ready" });
+    const texts = () => w.sent.flatMap((m) => (m.type === "generate" ? [m.text] : []));
+    v.prepareReplies(["A", "B", "C"]);
+    void v.speak("C");
+    w.emit({ type: "audio", id: w.lastGenerate().id, samples: new Float32Array(1), sampleRate: 24000 });
+    expect(texts()).toEqual(["A", "C"]);
+  });
+
+  it("new replies drop the old ones not made yet", () => {
+    const w = new FakeWorker();
+    const a = fakeAudio();
+    const { basic } = fakeBasic();
+    const v = new VoiceEngine(deps(w, a.audio, basic));
+    v.load();
+    w.emit({ type: "ready" });
+    const texts = () => w.sent.flatMap((m) => (m.type === "generate" ? [m.text] : []));
+    v.prepareReplies(["A", "B"]);
+    v.prepareReplies(["C", "A"]);
+    w.emit({ type: "audio", id: w.lastGenerate().id, samples: new Float32Array(1), sampleRate: 24000 });
+    expect(texts()).toEqual(["A", "C"]);
+    w.emit({ type: "audio", id: w.lastGenerate().id, samples: new Float32Array(1), sampleRate: 24000 });
+    expect(texts()).toEqual(["A", "C"]);
   });
 
   it("speaking again stops the previous utterance", async () => {
@@ -176,17 +285,19 @@ describe("voices", () => {
 
   it("asks the worker for the current voice, and for a new one after a change", () => {
     let voice = "af_heart";
-    const { engine, generated } = natural({ voice: () => voice });
+    const { engine, worker, generated } = natural({ voice: () => voice });
     void engine.speak("Hello");
     voice = "am_michael";
     void engine.speak("Hello");
+    worker.emit({ type: "audio", id: generated()[0].id, samples: new Float32Array(1), sampleRate: 24000 });
     expect(generated().map((m) => m.voice)).toEqual(["af_heart", "am_michael"]);
   });
 
   it("plays a sample in another voice without changing the current one", () => {
-    const { engine, generated } = natural({ voice: () => "af_heart", speed: () => 1 });
+    const { engine, worker, generated } = natural({ voice: () => "af_heart", speed: () => 1 });
     void engine.sample("Hi, I'm Tom.", { voice: "am_michael", speed: 1.15 });
     void engine.speak("Next reply");
+    worker.emit({ type: "audio", id: generated()[0].id, samples: new Float32Array(1), sampleRate: 24000 });
     expect(generated().map((m) => [m.voice, m.speed])).toEqual([
       ["am_michael", 1.15],
       ["af_heart", 1],
@@ -214,6 +325,7 @@ describe("voices", () => {
     expect(audio.audio.stop).toHaveBeenCalled();
     expect(ends).toEqual(["A reply"]);
     void engine.speak("Next reply");
+    worker.emit({ type: "audio", id: generated()[1].id, samples: new Float32Array(1), sampleRate: 24000 });
     expect(generated().map((m) => [m.voice, m.speed])).toEqual([
       ["af_heart", 1],
       ["am_michael", 1.15],
@@ -269,10 +381,10 @@ describe("voices", () => {
     const sample = engine.sample("Hi, I'm Tom.", { voice: "am_michael", speed: 1 });
     const reply = engine.speak("A reply");
     expect(ends).toEqual(["sample"]);
-    worker.emit({ type: "audio", id: generated()[1].id, samples: new Float32Array(4), sampleRate: 24000 });
-    await vi.waitFor(() => expect(audio.played).toEqual([4]));
     // The sample's clip arrives late and is not played over the reply.
     worker.emit({ type: "audio", id: generated()[0].id, samples: new Float32Array(9), sampleRate: 24000 });
+    worker.emit({ type: "audio", id: generated()[1].id, samples: new Float32Array(4), sampleRate: 24000 });
+    await vi.waitFor(() => expect(audio.played).toEqual([4]));
     await sample;
     expect(audio.played).toEqual([4]);
     audio.finish();
