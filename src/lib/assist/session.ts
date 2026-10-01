@@ -203,7 +203,7 @@ export class AssistSession {
         const target = this.memory.getNote(p.noteId);
         const sent = sentText.get(p.noteId);
         if (!target || sent === undefined) continue;
-        // Like learning's toPending: the stored name stays only as a label or when still mentioned.
+        // Like learning's toPending: editName says when the stored name still applies.
         const name = editName(target, p.name, p.text);
         card = { ...base, action: "edit", noteId: p.noteId, oldText: sent, draft: { kind: target.kind, ...(name ? { name } : {}), text: p.text }, ...since(target, sent) };
       } else card = { ...base, action: "add", draft: { kind: p.kind, ...(p.name ? { name: p.name } : {}), text: p.text } };
