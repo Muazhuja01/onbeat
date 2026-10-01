@@ -2,7 +2,9 @@
 
 Chatterbox copies a voice from a short recording. Each file here is 10 to 15 seconds of one speaker's lines, joined, trimmed and saved as 24 kHz 16-bit mono.
 
-The recordings come from the CSTR VCTK Corpus (Yamagishi, Veaux and MacDonald, University of Edinburgh, 2019), licensed under CC BY 4.0: https://datashare.ed.ac.uk/handle/10283/3443
+The recordings come from the CSTR VCTK Corpus (Yamagishi, Veaux and MacDonald, University of Edinburgh, 2019), licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/): https://datashare.ed.ac.uk/handle/10283/3443
+
+The clips here are modified from the originals: joined, trimmed and resampled.
 
 | File | Speaker | OnBeat voice |
 |---|---|---|

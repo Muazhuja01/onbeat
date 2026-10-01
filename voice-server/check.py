@@ -2,6 +2,8 @@
 
     python voice-server/check.py [--out DIR] [--whisper]
 
+The clips go to voice-server/out unless --out says otherwise.
+
 Run it after the server has been idle for 6 minutes to also measure a cold start (the first line)."""
 import argparse
 import io
@@ -25,7 +27,7 @@ def words(s: str) -> list[str]:
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--out", default="C:/Users/hujai/Music/chatterbox-test/deployed")
+    p.add_argument("--out", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "out"))
     p.add_argument("--whisper", action="store_true")
     args = p.parse_args()
     os.makedirs(args.out, exist_ok=True)

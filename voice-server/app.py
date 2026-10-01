@@ -73,6 +73,8 @@ class Voice:
         from voices import VOICES
 
         m = self.models[VOICES[voice][0]]
+        # Swapping the shared model's voice is safe only because a container takes one input at a
+        # time. Don't add @modal.concurrent without a lock around this and generate().
         m.conds = self.conds[voice]
         wav = m.generate(text)
         torch.cuda.synchronize()

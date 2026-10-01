@@ -55,7 +55,7 @@ The voices are made by Chatterbox (Resemble AI, MIT) from recordings in the CSTR
 You need Node 24.
 
 1. `npm install`
-2. Copy `.env.example` to `.env.local` and add free API keys from [Groq](https://console.groq.com/keys) and [Cloudflare Workers AI](https://dash.cloudflare.com) (open Workers AI, then "Use REST API" for the account ID and a token). The app still runs without them, but only past phrases are suggested.
+2. Copy `.env.example` to `.env.local` and add free API keys from [Groq](https://console.groq.com/keys) and [Cloudflare Workers AI](https://dash.cloudflare.com) (open Workers AI, then "Use REST API" for the account ID and a token). The app still runs without them, but only past phrases are suggested. Without the three `MODAL_` settings (see `voice-server/README.md`) every line uses the backup voice.
 3. `npm run dev` and open http://localhost:3000
 
 The first visit downloads the backup voice (about 90 MB) and the search model (about 23 MB). Pressing Listen downloads speech recognition (about 53 MB) the first time. All are cached by the browser afterwards.

@@ -14,9 +14,9 @@ Chatterbox (https://github.com/resemble-ai/chatterbox, MIT) on a Modal T4 GPU. T
     python voice-server/check.py --whisper
     python -m pytest voice-server -q
 
-On Windows, set `PYTHONUTF8=1` first, or the Modal CLI fails on non-ASCII output.
+`check.py` saves its clips to `voice-server/out` unless you pass `--out`.
 
-Deploying doesn't happen on push. The first cold start after a deploy takes about 2.5 minutes while Modal makes the snapshot.
+Deploying doesn't happen on push. After a deploy, run `check.py` once before using the site: its first line makes the GPU snapshot, which takes about 2.5 minutes. Before a demo, warm the server by opening the site and waiting for "Your voice is ready."
 
 ## Settings in Vercel
 
