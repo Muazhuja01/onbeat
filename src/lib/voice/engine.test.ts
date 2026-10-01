@@ -286,6 +286,21 @@ describe("VoiceEngine", () => {
     expect(gens().at(-1)).toMatchObject({ text: "Typed", urgent: true });
   });
 
+  it("marks a tapped reply urgent even when it is already first in the queue, and keeps it", () => {
+    const w = new FakeWorker();
+    const a = fakeAudio();
+    const { basic } = fakeBasic();
+    const v = new VoiceEngine({ ...deps(w, a.audio, basic), naturalWaitMs: 5000, parallel: 3 });
+    v.load();
+    w.emit({ type: "ready" });
+    const gens = () => w.sent.filter((m): m is Extract<VoiceWorkerRequest, { type: "generate" }> => m.type === "generate");
+    v.prepareReplies(["A", "B", "C", "D"]);
+    void v.speak("D");
+    v.prepareReplies(["X", "Y"]);
+    w.emit({ type: "audio", id: gens()[0].id, samples: new Float32Array(1), sampleRate: 24000 });
+    expect(gens().find((g) => g.text === "D")).toMatchObject({ urgent: true });
+  });
+
   it("says when a reply came from the backup voice, but not while the backup is the only voice", async () => {
     const w = new FakeWorker();
     const a = fakeAudio();

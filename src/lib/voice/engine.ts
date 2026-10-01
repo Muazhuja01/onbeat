@@ -229,7 +229,7 @@ export class VoiceEngine {
       this.clips.delete(key);
       this.clips.set(key, existing);
       const waiting = this.queue.findIndex((j) => j.key === key);
-      if (urgent && waiting > 0) this.queue.unshift({ ...this.queue.splice(waiting, 1)[0], urgent: true });
+      if (urgent && waiting >= 0) this.queue.unshift({ ...this.queue.splice(waiting, 1)[0], urgent: true });
       return existing;
     }
     const id = this.nextId++;
