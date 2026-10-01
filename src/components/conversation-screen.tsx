@@ -21,7 +21,7 @@ import { memoryKeyValue } from "@/lib/profiles/kv";
 import { buildNote, type DraftNote } from "@/lib/profiles/notes";
 import { ProfileRegistry, profileVoice } from "@/lib/profiles/registry";
 import { exportFileName, exportProfile, parseImport } from "@/lib/profiles/transfer";
-import { getServerSettings, getSettings, learningTold, markLearningTold, setCloudCaptions, setDigitKeys, setLearning, setTheme, subscribeSettings } from "@/lib/settings";
+import { getServerSettings, getSettings, learningTold, markLearningTold, setCloudCaptions, setDigitKeys, setJoinLines, setLearning, setTheme, subscribeSettings } from "@/lib/settings";
 import { SuggestClient } from "@/lib/suggest/client";
 import type { Note } from "@/lib/types";
 import { getBrowserVoice, setCurrentVoice } from "@/lib/voice/browser";
@@ -171,12 +171,19 @@ function Screen() {
 
   useEffect(() => {
     if (!hearing) return;
+    // When the speech being heard started, so the reducer can tell whether it carries the last line on.
+    let speechStartedAt: number | undefined;
+    // The setting is read at each event, so turning it off stops joining straight away.
     const offs = [
       hearing.on("progress", setHearingProgress),
-      hearing.on("speechStart", (at) => gapTimer.speechStarted(at)),
-      hearing.on("partial", (text) => dispatch({ type: "partnerPartial", text })),
-      hearing.on("turnEnd", ({ text, endedAt }) => {
-        dispatch({ type: "partnerSaid", id: crypto.randomUUID(), text, at: Date.now() });
+      hearing.on("speechStart", (at) => {
+        speechStartedAt = at;
+        gapTimer.speechStarted(at);
+      }),
+      hearing.on("partial", (text) => dispatch({ type: "partnerPartial", text, startedAt: speechStartedAt, join: getSettings().joinLines })),
+      hearing.on("turnEnd", ({ text, startedAt, endedAt }) => {
+        speechStartedAt = undefined;
+        dispatch({ type: "partnerSaid", id: crypto.randomUUID(), text, at: Date.now(), heard: { startedAt, endedAt }, join: getSettings().joinLines });
         gapTimer.turnEnded(endedAt);
       }),
     ];
@@ -279,22 +286,31 @@ function Screen() {
   // list once, on mount); it is only hidden while another view is showing.
   const conversationHidden = memory === null || view !== "conversation";
 
-  // Each new line from the partner is announced.
+  // Each new line from the partner is announced. A line that grew (they carried on
+  // after a pause) keeps its id, and only the new words are read out.
   const lastPartnerTurn = state.turns.findLast((t) => t.speaker === "partner");
-  const announcedTurnId = useRef<string | null>(null);
+  const announcedTurn = useRef<{ id: string; text: string } | null>(null);
   useEffect(() => {
-    if (!lastPartnerTurn || announcedTurnId.current === lastPartnerTurn.id) return;
-    announcedTurnId.current = lastPartnerTurn.id;
-    announce(`${partnerName} said: ${lastPartnerTurn.text}`);
+    if (!lastPartnerTurn) return;
+    const before = announcedTurn.current;
+    if (before?.id === lastPartnerTurn.id && before.text === lastPartnerTurn.text) return;
+    announcedTurn.current = { id: lastPartnerTurn.id, text: lastPartnerTurn.text };
+    const grew = before?.id === lastPartnerTurn.id && lastPartnerTurn.text.startsWith(before.text);
+    announce(`${partnerName} said: ${grew ? lastPartnerTurn.text.slice(before.text.length).trim() : lastPartnerTurn.text}`);
   }, [lastPartnerTurn, partnerName, announce]);
 
-  // Each line from the partner goes to learning once.
-  const learnedTurnIds = useRef(new Set<string>());
+  // Each line from the partner goes to learning once. A line that grew updates what
+  // was queued for it rather than being learned again.
+  const learnedTurns = useRef(new Map<string, string>());
   useEffect(() => {
     for (const turn of state.turns) {
-      if (turn.speaker !== "partner" || learnedTurnIds.current.has(turn.id)) continue;
-      learnedTurnIds.current.add(turn.id);
-      void learning.session?.addLine({ speaker: "partner", text: turn.text, ...lineContext() });
+      if (turn.speaker !== "partner") continue;
+      const before = learnedTurns.current.get(turn.id);
+      if (before === turn.text) continue;
+      learnedTurns.current.set(turn.id, turn.text);
+      const line = { id: turn.id, speaker: "partner" as const, text: turn.text, ...lineContext() };
+      if (before === undefined) void learning.session?.addLine(line);
+      else void learning.session?.growLine(line, turn.text.slice(before.length).trim());
     }
   }, [state.turns, learning.session, lineContext]);
 
@@ -738,6 +754,7 @@ function Screen() {
             digitKeys={settings.digitKeys}
             cloudCaptions={settings.cloudCaptions}
             learning={settings.learning}
+            joinLines={settings.joinLines}
             voiceLabel={settingsVoice ? describeVoice(settingsVoice) : undefined}
             voiceBasic={voiceMode === "basic"}
             onVoice={settingsVoice ? () => leaveConversation("voice") : undefined}
@@ -745,6 +762,7 @@ function Screen() {
             onDigitKeys={setDigitKeys}
             onCloudCaptions={setCloudCaptions}
             onLearning={toggleLearning}
+            onJoinLines={setJoinLines}
           />
         </div>
       </main>

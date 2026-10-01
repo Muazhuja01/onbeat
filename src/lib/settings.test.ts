@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { forgetSettings, getSettings, learningTold, markLearningTold, setCloudCaptions, setDigitKeys, setLearning, setTheme, subscribeSettings } from "./settings";
+import { forgetSettings, getSettings, learningTold, markLearningTold, setCloudCaptions, setDigitKeys, setJoinLines, setLearning, setTheme, subscribeSettings } from "./settings";
 
 afterEach(() => {
   localStorage.clear();
@@ -8,8 +8,24 @@ afterEach(() => {
 });
 
 describe("settings", () => {
-  it("defaults to the system theme, number keys on, cloud captions off and suggested notes on", () => {
-    expect(getSettings()).toEqual({ theme: "system", digitKeys: true, cloudCaptions: false, learning: true });
+  it("defaults to the system theme, number keys on, cloud captions off, suggested notes on and pauses kept in one line", () => {
+    expect(getSettings()).toEqual({ theme: "system", digitKeys: true, cloudCaptions: false, learning: true, joinLines: true });
+  });
+
+  it("keeps pauses in one line for someone whose saved settings predate it", () => {
+    localStorage.setItem("onbeat:learning", "off");
+    localStorage.setItem("onbeat:digit-keys", "off");
+    expect(getSettings().joinLines).toBe(true);
+  });
+
+  it("saves keeping pauses in one line turned off, and forgets it when turned back on", () => {
+    setJoinLines(false);
+    expect(localStorage.getItem("onbeat:join-lines")).toBe("off");
+    forgetSettings();
+    expect(getSettings().joinLines).toBe(false);
+    setJoinLines(true);
+    expect(localStorage.getItem("onbeat:join-lines")).toBeNull();
+    expect(getSettings().joinLines).toBe(true);
   });
 
   it("saves the cloud captions choice, and forgets it when turned off", () => {

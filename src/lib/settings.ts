@@ -13,6 +13,8 @@ export interface Settings {
   cloudCaptions: boolean;
   /** Suggest notes from conversations. On unless the user turns it off. */
   learning: boolean;
+  /** When the other person pauses for a moment and carries on, their words stay in one line. On unless the user turns it off. */
+  joinLines: boolean;
 }
 
 const THEME_KEY = "onbeat:theme";
@@ -20,6 +22,7 @@ const DIGIT_KEYS_KEY = "onbeat:digit-keys";
 const CLOUD_CAPTIONS_KEY = "onbeat:cloud-captions";
 const LEARNING_KEY = "onbeat:learning";
 const LEARNING_TOLD_KEY = "onbeat:learning-told";
+const JOIN_LINES_KEY = "onbeat:join-lines";
 
 let current: Settings | null = null;
 const listeners = new Set<() => void>();
@@ -48,12 +51,13 @@ export function getSettings(): Settings {
       digitKeys: read(DIGIT_KEYS_KEY) !== "off",
       cloudCaptions: read(CLOUD_CAPTIONS_KEY) === "on",
       learning: read(LEARNING_KEY) !== "off",
+      joinLines: read(JOIN_LINES_KEY) !== "off",
     };
   }
   return current;
 }
 
-const SERVER_SETTINGS: Settings = { theme: "system", digitKeys: true, cloudCaptions: false, learning: true };
+const SERVER_SETTINGS: Settings = { theme: "system", digitKeys: true, cloudCaptions: false, learning: true, joinLines: true };
 export const getServerSettings = (): Settings => SERVER_SETTINGS;
 
 export function subscribeSettings(cb: () => void): () => void {
@@ -86,6 +90,11 @@ export function setCloudCaptions(on: boolean) {
 export function setLearning(on: boolean) {
   write(LEARNING_KEY, on ? null : "off");
   update({ learning: on });
+}
+
+export function setJoinLines(on: boolean) {
+  write(JOIN_LINES_KEY, on ? null : "off");
+  update({ joinLines: on });
 }
 
 /** Set once the user has been told notes are suggested; holds for this page even when storage is blocked. */

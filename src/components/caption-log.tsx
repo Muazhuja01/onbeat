@@ -41,13 +41,15 @@ export function CaptionLog({
       following.current =
         el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_END_PX;
   };
+  // The last line can grow when the other person carries it on after a pause.
+  const lastText = turns.at(-1)?.text;
   useEffect(() => {
     // Scroll only the list, never the page, so the replies and reactions below
     // stay under your finger while captions update (spec 6.3). Instant, never
     // smooth, so reduced motion is respected.
     const el = list.current;
     if (el && following.current) el.scrollTop = el.scrollHeight;
-  }, [turns.length, partial]);
+  }, [turns.length, lastText, partial]);
 
   return (
     <section
