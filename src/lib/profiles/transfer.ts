@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { PendingSuggestion } from "@/lib/learning/types";
 import type { Note, Phrase } from "@/lib/types";
+import { DEFAULT_VOICE, isVoiceChoice, type VoiceChoice } from "@/lib/voice/choices";
 import { cleanName } from "./registry";
 
 const Kind = z.enum(["person", "place", "routine", "preference", "about-me"]);
@@ -44,14 +45,14 @@ const ExportSchema = z.object({
   format: z.literal("onbeat-profile"),
   version: z.literal(1),
   exportedAt: z.string(),
-  profile: z.object({ name: z.string() }),
+  profile: z.object({ name: z.string(), voice: z.unknown().optional() }),
   notes: z.array(NoteSchema).max(5000),
   phrases: z.array(PhraseSchema).max(20000),
   suggestions: z.array(SuggestionSchema).max(30).optional(),
 });
 
-export function exportProfile(name: string, notes: Note[], phrases: Phrase[], now: Date, suggestions: PendingSuggestion[] = []): string {
-  return JSON.stringify({ format: "onbeat-profile", version: 1, exportedAt: now.toISOString(), profile: { name }, notes, phrases, suggestions }, null, 2);
+export function exportProfile(name: string, notes: Note[], phrases: Phrase[], now: Date, suggestions: PendingSuggestion[] = [], voice?: VoiceChoice): string {
+  return JSON.stringify({ format: "onbeat-profile", version: 1, exportedAt: now.toISOString(), profile: { name, ...(voice ? { voice } : {}) }, notes, phrases, suggestions }, null, 2);
 }
 
 export function exportFileName(name: string, now: Date): string {
@@ -66,7 +67,7 @@ export function exportFileName(name: string, now: Date): string {
 }
 
 /** Reads an export. Ids are made new so importing one file twice never mixes two profiles. */
-export function parseImport(text: string): { name: string; notes: Note[]; phrases: Phrase[]; suggestions: PendingSuggestion[] } | null {
+export function parseImport(text: string): { name: string; notes: Note[]; phrases: Phrase[]; suggestions: PendingSuggestion[]; voice: VoiceChoice } | null {
   let data: unknown;
   try {
     data = JSON.parse(text);
@@ -101,5 +102,8 @@ export function parseImport(text: string): { name: string; notes: Note[]; phrase
       createdAt: s.createdAt,
     };
   });
-  return { name, notes, phrases, suggestions };
+  const given = parsed.data.profile.voice;
+  // Rebuilt field by field, so nothing else in the file is stored with the profile.
+  const voice: VoiceChoice = isVoiceChoice(given) ? { gender: given.gender, accent: given.accent, style: given.style, speed: given.speed } : DEFAULT_VOICE;
+  return { name, notes, phrases, suggestions, voice };
 }

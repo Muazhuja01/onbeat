@@ -15,8 +15,14 @@ export interface BasicSpeech {
   stop(): void;
 }
 
+/** One line spoken in a different voice and speed, leaving the current voice alone. */
+export type VoiceOverride = { voice: string; speed: number };
 type Clip = { samples: Float32Array; sampleRate: number };
-type Events = { start: string; end: string; mode: VoiceMode; progress: number };
+/** start/end are replies (what the user said); sampleStart/sampleEnd are voice samples. */
+type Events = { start: string; end: string; sampleStart: string; sampleEnd: string; mode: VoiceMode; progress: number };
+
+/** A sample's first use of a voice downloads that voice's file, so it can wait much longer than a reply. */
+const SAMPLE_WAIT_MS = 20_000;
 
 export interface VoiceEngineDeps {
   worker: WorkerLike | null;
@@ -49,6 +55,8 @@ export class VoiceEngine {
   private listeners: { [K in keyof Events]: Set<(v: Events[K]) => void> } = {
     start: new Set(),
     end: new Set(),
+    sampleStart: new Set(),
+    sampleEnd: new Set(),
     mode: new Set(),
     progress: new Set(),
   };
@@ -56,14 +64,15 @@ export class VoiceEngine {
   private pending = new Map<number, { resolve: (c: Clip) => void; reject: (e: Error) => void }>();
   private nextId = 1;
   private token = 0;
-  private speaking: string | null = null;
+  private playing: { text: string; sample: boolean } | null = null;
 
   constructor(private readonly deps: VoiceEngineDeps) {
     if (deps.worker) deps.worker.onmessage = (e: MessageEvent) => this.onWorkerMessage(e.data as VoiceWorkerMessage);
   }
 
+  /** The reply being spoken; a sample is not one. */
   get current(): string | null {
-    return this.speaking;
+    return this.playing && !this.playing.sample ? this.playing.text : null;
   }
 
   on<K extends keyof Events>(event: K, cb: (v: Events[K]) => void): () => void {
@@ -84,33 +93,48 @@ export class VoiceEngine {
     if (t && this.mode === "natural") this.clip(t).catch(() => {});
   }
 
-  async speak(text: string): Promise<void> {
+  /** Speaks a reply in the current voice. */
+  speak(text: string): Promise<void> {
+    return this.play(text, this.deps.naturalWaitMs ?? 1500);
+  }
+
+  /**
+   * Plays a sample of another voice without changing the current one. It waits for that
+   * voice rather than playing the device's, and it is not a reply, so it emits
+   * sampleStart/sampleEnd instead of start/end.
+   */
+  sample(text: string, as: VoiceOverride): Promise<void> {
+    return this.play(text, SAMPLE_WAIT_MS, as);
+  }
+
+  stop(): void {
+    const was = this.playing;
+    this.token++;
+    this.playing = null;
+    this.deps.audio.stop();
+    this.deps.basic.stop();
+    if (was) this.emit(was.sample ? "sampleEnd" : "end", was.text);
+  }
+
+  private async play(text: string, waitMs: number, as?: VoiceOverride): Promise<void> {
     const t = text.trim();
     if (!t) return;
     this.stop();
     const token = ++this.token;
-    this.speaking = t;
-    this.emit("start", t);
+    const now = { text: t, sample: as !== undefined };
+    this.playing = now;
+    this.emit(now.sample ? "sampleStart" : "start", t);
     try {
-      const clip = this.mode === "natural" ? await withTimeout(this.clip(t), this.deps.naturalWaitMs ?? 1500) : null;
+      const clip = this.mode === "natural" ? await withTimeout(this.clip(t, as), waitMs) : null;
       if (token !== this.token) return;
       if (clip) await this.deps.audio.play(clip.samples, clip.sampleRate);
-      else await this.deps.basic.speak(t, this.deps.speed());
+      else await this.deps.basic.speak(t, as?.speed ?? this.deps.speed());
     } finally {
-      if (token === this.token && this.speaking === t) {
-        this.speaking = null;
-        this.emit("end", t);
+      if (token === this.token && this.playing === now) {
+        this.playing = null;
+        this.emit(now.sample ? "sampleEnd" : "end", t);
       }
     }
-  }
-
-  stop(): void {
-    const was = this.speaking;
-    this.token++;
-    this.speaking = null;
-    this.deps.audio.stop();
-    this.deps.basic.stop();
-    if (was !== null) this.emit("end", was);
   }
 
   private emit<K extends keyof Events>(event: K, value: Events[K]): void {
@@ -123,8 +147,10 @@ export class VoiceEngine {
     this.emit("mode", mode);
   }
 
-  private clip(text: string): Promise<Clip> {
-    const key = `${this.deps.voice()}|${this.deps.speed()}|${text}`;
+  private clip(text: string, as?: VoiceOverride): Promise<Clip> {
+    const voice = as?.voice ?? this.deps.voice();
+    const speed = as?.speed ?? this.deps.speed();
+    const key = `${voice}|${speed}|${text}`;
     const existing = this.clips.get(key);
     if (existing) {
       this.clips.delete(key);
@@ -136,7 +162,7 @@ export class VoiceEngine {
     promise.catch(() => this.clips.delete(key));
     this.clips.set(key, promise);
     while (this.clips.size > (this.deps.cacheSize ?? 30)) this.clips.delete(this.clips.keys().next().value as string);
-    this.deps.worker?.postMessage({ type: "generate", id, text, voice: this.deps.voice(), speed: this.deps.speed() });
+    this.deps.worker?.postMessage({ type: "generate", id, text, voice, speed });
     return promise;
   }
 

@@ -18,12 +18,13 @@ import { getBrowserRegistry, openDemoMemory, openProfileMemory } from "@/lib/mem
 import type { MemoryStore } from "@/lib/memory/store";
 import { memoryKeyValue } from "@/lib/profiles/kv";
 import { buildNote, type DraftNote } from "@/lib/profiles/notes";
-import { ProfileRegistry } from "@/lib/profiles/registry";
+import { ProfileRegistry, profileVoice } from "@/lib/profiles/registry";
 import { exportFileName, exportProfile, parseImport } from "@/lib/profiles/transfer";
 import { getServerSettings, getSettings, learningTold, markLearningTold, setCloudCaptions, setDigitKeys, setLearning, setTheme, subscribeSettings } from "@/lib/settings";
 import { SuggestClient } from "@/lib/suggest/client";
 import type { Note } from "@/lib/types";
-import { getBrowserVoice } from "@/lib/voice/browser";
+import { getBrowserVoice, setCurrentVoice } from "@/lib/voice/browser";
+import { describeVoice, speedValue, voiceId, type VoiceChoice } from "@/lib/voice/choices";
 import type { VoiceEngine, VoiceMode } from "@/lib/voice/engine";
 import { AnnouncerProvider, useAnnounce } from "./announcer";
 import { CaptionLog } from "./caption-log";
@@ -44,6 +45,7 @@ import { SettingsPanel } from "./settings-panel";
 import { ResponseGap } from "./response-gap";
 import { SpokenCaption } from "./spoken-caption";
 import { SuggestedNotes } from "./suggested-notes";
+import { VoiceScreen } from "./voice-picker";
 import { VoiceStatus } from "./voice-status";
 
 const subscribeNever = () => () => {};
@@ -65,7 +67,7 @@ export function ConversationScreen() {
 }
 
 /** What fills the page. The conversation stays mounted underneath the others. */
-type View = "loading" | "setup" | "demo-picker" | "notes" | "suggestions" | "assistant" | "conversation";
+type View = "loading" | "setup" | "demo-picker" | "notes" | "suggestions" | "voice" | "assistant" | "conversation";
 
 const SAVE_FAILED = "Couldn't save. Your browser's storage may be full.";
 const LEARNING_NOTICE = "New: OnBeat can suggest notes from your conversations for you to review. Turn it off in Settings.";
@@ -74,7 +76,7 @@ function Screen() {
   const announce = useAnnounce();
   const [registry, setRegistry] = useState<ProfileRegistry | null>(null);
   // The registry is mutable; this counter re-renders after it changes.
-  const [, setProfilesVersion] = useState(0);
+  const [profilesVersion, setProfilesVersion] = useState(0);
   const [view, setView] = useState<View>("loading");
   const [demo, setDemo] = useState<Persona | null>(null);
   const [memory, setMemory] = useState<MemoryStore | null>(null);
@@ -137,9 +139,12 @@ function Screen() {
   }, [voice]);
 
   // The microphone would hear the app's own voice: pause while it speaks and a moment after.
+  // Listening carries on under the setup and voice views, where samples play.
   useEffect(() => {
     if (!voice || !hearing) return;
-    const offs = [voice.on("start", () => hearing.pause()), voice.on("end", () => hearing.resume(400))];
+    const pause = () => hearing.pause();
+    const resume = () => hearing.resume(400);
+    const offs = [voice.on("start", pause), voice.on("end", resume), voice.on("sampleStart", pause), voice.on("sampleEnd", resume)];
     return () => offs.forEach((off) => off());
   }, [voice, hearing]);
 
@@ -163,6 +168,13 @@ function Screen() {
   const client = useMemo(() => (memory ? new SuggestClient({ memory, pack: en }) : null), [memory]);
 
   const activeProfileId = demo ? null : (registry?.active()?.id ?? null);
+
+  // Every spoken line uses the open profile's (or demo's) voice.
+  const currentChoice = demo ? demo.voice : profileVoice(registry?.active());
+  const voiceKey = `${voiceId(currentChoice)}|${speedValue(currentChoice)}`;
+  useEffect(() => {
+    setCurrentVoice(demo ? demo.voice : profileVoice(registry?.active()));
+  }, [demo, activeProfileId, profilesVersion, registry]);
   const learning = useLearningSession({
     kv: registry?.keyValue ?? null,
     profileId: activeProfileId,
@@ -187,7 +199,8 @@ function Screen() {
   useEffect(() => {
     if (!voice) return;
     for (const r of state.replies) voice.prepare(r.text);
-  }, [voice, state.replies]);
+    // A changed voice makes the prepared clips the wrong ones: prepare them again (after the current-voice effect above).
+  }, [voice, state.replies, voiceKey]);
 
   useEffect(() => {
     gapTimer.repliesShown(Date.now(), state.replies, state.repliesAskedAt);
@@ -338,11 +351,11 @@ function Screen() {
     resetFocusToTop();
   };
 
-  const finishSetup = async (name: string, made: Note[]) => {
+  const finishSetup = async (name: string, made: Note[], voiceChoice: VoiceChoice) => {
     if (!registry) return;
     let store: MemoryStore;
     try {
-      const profile = await registry.create(name);
+      const profile = await registry.create(name, voiceChoice);
       store = await openProfileMemory(registry, profile.id);
       await store.replaceAll(made, []);
     } catch {
@@ -363,6 +376,9 @@ function Screen() {
     if (!registry) return;
     await registry.setActive(id);
     const store = await openProfileMemory(registry, id);
+    // Only once the new profile has opened, before anything can be spoken for it; the
+    // current-voice effect keeps it in step afterwards.
+    setCurrentVoice(profileVoice(registry.active()));
     setDemo(null);
     bumpProfiles();
     showMemory(store);
@@ -370,6 +386,7 @@ function Screen() {
 
   const startDemo = async (persona: Persona) => {
     const store = await openDemoMemory(persona);
+    setCurrentVoice(persona.voice);
     setDemo(persona);
     showMemory(store, { placeId: persona.defaultPlaceId, partnerId: persona.defaultPartnerId });
   };
@@ -428,7 +445,7 @@ function Screen() {
     const active = registry?.active();
     if (!active || !memory) return;
     const now = new Date();
-    const url = URL.createObjectURL(new Blob([exportProfile(active.name, memory.notes(), memory.phrases(), now, learning.suggestions)], { type: "application/json" }));
+    const url = URL.createObjectURL(new Blob([exportProfile(active.name, memory.notes(), memory.phrases(), now, learning.suggestions, profileVoice(active))], { type: "application/json" }));
     const link = document.createElement("a");
     link.href = url;
     link.download = exportFileName(active.name, now);
@@ -450,7 +467,7 @@ function Screen() {
     let store: MemoryStore;
     let name: string;
     try {
-      const profile = await registry.create(registry.uniqueName(parsed.name));
+      const profile = await registry.create(registry.uniqueName(parsed.name), parsed.voice);
       name = profile.name;
       await registry.persistFor(profile.id).save({ version: 1, notes: parsed.notes, phrases: parsed.phrases });
       if (parsed.suggestions.length) await (await PendingStore.open(registry.keyValue, profile.id)).replaceAll(parsed.suggestions);
@@ -487,6 +504,26 @@ function Screen() {
     bumpProfiles();
   };
 
+  const activeProfile = demo ? null : (registry?.active() ?? null);
+  const activeVoice = activeProfile ? profileVoice(activeProfile) : null;
+  // Settings offers the voice only on the conversation: on setup it would show the old
+  // profile's voice, and changing it would lose what was typed.
+  const settingsVoice = view === "conversation" ? activeVoice : null;
+  const saveVoice = async (choice: VoiceChoice) => {
+    if (!registry || !activeProfile) return;
+    try {
+      await registry.setVoice(activeProfile.id, choice);
+    } catch {
+      dispatch({ type: "notice", text: SAVE_FAILED });
+      return;
+    }
+    setCurrentVoice(choice);
+    bumpProfiles();
+    announce("Voice saved");
+    setView("conversation");
+    resetFocusToTop();
+  };
+
   const profiles = registry?.list() ?? [];
   const showMenu = view !== "loading" && (profiles.length > 0 || demo !== null);
   // Setup and the demo picker can go back only to something that is open.
@@ -505,6 +542,8 @@ function Screen() {
             demoName={demo?.name ?? null}
             onSwitch={(id) => void switchTo(id)}
             onNotes={() => goTo("notes")}
+            voiceLabel={activeVoice ? describeVoice(activeVoice) : undefined}
+            onVoice={activeVoice ? () => goTo("voice") : undefined}
             onNew={() => goTo("setup")}
             onExport={exportActive}
             onImport={(file) => void importFile(file)}
@@ -533,6 +572,9 @@ function Screen() {
             onDemo={() => setView("demo-picker")}
             onCancel={back}
             onImport={(file) => void importFile(file)}
+            voice={voice}
+            voiceMode={voiceMode}
+            voiceProgress={voiceProgress}
           />
         )}
         {view === "demo-picker" && (
@@ -612,6 +654,20 @@ function Screen() {
             }}
           />
         )}
+        {view === "voice" && activeProfile && activeVoice && (
+          <VoiceScreen
+            initial={activeVoice}
+            name={activeProfile.name}
+            voice={voice}
+            mode={voiceMode}
+            progress={voiceProgress}
+            onSave={(v) => void saveVoice(v)}
+            onCancel={() => {
+              setView("conversation");
+              resetFocusToTop();
+            }}
+          />
+        )}
         <div className="conv-grid" hidden={conversationHidden}>
           <div className="flex flex-col gap-4 [grid-area:context]">
             <ContextBar
@@ -648,6 +704,9 @@ function Screen() {
             digitKeys={settings.digitKeys}
             cloudCaptions={settings.cloudCaptions}
             learning={settings.learning}
+            voiceLabel={settingsVoice ? describeVoice(settingsVoice) : undefined}
+            voiceBasic={voiceMode === "basic"}
+            onVoice={settingsVoice ? () => leaveConversation("voice") : undefined}
             onTheme={setTheme}
             onDigitKeys={setDigitKeys}
             onCloudCaptions={setCloudCaptions}

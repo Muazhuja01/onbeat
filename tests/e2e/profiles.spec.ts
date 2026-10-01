@@ -9,6 +9,7 @@ async function setUp(page: Page, name: string, withSam = true) {
   await page.getByRole("button", { name: "Next" }).click();
   await page.getByLabel("About you", { exact: true }).fill("I type to talk. I can hear fine.");
   await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("button", { name: "Next" }).click();
   if (withSam) {
     await page.locator("#person-name").fill("Sam");
     await page.getByLabel("Who they are to you").fill("my barista");

@@ -10,6 +10,7 @@ async function setUp(page: Page) {
   await page.getByRole("button", { name: "Next" }).click();
   await page.getByLabel("About you", { exact: true }).fill("I'm Deaf and I use ASL.");
   await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("button", { name: "Next" }).click();
   await page.getByRole("button", { name: "Finish" }).click();
 }
 
