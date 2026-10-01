@@ -32,6 +32,8 @@ self.onmessage = async (event: MessageEvent<VoiceWorkerRequest>) => {
     }
     return;
   }
+  // Anything else (such as "urgent", which only the router uses) is not ours.
+  if (msg.type !== "generate") return;
   try {
     const model = await load();
     const audio = await model.generate(msg.text, { voice: msg.voice as "af_heart", speed: msg.speed });

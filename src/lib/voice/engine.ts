@@ -18,7 +18,7 @@ export interface BasicSpeech {
 /** One line spoken in a different voice and speed, leaving the current voice alone. */
 export type VoiceOverride = { voice: string; speed: number };
 type Clip = { samples: Float32Array; sampleRate: number; backup?: boolean };
-type Entry = { promise: Promise<Clip>; value?: Clip };
+type Entry = { id: number; promise: Promise<Clip>; value?: Clip };
 type Job = { id: number; key: string; text: string; voice: string; speed: number; urgent: boolean };
 /**
  * start/end are replies (what the user said); sampleStart/sampleEnd are voice samples.
@@ -95,8 +95,8 @@ export class VoiceEngine {
   private pending = new Map<number, { resolve: (c: Clip) => void; reject: (e: Error) => void }>();
   /** Clips not yet sent to the worker. It has limited room, so what is said next goes first. */
   private queue: Job[] = [];
-  /** The clips the worker is making now. */
-  private busy = new Set<number>();
+  /** The clips the worker is making now, by id. */
+  private busy = new Map<number, Job>();
   private nextId = 1;
   private token = 0;
   private playing: { text: string; sample: boolean } | null = null;
@@ -230,10 +230,16 @@ export class VoiceEngine {
       this.clips.set(key, existing);
       const waiting = this.queue.findIndex((j) => j.key === key);
       if (urgent && waiting >= 0) this.queue.unshift({ ...this.queue.splice(waiting, 1)[0], urgent: true });
+      // Already sent as a prepared reply and not answered yet: tell the worker it is now being said.
+      const sent = this.busy.get(existing.id);
+      if (urgent && sent && !sent.urgent) {
+        sent.urgent = true;
+        this.deps.worker?.postMessage({ type: "urgent", id: sent.id });
+      }
       return existing;
     }
     const id = this.nextId++;
-    const entry = {} as Entry;
+    const entry = { id } as Entry;
     entry.promise = new Promise<Clip>((resolve, reject) =>
       this.pending.set(id, {
         // Set at once, so a line said right after its clip arrives doesn't wait a tick.
@@ -257,7 +263,7 @@ export class VoiceEngine {
     while (this.busy.size < (this.deps.parallel ?? 1)) {
       const job = this.queue.shift();
       if (!job) return;
-      this.busy.add(job.id);
+      this.busy.set(job.id, job);
       this.deps.worker.postMessage({ type: "generate", id: job.id, text: job.text, voice: job.voice, speed: job.speed, urgent: job.urgent });
     }
   }

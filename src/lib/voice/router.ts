@@ -25,6 +25,7 @@ export interface RouterDeps {
 }
 
 type Generate = Extract<VoiceWorkerRequest, { type: "generate" }>;
+type InFlight = { job: Generate; ctrl: AbortController; deadline: number; timer: ReturnType<typeof setTimeout> };
 
 /**
  * Sits where the Kokoro worker used to: lines go to Chatterbox through /api/speak, and to the
@@ -41,6 +42,8 @@ export class VoiceRouter implements WorkerLike {
   private lastLineAt = 0;
   private held: Generate[] = [];
   private kokoroJobs = new Set<number>();
+  /** Lines sent to Chatterbox and not answered yet, with when each gives up. */
+  private inFlight = new Map<number, InFlight>();
   private waking: Promise<void> | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -56,12 +59,42 @@ export class VoiceRouter implements WorkerLike {
       void this.wake();
       return;
     }
+    if (msg.type === "urgent") return this.nowUrgent(msg.id);
     this.route(msg);
   }
 
   terminate(): void {
     if (this.retryTimer) clearTimeout(this.retryTimer);
+    for (const f of this.inFlight.values()) {
+      clearTimeout(f.timer);
+      f.ctrl.abort();
+    }
     this.deps.kokoro?.terminate();
+  }
+
+  /**
+   * A line sent earlier as prepared is now being said. Held: handle it as urgent now. With
+   * Chatterbox: it gets the urgent wait from now (never longer than it had), then goes to Kokoro.
+   * Lines already with Kokoro, answered or unknown need nothing.
+   */
+  private nowUrgent(id: number): void {
+    const at = this.held.findIndex((j) => j.id === id);
+    if (at >= 0) {
+      const job = { ...this.held[at], urgent: true };
+      if (this.kokoroReady && !this.kokoroFailed) {
+        this.held.splice(at, 1);
+        this.viaKokoro(job);
+      } else this.held[at] = job;
+      return;
+    }
+    const f = this.inFlight.get(id);
+    if (!f || f.job.urgent) return;
+    f.job = { ...f.job, urgent: true };
+    const deadline = Math.min(f.deadline, Date.now() + (this.deps.lineWaitMs ?? 6000));
+    if (deadline === f.deadline) return;
+    clearTimeout(f.timer);
+    f.deadline = deadline;
+    f.timer = setTimeout(() => f.ctrl.abort(), deadline - Date.now());
   }
 
   private post(message: VoiceWorkerMessage): void {
@@ -134,7 +167,9 @@ export class VoiceRouter implements WorkerLike {
 
   private async viaChatterbox(job: Generate): Promise<void> {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), job.urgent ? (this.deps.lineWaitMs ?? 6000) : (this.deps.preparedWaitMs ?? 25_000));
+    const wait = job.urgent ? (this.deps.lineWaitMs ?? 6000) : (this.deps.preparedWaitMs ?? 25_000);
+    const f: InFlight = { job, ctrl, deadline: Date.now() + wait, timer: setTimeout(() => ctrl.abort(), wait) };
+    this.inFlight.set(job.id, f);
     try {
       const { samples, sampleRate } = decodeWav(await this.deps.speak({ text: job.text, voice: job.voice, speed: job.speed }, ctrl.signal));
       this.failures = 0;
@@ -143,9 +178,11 @@ export class VoiceRouter implements WorkerLike {
     } catch (err) {
       const aboutTheRequest = err instanceof SpeakError && err.status >= 400 && err.status < 500;
       if (!aboutTheRequest && ++this.failures >= 2) this.setDown();
-      this.viaKokoro(job);
+      // f.job, not job: the line may have become urgent while it was in flight.
+      this.viaKokoro(f.job);
     } finally {
-      clearTimeout(timer);
+      clearTimeout(f.timer);
+      this.inFlight.delete(job.id);
     }
   }
 

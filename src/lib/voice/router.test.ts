@@ -155,6 +155,64 @@ describe("VoiceRouter", () => {
     expect(t.got.at(-1)).toMatchObject({ type: "error", id: 1 });
   });
 
+  it("a reply held while waking that becomes the line being said goes to Kokoro", async () => {
+    const t = setUp();
+    t.router.postMessage({ type: "load" });
+    t.kokoro.emit({ type: "ready" });
+    t.gen(1, "Later");
+    expect(t.kokoro.gens()).toHaveLength(0);
+    t.router.postMessage({ type: "urgent", id: 1 });
+    expect(t.kokoro.gens()).toEqual([{ type: "generate", id: 1, text: "Later", voice: "bm_george", speed: 1, urgent: true }]);
+    // Already with Kokoro, or never seen: ignored.
+    t.router.postMessage({ type: "urgent", id: 1 });
+    t.router.postMessage({ type: "urgent", id: 99 });
+    expect(t.kokoro.gens()).toHaveLength(1);
+    expect(t.kokoro.sent.some((m) => (m.type as string) === "urgent")).toBe(false);
+    t.wake(true);
+    await vi.waitFor(() => expect(types(t.got)).toContain("source:awake"));
+    expect(t.speak).not.toHaveBeenCalled();
+  });
+
+  it("a reply in flight to Chatterbox that becomes the line being said goes to Kokoro 6 s later", async () => {
+    const t = setUp({ speak: vi.fn((_r, signal: AbortSignal) => new Promise<ArrayBuffer>((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))))) });
+    t.router.postMessage({ type: "load" });
+    t.wake(true);
+    await vi.waitFor(() => expect(types(t.got)).toContain("source:awake"));
+    t.gen(1, "Prepared");
+    await vi.advanceTimersByTimeAsync(10_000);
+    t.router.postMessage({ type: "urgent", id: 1 });
+    await vi.advanceTimersByTimeAsync(5900);
+    expect(t.kokoro.gens()).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(t.kokoro.gens()).toEqual([{ type: "generate", id: 1, text: "Prepared", voice: "bm_george", speed: 1, urgent: true }]);
+    expect(t.kokoro.sent.some((m) => (m.type as string) === "urgent")).toBe(false);
+  });
+
+  it("an in-flight reply that becomes urgent never waits longer than its first deadline", async () => {
+    const t = setUp({ speak: vi.fn((_r, signal: AbortSignal) => new Promise<ArrayBuffer>((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))))) });
+    t.router.postMessage({ type: "load" });
+    t.wake(true);
+    await vi.waitFor(() => expect(types(t.got)).toContain("source:awake"));
+    t.gen(1, "Prepared");
+    await vi.advanceTimersByTimeAsync(22_000);
+    t.router.postMessage({ type: "urgent", id: 1 });
+    await vi.advanceTimersByTimeAsync(3100);
+    expect(t.kokoro.gens().map((g) => g.text)).toEqual(["Prepared"]);
+  });
+
+  it("ignores urgent for a line Chatterbox already made", async () => {
+    const t = setUp();
+    t.router.postMessage({ type: "load" });
+    t.wake(true);
+    await vi.waitFor(() => expect(types(t.got)).toContain("source:awake"));
+    t.gen(1, "Done");
+    await vi.waitFor(() => expect(t.got.at(-1)).toMatchObject({ type: "audio", id: 1 }));
+    t.router.postMessage({ type: "urgent", id: 1 });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(t.kokoro.gens()).toHaveLength(0);
+    expect(t.got.filter((m) => m.type === "audio" || m.type === "error")).toHaveLength(1);
+  });
+
   it("works with no Kokoro at all", async () => {
     const t = setUp({ kokoro: null });
     t.router.postMessage({ type: "load" });

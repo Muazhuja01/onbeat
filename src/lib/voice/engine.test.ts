@@ -301,6 +301,30 @@ describe("VoiceEngine", () => {
     expect(gens().find((g) => g.text === "D")).toMatchObject({ urgent: true });
   });
 
+  it("tells the worker once when a reply it is already making becomes the line being said", async () => {
+    const w = new FakeWorker();
+    const a = fakeAudio();
+    const { basic } = fakeBasic();
+    const v = new VoiceEngine({ ...deps(w, a.audio, basic), naturalWaitMs: 5000, parallel: 3 });
+    v.load();
+    w.emit({ type: "ready" });
+    const gens = () => w.sent.filter((m): m is Extract<VoiceWorkerRequest, { type: "generate" }> => m.type === "generate");
+    const urgents = () => w.sent.filter((m) => m.type === "urgent");
+    v.prepareReplies(["A", "B", "C", "D"]);
+    const b = gens().find((g) => g.text === "B")!;
+    void v.speak("B");
+    void v.speak("B");
+    expect(urgents()).toEqual([{ type: "urgent", id: b.id }]);
+    // Still in the engine's queue: it moves to the front and goes out urgent, no extra message.
+    void v.speak("D");
+    w.emit({ type: "audio", id: gens()[0].id, samples: new Float32Array(1), sampleRate: 24000 });
+    expect(gens().at(-1)).toMatchObject({ text: "D", urgent: true });
+    // Already answered: nothing to tell.
+    void v.speak("A");
+    await vi.waitFor(() => expect(a.played).toEqual([1]));
+    expect(urgents()).toHaveLength(1);
+  });
+
   it("says when a reply came from the backup voice, but not while the backup is the only voice", async () => {
     const w = new FakeWorker();
     const a = fakeAudio();
