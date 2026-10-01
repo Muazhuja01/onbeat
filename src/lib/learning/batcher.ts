@@ -12,6 +12,8 @@ export class Batcher {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private inFlight: Promise<void> | null = null;
   private disposed = false;
+  /** Ids of the lines in the batch being sent. */
+  private sending = new Set<string>();
 
   constructor(
     private readonly queue: LearningQueue,
@@ -49,13 +51,20 @@ export class Batcher {
     this.stopTimer();
   }
 
+  /** True while the line is in the batch being sent. */
+  isSending(id: string): boolean {
+    return this.sending.has(id);
+  }
+
   private async run(lines: QueuedLine[]): Promise<void> {
     let result: SendResult;
+    this.sending = new Set(lines.map((l) => l.id));
     try {
       result = await this.send(lines);
     } catch {
       result = "failed";
     }
+    this.sending = new Set();
     if (result === "sent") await this.queue.ack(lines.map((l) => l.id));
     else await this.queue.fail();
   }

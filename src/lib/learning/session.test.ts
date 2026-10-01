@@ -174,6 +174,45 @@ describe("LearningSession", () => {
     expect(post.mock.calls[0][0].lines).toHaveLength(2);
   });
 
+  it("grows a waiting line in place, and once it has gone sends only the words added since", async () => {
+    const post = answer(() => []);
+    const { session } = await open(post);
+    const physio = { id: "t1", speaker: "partner" as const, partnerName: "Leila" };
+    await session.addLine({ ...physio, text: "So the physio" });
+    await session.growLine({ ...physio, text: "So the physio moved to Thursdays" }, "moved to Thursdays");
+    await session.addLine({ speaker: "user", text: "OK." });
+    session.pageHidden();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(post.mock.calls[0][0].lines.map((l) => [l.speaker, l.text])).toEqual([
+      ["partner", "So the physio moved to Thursdays"],
+      ["user", "OK."],
+    ]);
+
+    await session.growLine({ ...physio, text: "So the physio moved to Thursdays, is that OK?" }, "is that OK?");
+    await session.addLine({ speaker: "user", text: "Yes." });
+    session.pageHidden();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(post.mock.calls[1][0].lines.map((l) => l.text)).toEqual(["is that OK?", "Yes."]);
+  });
+
+  it("doesn't change a line while it is being sent: the added words go as their own line", async () => {
+    let release!: (r: LearnResult) => void;
+    const post = vi.fn<Post>(() => new Promise<LearnResult>((r) => (release = r)));
+    const { session } = await open(post);
+    await session.addLine({ id: "t1", speaker: "partner", text: "So the physio" });
+    await session.addLine({ speaker: "user", text: "Sorry?" });
+    session.pageHidden();
+    await vi.advanceTimersByTimeAsync(0);
+    await session.growLine({ id: "t1", speaker: "partner", text: "So the physio moved" }, "moved");
+    release({ ok: true, proposals: [] });
+    await vi.advanceTimersByTimeAsync(0);
+    await session.addLine({ speaker: "user", text: "OK." });
+    session.pageHidden();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(post.mock.calls[0][0].lines.map((l) => l.text)).toEqual(["So the physio", "Sorry?"]);
+    expect(post.mock.calls[1][0].lines.map((l) => l.text)).toEqual(["moved", "OK."]);
+  });
+
   it("writes a late result to the profile it was sent for", async () => {
     let release!: (r: LearnResult) => void;
     const post = vi.fn<Post>(() => new Promise<LearnResult>((r) => (release = r)));

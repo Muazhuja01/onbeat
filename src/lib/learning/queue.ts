@@ -47,6 +47,14 @@ export class LearningQueue {
     await this.write({ ...this.state, lines: [...this.fresh(), line].slice(-QUEUE_MAX) });
   }
 
+  /** Changes the text of a waiting line. False when it isn't waiting any more. */
+  async replace(id: string, text: string): Promise<boolean> {
+    const lines = this.fresh();
+    if (!lines.some((l) => l.id === id)) return false;
+    await this.write({ ...this.state, lines: lines.map((l) => (l.id === id ? { ...l, text } : l)) });
+    return true;
+  }
+
   /** A batch went through: its lines are done, and failures start counting again. */
   async ack(ids: string[]): Promise<void> {
     const sent = new Set(ids);
