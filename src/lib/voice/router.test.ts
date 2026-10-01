@@ -108,6 +108,28 @@ describe("VoiceRouter", () => {
     await vi.waitFor(() => expect(t.got.at(-1)).toEqual({ type: "source", source: "awake" }));
   });
 
+  it("a retry wake call while down stays down until it succeeds", async () => {
+    const t = setUp();
+    t.router.postMessage({ type: "load" });
+    t.kokoro.emit({ type: "ready" });
+    t.wake(false);
+    await vi.waitFor(() => expect(types(t.got)).toContain("source:down"));
+    const before = t.got.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(t.warm).toHaveBeenCalledTimes(2);
+    t.gen(1, "Prepared");
+    expect(t.kokoro.gens().map((g) => g.text)).toEqual(["Prepared"]);
+    expect(types(t.got.slice(before))).not.toContain("source:waking");
+    t.wake(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.got.slice(before).some((m) => m.type === "source")).toBe(false);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(t.warm).toHaveBeenCalledTimes(3);
+    t.wake(true);
+    await vi.waitFor(() => expect(t.got.at(-1)).toEqual({ type: "source", source: "awake" }));
+    expect(types(t.got.slice(before))).toEqual(["source:awake"]);
+  });
+
   it("a 4xx answer or a line over 300 characters goes to Kokoro without counting toward down", async () => {
     const speak = vi.fn(async () => { throw new SpeakError(429); });
     const t = setUp({ speak });

@@ -115,7 +115,8 @@ export class VoiceRouter implements WorkerLike {
 
   private wake(): Promise<void> {
     this.waking ??= (async () => {
-      this.setSource("waking");
+      // A retry while down stays down (lines keep going to Kokoro) until it succeeds.
+      if (this.source !== "down") this.setSource("waking");
       const ok = await this.deps.warm().catch(() => false);
       this.waking = null;
       if (ok) this.setAwake();

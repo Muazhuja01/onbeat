@@ -281,9 +281,30 @@ describe("VoiceEngine", () => {
     expect(gens().map((g) => g.text)).toEqual(["A", "B", "C"]);
     expect(gens().every((g) => !g.urgent)).toBe(true);
     void v.speak("Typed");
-    expect(gens().map((g) => g.text)).toEqual(["A", "B", "C"]);
-    w.emit({ type: "audio", id: gens()[0].id, samples: new Float32Array(1), sampleRate: 24000 });
+    expect(gens().map((g) => g.text)).toEqual(["A", "B", "C", "Typed"]);
     expect(gens().at(-1)).toMatchObject({ text: "Typed", urgent: true });
+    // Prepared replies still wait for a free slot.
+    w.emit({ type: "audio", id: gens()[0].id, samples: new Float32Array(1), sampleRate: 24000 });
+    expect(gens().map((g) => g.text)).toEqual(["A", "B", "C", "Typed"]);
+    w.emit({ type: "audio", id: gens()[1].id, samples: new Float32Array(1), sampleRate: 24000 });
+    expect(gens().map((g) => g.text)).toEqual(["A", "B", "C", "Typed", "D"]);
+  });
+
+  it("a line being said goes out at once even when the worker is holding prepared replies", () => {
+    // Like the router while Chatterbox wakes: prepared lines are held, never answered.
+    const w = new FakeWorker();
+    const a = fakeAudio();
+    const { basic } = fakeBasic();
+    const v = new VoiceEngine({ ...deps(w, a.audio, basic), naturalWaitMs: 5000, parallel: 3 });
+    v.load();
+    w.emit({ type: "ready" });
+    const gens = () => w.sent.filter((m): m is Extract<VoiceWorkerRequest, { type: "generate" }> => m.type === "generate");
+    v.prepareReplies(["A", "B", "C"]);
+    expect(gens().map((g) => [g.text, g.urgent])).toEqual([["A", false], ["B", false], ["C", false]]);
+    void v.speak("Typed");
+    expect(gens().at(-1)).toMatchObject({ text: "Typed", urgent: true });
+    v.prepareReplies(["D"]);
+    expect(gens()).toHaveLength(4);
   });
 
   it("marks a tapped reply urgent even when it is already first in the queue, and keeps it", () => {

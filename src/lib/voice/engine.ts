@@ -260,9 +260,12 @@ export class VoiceEngine {
   /** Sends queued clips while the worker has room. */
   private pump(): void {
     if (!this.deps.worker) return;
-    while (this.busy.size < (this.deps.parallel ?? 1)) {
-      const job = this.queue.shift();
-      if (!job) return;
+    const cap = this.deps.parallel ?? 1;
+    // With the router (parallel > 1), a line being said never waits for a slot: the router may be
+    // holding prepared replies until Chatterbox wakes, and it sends urgent lines to the backup.
+    // A one-at-a-time worker keeps its cap; sending early wouldn't make the line sooner.
+    while (this.queue.length && (this.busy.size < cap || (cap > 1 && this.queue[0].urgent))) {
+      const job = this.queue.shift()!;
       this.busy.set(job.id, job);
       this.deps.worker.postMessage({ type: "generate", id: job.id, text: job.text, voice: job.voice, speed: job.speed, urgent: job.urgent });
     }
