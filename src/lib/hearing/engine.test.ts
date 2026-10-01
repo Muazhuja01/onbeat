@@ -239,6 +239,23 @@ describe("HearingEngine", () => {
     expect(turns).toEqual([{ text: "Hello there.", endedAt: 9 }]);
   });
 
+  it("says when each piece of speech started: from its audio, or else when speech start was heard", async () => {
+    const { engine, worker, advance } = setup();
+    const turns: { text: string; startedAt?: number; endedAt: number }[] = [];
+    engine.on("turnEnd", (t) => turns.push(t));
+    await engine.start();
+    worker.reply({ type: "ready" });
+    // One second of 16 kHz audio that ended at 5 s.
+    worker.reply({ type: "turnEnd", text: "So the physio", endedAt: 5_000, ms: 50, audio: new Float32Array(16_000) });
+    advance(6_000);
+    worker.reply({ type: "speechStart" });
+    worker.reply({ type: "turnEnd", text: "moved to Thursdays", endedAt: 7_000, ms: 50 });
+    expect(turns).toEqual([
+      { text: "So the physio", startedAt: 4_000, endedAt: 5_000 },
+      { text: "moved to Thursdays", startedAt: 6_000, endedAt: 7_000 },
+    ]);
+  });
+
   it("ignores transcripts after stop and releases the mic", async () => {
     const { engine, worker, micStop } = setup();
     const partials: string[] = [];
@@ -334,6 +351,20 @@ describe("HearingEngine with cloud captions", () => {
     cloud.calls[1].answer("Second.");
     await flush();
     expect(events).toEqual(["turn:First.", "start", "partial:sec", "turn:Second."]);
+  });
+
+  it("times a speech start held behind a turn being refined by when it arrived", async () => {
+    const cloud = manualCloud();
+    const { engine, worker, advance } = await listening(cloud.refineTurn);
+    const starts: number[] = [];
+    engine.on("speechStart", (at) => starts.push(at));
+    worker.reply({ type: "turnEnd", text: "first", endedAt: 1, ms: 50, audio: audio() });
+    advance(400);
+    worker.reply({ type: "speechStart" });
+    advance(1_500);
+    cloud.calls[0].answer("First.");
+    await flush();
+    expect(starts).toEqual([400]);
   });
 
   it("still shows a line the partner finished before the app started speaking", async () => {
