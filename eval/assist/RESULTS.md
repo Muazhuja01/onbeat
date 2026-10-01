@@ -1,6 +1,6 @@
 # Assistant eval results
 
-The assistant is measured on 48 scripted cases (`cases.ts`) over the three example people (Maya, Tom and Aisha): 32 dev cases used for tuning and 16 test cases held out. Each job has 16 cases: update their information (11 dev, 5 test), prepare for an appointment (10 dev, 6 test) and make quick phrases (11 dev, 5 test). Seven cases start from a typed first message instead of a job button (4 dev, 3 test), and six expect no change at all (2 dev, 4 test), such as a note that is still right or an appointment that was cancelled. Today is fixed at Monday 5 October 2026, so dates have one right answer. Each case has a brief (what the person wants and every fact they may type), the changes a good chat should end with (65 on dev, 28 on test), and a list of brief-only terms (see the judge section).
+Round 1 measured the assistant on 48 scripted cases (`cases.ts`) over the three example people (Maya, Tom and Aisha): 32 dev cases used for tuning and 16 test cases held out. Each job had 16 cases: update their information (11 dev, 5 test), prepare for an appointment (10 dev, 6 test) and make quick phrases (11 dev, 5 test). Seven cases started from a typed first message instead of a job button (4 dev, 3 test), and six expected no change at all (2 dev, 4 test), such as a note that is still right or an appointment that was cancelled. Round 2 moved those 16 test cases to dev, so dev is now 48 cases, and added 32 new held-out cases in `test-cases.ts` (see Round 2 at the end). Today is fixed at Monday 5 October 2026, so dates have one right answer. Each case has a brief (what the person wants and every fact they may type), the changes a good chat should end with (65 on dev, 28 on test), and a list of brief-only terms (see the judge section).
 
 Each case goes through the app's own path: `AssistSession` with the persona's notes, the server turn (`assistTurn`: prompt, model, parse and `checkAssistProposals`), and the cards the session shows. The assistant model is `qwen/qwen3.8-27b` on Groq, the route's default. Cards are judged as they are left open at the end, as if the person had not kept or skipped any.
 
@@ -163,7 +163,7 @@ Each change made the judge reason for longer and did not fix what it targeted, s
 - **Duplicate phrases.** The judge can keep a quick phrase the person already has. The app's own check already drops a phrase that is a near-duplicate of an existing quick phrase before it is shown (`src/lib/assist/check.ts`, line 91), so this only matters for a repeat that the check doesn't catch. Where it happens, "worth keeping" is overcounted on the phrases jobs.
 - **Run-to-run noise.** The same card can get a different verdict on another run. Examples are "Ruth is my new neighbour." and "blood pressure dose". Each gold card was judged once per run.
 
-## Dev split (32 cases, 1 judge vote)
+## Round 1: dev split (32 cases, 1 judge vote)
 
 Model `qwen/qwen3.8-27b`, `--delay 500`, Groq's higher limits. Each round is one change and a full dev run. The cause of each miss was found by reading the saved chats and by replaying some of them through the prompt and the check (a scratch script, not in the repo) to see which proposals the check dropped.
 
@@ -229,7 +229,7 @@ Still wrong on dev after D6:
 - `tom-have-it` (D3, D6) and `maya-general` (D4): the model proposed "Goodbye." as a quick phrase from the simulated user's goodbye.
 - Person or place notes are still missing in some chats (`aisha-ent`, `maya-vet`, `aisha-far-date`). In `aisha-ent` and `maya-vet` the assistant's message said it had made them, so either it never proposed them or the check dropped them; these turns were not replayed.
 
-## Test split (16 cases, 3 judge votes)
+## Round 1: test split (16 cases, 3 judge votes)
 
 Run once on 2026-09-30 with the D6 code (commit `fab9c5a`), `qwen/qwen3.8-27b`, `--delay 500`. Each card is judged by the majority of 3 votes. Every case was judged; none failed.
 
@@ -262,3 +262,90 @@ The gate is that nothing deploys until the eval meets its targets with invented 
 
 - The check's time rule changed after the test run, following a code review. D4's version appended the 24-hour form of each am/pm time to the user's line, and the learning check then read "(14:00)" as a bare "14", which backed any 14 in a note ("room 14", "14 mg"). Now only the note is rewritten: a 24-hour time the cited line typed as am/pm is checked in that form, so "2 pm" backs "14:00" and nothing else (`withTypedTimes` in `src/lib/assist/check.ts`). This only makes the check stricter, so it can drop cards the run above kept but never keep one it dropped. The eval was not run again.
 - The D6 prompt example ("Dr. Lee is my eye doctor.") is close to the setting of the held-out case `maya-optician`. That case was void in the test run, so it is in none of the numbers above.
+
+## Round 2
+
+Round 1's held-out run found two failure patterns: a person note giving someone a role the person never typed ("Dr. Ahmed is my doctor."), and removals nobody asked for, including a removal plus a new note where an edit of the old note was right. Round 2 tried one fix for each, tuned and measured on dev only.
+
+The 16 round-1 test cases have been seen, so they moved to dev, which is now 48 cases. A new set of 32 held-out cases was written in `eval/assist/test-cases.ts` by an agent that does no tuning, and committed before any round 2 run. It was not run in this round. The owner chose to demo the assistant rather than spend another eval round, so round 2 is a dev baseline and the two fixes, each with a dev run. **No held-out run was made, so every number below is a dev number, on the cases the changes were tuned on.**
+
+Same setup as round 1: `qwen/qwen3.8-27b` on Groq, the v2 judge with 1 vote, the same simulated user, `--delay 500`. No case failed or was left unjudged in any run, and the brief-only check flagged no card.
+
+| Run | Code | Cases (void) | Shown | Worth keeping | Invented | Edits right | Recall | Sayable | Median user messages |
+|---|---|---|---|---|---|---|---|---|---|
+| R2-D0 | Baseline: round 1's final code | 46 (2) | 92 | 92% (85/92) | 3% (3/92) | 85% (11/13) | 87% (78/90) | 98% (47/48) | 4 |
+| R2-D1a | First version of Task 3 (replaced) | 45 (3) | 82 | 93% (76/82) | 2% (2/82) | 75% (9/12) | 74% (64/86) | 87% (41/47) | 4 |
+| R2-D1 | Task 3: person and place notes say only what was typed | 44 (4) | 84 | 98% (82/84) | 1% (1/84) | 100% (11/11) | 84% (73/87) | 100% (44/44) | 4 |
+| R2-D2a | Task 4 prompt and check (prompt part dropped) | 48 (0) | 84 | 93% (78/84) | 1% (1/84) | 92% (12/13) | 76% (71/93) | 93% (37/40) | 4 |
+| R2-D2 | Task 4: removal check only | 44 (4) | 77 | 92% (71/77) | 0% (0/77) | 77% (10/13) | 78% (67/86) | 88% (35/40) | 4 |
+
+R2-D2 is the final code. On dev it meets four targets (worth keeping, invented, sayable, median) and misses two: edits right is 77% (10/13) against 90%, and recall is 78% against 80%. R2-D1 and R2-D2 send the model the same prompt, and the only difference, the removal check, can only take away removal cards. In R2-D2 it took away one (see Task 4). So most of the fall from R2-D1 to R2-D2 in edits right and recall is run-to-run spread from the model and the judge, and it shows how far one run on 1 vote can move.
+
+R2-D1a and R2-D2a are first versions that made dev worse. Each was replaced before the next step and its commit amended, so neither is in the branch. They are in the table because they are what those versions did.
+
+Void, left out of every number:
+- R2-D0: `maya-optician`, `tom-have-it`.
+- R2-D1a: `maya-soy-latte`, `aisha-ent`, `tom-bus`.
+- R2-D1: `maya-soy-latte`, `aisha-jen-left`, `tom-dentist`, `tom-have-it`.
+- R2-D2a: none.
+- R2-D2: `aisha-lunch-same`, `maya-new-dentist`, `maya-vet`, `tom-have-it`.
+
+### R2-D0 failures
+
+Cards not worth keeping (7 of 92), invented ones marked:
+- `maya-new-carer`: four restatements of the kept "Ana is my carer. She helps me weekday mornings, 8-10.": "I have a carer named Ana who helps me weekday mornings.", "I have a carer on weekday mornings from 8 to 10.", "Ana is my carer." and "I have a new carer named Ana.". The check's near-duplicate rule doesn't catch them.
+- `tom-new-doctor`: the edit of "Dr. Chen at Lakeview Clinic is my family doctor." into "Dr. Chen: Dr. Osei is my family doctor.". The model kept the old name in the edit's name field, so the card shows it in front, and it dropped Lakeview Clinic.
+- `aisha-jen-left`: the removal of "Jen sits next to me at Northline Design and works on the website team.", from "Remove the note about Jen leaving Northline Design.". The judge matched it to the expected removal but said not worth keeping. This looks like a judge error; it kept the same card in every other run that showed it.
+- `maya-ruth`: "Ruth is someone I ask to walk Biscuit." (invented). She asked for phrases for Ruth and never said this.
+
+Also invented, though kept by the judge:
+- `aisha-review`: "Wednesday 7 October, 14:00: meeting Marco to discuss promotion and working from home on Fridays." (`["meeting"]`).
+- `aisha-ent`: "Dr. Rao is my ENT doctor." (`["ENT doctor"]`). She typed "Dr. Rao." and "St Mary's ENT clinic.", never that he is her doctor. This is round 1's held-out failure, on dev. In the same run `maya-gp` got "Dr. Ahmed is my doctor at Cedar Health." from "Dr. Ahmed." and "Cedar Health."; the judge kept it this time, where round 1's held-out run called the same claim invented.
+
+Edits and removals that were wrong:
+- `tom-new-doctor`: the edit above, so the expected edit is missed.
+- `tom-shellfish`: "I'm allergic to shellfish." as a new note from "Allergy: shellfish.", not an edit of "I'm allergic to penicillin.".
+- `tom-pharmacy-moved`: the removal of "Priya is the pharmacist at Riverside Pharmacy." from "Pharmacy changed to Oak Street Pharmacy.". Nobody asked for it. The judge kept it and it matches no expected change, so no measure counts it. This is round 1's other held-out failure, on dev. The same chat's pharmacy edit showed as "Riverside Pharmacy: Oak Street Pharmacy is where I pick up my prescriptions.", the same name-field problem as `tom-new-doctor`; the judge kept it.
+
+Sayable miss (1 of 48): `tom-checkup`, "I've been dizzy in the mornings. Should my dose change?".
+
+### Task 3: person and place notes say only what was typed
+
+Meant to fix: a person or place note that gives someone a role or relationship the person never typed. Round 1's last prompt change asked for a note for each new person or place, with the example "Dr. Lee is my eye doctor.", which itself states a role.
+
+The change (`src/lib/assist/prompt.ts`, `src/lib/assist/check.ts`):
+- Prompt: a new person or place note has only what they typed about it, such as where someone is ("Dr. Lund, at Elm Road Clinic.", "Elm Road Clinic: where I see Dr. Lund."), cites each line it uses, and has no day or time. It never gives a role or relationship they didn't type, because a name alone doesn't say who someone is to them. The output format example now has a person note citing two lines.
+- Check: `unbackedRoles` finds "my" or "our", up to two words, then a role or relationship word (doctor, GP, dentist, pharmacist, nurse, neighbour, manager, carer, friend, family words and similar). A note is dropped when no cited line and not the note it edits states that role. A word of the same group counts ("GP" backs "my doctor"), and "Dr." alone doesn't. A phrase is dropped when no cited line and no sent note states it, since a phrase may already say what a note says.
+
+The first version (R2-D1a) used the example "Dr. Osei: knee check on Friday.". Recall fell from 87% to 74%. In `tom-dentist`, `maya-gp`, `maya-vet` and `tom-interview` the assistant said it had made person and place notes, but none was shown. Replaying the last turns of `tom-dentist` and `maya-gp` showed why: the model copied the example's day into the notes ("Dr. Kim: dental check-up on Monday 12 October.", "Bright Smile Dental: dental check-up with Dr. Kim on Monday 12 October.") and cited only the line with the name, so the learning check dropped them for a date no cited line names. The role rule dropped none of them. Osei is also a name from a dev case. The example was replaced with the current one. Replays then gave "Dr. Kim, at Bright Smile Dental." and "Dr. Ahmed, at Cedar Health.", each citing both lines, and both passed.
+
+What it did on dev (R2-D0 to R2-D1): worth keeping 92% to 98%, invented 3% to 1%, edits right 85% to 100%, recall 87% to 84%, sayable 98% to 100%. No card in R2-D1 or R2-D2 states a role the person didn't type. `aisha-ent` now got "Dr. Rao, at St Mary's ENT clinic." and `maya-gp` got "Dr. Ahmed, at Cedar Health.", both kept. Checked against R2-D0's saved cards, the role rule drops "Dr. Rao is my ENT doctor." and "Dr. Ahmed is my doctor at Cedar Health." and no other card. The second was kept by the judge in that run and matched the expected person note, so on that run the rule would have cost one recall hit.
+
+New failures:
+- Bare notes. Asked for only what was typed, the model sometimes writes just the name: `maya-ruth` "Ruth." and `aisha-pitch` "Lumen Foods office.", both not worth keeping (R2-D1; "Ruth." again in R2-D2).
+- `aisha-ent`: "St Mary's ENT clinic: where I see Dr. Rao." was kept but flagged `["I see Dr. Rao"]` as invented, the one invented card in R2-D1. She is seeing Dr. Rao there, so this one is arguable.
+- `maya-new-carer`: Ana's note came as two cards, "Ana, my carer." and "Ana comes on weekday mornings from 8 to 10.", and the judge matched neither to the expected single note.
+
+### Task 4: edit, don't remove and re-add; remove only when asked
+
+Meant to fix: a removal nobody asked for (`tom-pharmacy-moved` removing the Priya note), and a removal plus a new note where an edit was right (the same chat in round 1's held-out run removing "Riverside Pharmacy is where I pick up my prescriptions." and adding "Oak Street Pharmacy is where I pick up my prescriptions.").
+
+The change kept (`src/lib/assist/check.ts`): a removal is dropped unless a cited line says the thing ended or asks for it to go (remove, delete, get rid, gone, left, no longer, any more, no more, died, passed away, stopped, finished, ended, closed, shut, cancelled, called off, quit, retired, moved away, broke up, not true and similar). A removal is also dropped when the same answer adds a new person or place note whose first name is a name in the removed note, since that should have been an edit; the new note stays.
+
+The prompt part was tried (R2-D2a) and dropped. It asked for an edit when anything in a note changes, never a removal plus a new note, and a removal only when they say the thing ended or ask. Recall fell from 84% to 76%: in `tom-pharmacy-phrases`, `maya-general`, `maya-physio-phrases` and `tom-work-phrases` the assistant said "Here are three phrases" and no card was shown. Replays showed the model writing the phrases as `{"action": "add", "kind": "phrase", ...}`, which the parser rejects. Over four replays each of `maya-physio-phrases` and `tom-work-phrases`, the R2-D1 prompt gave all 12 and all 8 phrase proposals, and the R2-D2a prompt gave 6 and 6. A plainer second wording gave 9 and 8, and in `tom-pharmacy-moved` the model still removed and re-added the pharmacy note in 2 of 3 replays with either prompt. The prompt part didn't fix its pattern and hurt phrases, so it was taken out and the commit holds the check only.
+
+What the check did on dev: every removal card shown in the five runs above was checked against the new rule, citing all of the chat's user lines. It keeps every removal that matched an expected one (`aisha-harbor-shipped`, `maya-biscuit-gone` and `aisha-jen-left`, from lines such as "Remove the Harbor redesign note.") and drops only R2-D0's Priya removal. In R2-D2, Tom's lines in `tom-pharmacy-moved` were "places", "Oak Street Pharmacy." and "Yes, pick up now. No pharmacist info.". The assistant said it would "change your pharmacy to Oak Street Pharmacy and remove the old one", and only the add "Oak Street Pharmacy is where I pick up my prescriptions." and the medication edit were shown. No line says Riverside closed, so this is most likely the check dropping the removal, as the rule says, but it leaves the old Riverside note next to the new one. When the person does say it closed (R2-D1a: "Oak Street Pharmacy now; Riverside closed."), the removal is backed and the remove-and-re-add goes through, because the new note names a different place. So the unasked removal is handled by the check, and remove-and-re-add is not fixed.
+
+R2-D2 failures:
+- Not worth keeping (6 of 77): `tom-new-doctor` "Dr. Chen: Dr. Osei is my family doctor." and "Dr. Chen: Dr. Osei at Lakeview Clinic is my family doctor." (the name-field problem, as in R2-D0); `maya-no-date` "Cedar Health, where I go for physio."; `tom-dentist` "This is a dental appointment." (a phrase); `aisha-standup-phrases` "My update: leading the Harbor app redesign, due Friday."; `maya-ruth` "Ruth.". None invented.
+- Edits right misses (3 of 13): `tom-new-doctor` (above), `tom-shellfish` ("I'm allergic to shellfish." as a new note again, from "Add shellfish allergy.") and `tom-pharmacy-moved` (an add, not an edit). The first two also missed in R2-D0.
+- Sayable misses (5 of 40): `aisha-thai` "The green curry please." and "To take away."; `maya-leila-phrases` "Call me when you land.", "Love you." and "How was your exam?". These look like judge errors: the same or nearly the same phrases were judged sayable in R2-D0.
+- No card at all in `tom-checkup` (the assistant said it had the who, when and where and never proposed before the goodbye, as in round 1), `tom-bus` and `maya-general` (8 messages).
+
+### Still wrong on dev after round 2
+
+- An edit of a person or place note can show the old name in front of the new text ("Dr. Chen: Dr. Osei is my family doctor."), because the model keeps the old name in the edit's name field. Seen in `tom-new-doctor` in every round 2 run, where it costs the expected edit whenever the judge rejects the card.
+- Remove and re-add of a renamed place (`tom-pharmacy-moved`), and an added allergy as a new note (`tom-shellfish`).
+- Bare person or place notes ("Ruth.").
+- Near-copies of the same note in one answer (`maya-new-carer` in R2-D0).
+- Chats that end with nothing proposed (`tom-checkup`, `tom-bus`, `maya-general`).
