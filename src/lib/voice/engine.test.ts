@@ -316,10 +316,14 @@ describe("VoiceEngine", () => {
     w.emit({ type: "ready" });
     const gens = () => w.sent.filter((m): m is Extract<VoiceWorkerRequest, { type: "generate" }> => m.type === "generate");
     v.prepareReplies(["A", "B", "C", "D"]);
+    expect(gens().map((g) => g.text)).toEqual(["A", "B", "C"]);
     void v.speak("D");
+    // Sent at once, before any line settles: after idle a busy line can take a whole cold start.
+    expect(gens().map((g) => g.text)).toEqual(["A", "B", "C", "D"]);
+    expect(gens().at(-1)).toMatchObject({ text: "D", urgent: true });
     v.prepareReplies(["X", "Y"]);
     w.emit({ type: "audio", id: gens()[0].id, samples: new Float32Array(1), sampleRate: 24000 });
-    expect(gens().find((g) => g.text === "D")).toMatchObject({ urgent: true });
+    expect(gens().filter((g) => g.text === "D")).toHaveLength(1);
   });
 
   it("tells the worker once when a reply it is already making becomes the line being said", async () => {

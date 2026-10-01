@@ -229,7 +229,11 @@ export class VoiceEngine {
       this.clips.delete(key);
       this.clips.set(key, existing);
       const waiting = this.queue.findIndex((j) => j.key === key);
-      if (urgent && waiting >= 0) this.queue.unshift({ ...this.queue.splice(waiting, 1)[0], urgent: true });
+      if (urgent && waiting >= 0) {
+        this.queue.unshift({ ...this.queue.splice(waiting, 1)[0], urgent: true });
+        // Now, not when a busy line settles: after idle that can be a whole cold start.
+        this.pump();
+      }
       // Already sent as a prepared reply and not answered yet: tell the worker it is now being said.
       const sent = this.busy.get(existing.id);
       if (urgent && sent && !sent.urgent) {
