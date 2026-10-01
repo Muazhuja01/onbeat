@@ -1,7 +1,7 @@
 import { localIsoDate } from "@/lib/learning/prompt";
 import type { MemoryStore } from "@/lib/memory/store";
 import type { Note } from "@/lib/types";
-import { buildNote, composeNoteText, hasName, NOTE_MAX, noteFields, type DraftNote } from "@/lib/profiles/notes";
+import { buildNote, composeNoteText, editName, hasName, NOTE_MAX, noteFields, type DraftNote } from "@/lib/profiles/notes";
 import { tokenize } from "@/lib/text";
 import { postAssist, type AssistResult } from "./client";
 import { noteForRequest, pickAssistNotes, quickPhrasesForRequest } from "./notes";
@@ -203,8 +203,8 @@ export class AssistSession {
         const target = this.memory.getNote(p.noteId);
         const sent = sentText.get(p.noteId);
         if (!target || sent === undefined) continue;
-        // Like learning's toPending: an edit that names no one keeps the stored name.
-        const name = hasName(target.kind) ? (p.name ?? noteFields(target).name) : "";
+        // Like learning's toPending: the stored name stays only as a label or when still mentioned.
+        const name = editName(target, p.name, p.text);
         card = { ...base, action: "edit", noteId: p.noteId, oldText: sent, draft: { kind: target.kind, ...(name ? { name } : {}), text: p.text }, ...since(target, sent) };
       } else card = { ...base, action: "add", draft: { kind: p.kind, ...(p.name ? { name: p.name } : {}), text: p.text } };
       if ([...this.s.cards, ...made].some((c) => sameCard(c, card))) continue;

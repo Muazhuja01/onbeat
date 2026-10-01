@@ -221,6 +221,41 @@ describe("AssistSession", () => {
     expect(noteFields(saved).name).toBe("Blue Door Café");
   });
 
+  describe("an edit of a sentence-form person note", () => {
+    const chen: Note = { id: "chen", kind: "person", text: "Dr. Chen at Lakeview Clinic is my family doctor.", entities: ["Dr. Chen", "Lakeview Clinic"], updatedAt: 0 };
+    const edit = async (text: string, name?: string) => {
+      const { session, memory, post } = await setup([]);
+      await memory.upsertNote(chen);
+      post.mockImplementationOnce(async (body) => ({
+        ok: true,
+        say: "Here.",
+        proposals: [{ action: "edit", kind: "person", noteId: "chen", ...(name ? { name } : {}), text, lineIds: [userId(body)] }],
+      }));
+      await session.send("My doctor changed.");
+      const [card] = session.state.cards;
+      expect(await session.keep(card.id)).toBe("kept");
+      return { card, saved: memory.getNote("chen")! };
+    };
+
+    it("doesn't put the old name in front of a note that now names someone else", async () => {
+      const { card, saved } = await edit("Dr. Osei at Lakeview Clinic is my family doctor.");
+      expect(card.draft).toEqual({ kind: "person", text: "Dr. Osei at Lakeview Clinic is my family doctor." });
+      expect(saved.text).toBe("Dr. Osei at Lakeview Clinic is my family doctor.");
+    });
+
+    it("doesn't use the old name when the edit sends it back", async () => {
+      const { saved } = await edit("Dr. Osei at Lakeview Clinic is my family doctor.", "Dr. Chen");
+      expect(saved.text).toBe("Dr. Osei at Lakeview Clinic is my family doctor.");
+    });
+
+    it("keeps the name when the new text still names them", async () => {
+      const { card, saved } = await edit("Dr. Chen at Elm Road Clinic is my family doctor.");
+      expect(card.draft).toEqual({ kind: "person", name: "Dr. Chen", text: "Dr. Chen at Elm Road Clinic is my family doctor." });
+      expect(saved.text).toBe("Dr. Chen at Elm Road Clinic is my family doctor.");
+      expect(noteFields(saved).name).toBe("Dr. Chen");
+    });
+  });
+
   it("builds a request the route accepts from long imported notes and many quick phrases", async () => {
     const { session, memory, bodies, post } = await setup([]);
     const long: Note = { id: "long", kind: "person", text: `Priya: ${"She is my pharmacist. ".repeat(24)}`.slice(0, 500), entities: ["P".repeat(200)], updatedAt: 0 };

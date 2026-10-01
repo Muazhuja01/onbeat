@@ -72,6 +72,28 @@ export function noteFields(note: Note): { name: string; text: string } {
   return { name, text: name && note.text.startsWith(prefix) ? note.text.slice(prefix.length) : note.text };
 }
 
+/**
+ * The name an edit of a person or place note is saved with. A name the edit gives that isn't
+ * the stored one is used as given. The stored name stays when the note held it as a "Name: "
+ * label, when the new text still mentions it, or when the new text doesn't start with another
+ * name ("moving to Leeds in May" is still about Sam). A sentence-form note ("Dr. Chen at
+ * Lakeview Clinic is my family doctor.") edited to "Dr. Osei at Lakeview Clinic is my family
+ * doctor." must not get "Dr. Chen: " in front.
+ */
+export function editName(target: Note, sent: string | undefined, text: string): string {
+  if (!hasName(target.kind)) return "";
+  const given = sent?.trim() ?? "";
+  const stored = noteFields(target);
+  if (given && given.toLowerCase() !== stored.name.toLowerCase()) return given;
+  if (!stored.name) return "";
+  const labelled = stored.text !== target.text;
+  const escaped = stored.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const mentioned = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu").test(text);
+  const first = text.trim().replace(/^(?:Dr|Mr|Mrs|Ms|Mx)\.?\s+/, "").match(WORD)?.[0] ?? "";
+  const startsWithName = /^\p{Lu}/u.test(first) && first !== "I" && !COMMON_WORDS.has(first.toLowerCase());
+  return labelled || mentioned || !startsWithName ? stored.name : "";
+}
+
 /** Replies speak for the user, so the main note says who they are. */
 export function aboutMeText(name: string, text: string): string {
   const body = text.trim();

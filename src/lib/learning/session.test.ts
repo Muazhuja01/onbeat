@@ -105,6 +105,18 @@ describe("LearningSession", () => {
     ]);
   });
 
+  it("an edit of a sentence-form note that now names someone else doesn't get the old name in front", async () => {
+    const post = answer((body) => [
+      { action: "edit", kind: "person", noteId: "sam", text: "Jo is the barista at Blue Door Café.", lineIds: [body.lines[0].id] },
+    ]);
+    const { session } = await open(post);
+    await talk(session);
+    await vi.advanceTimersByTimeAsync(QUIET_MS);
+    const [s] = session.pending.list();
+    expect(s).toMatchObject({ action: "edit", noteId: "sam", draft: { kind: "person", text: "Jo is the barista at Blue Door Café." } });
+    expect(s.draft.name).toBeUndefined();
+  });
+
   it("an edit of a person keeps their name, and an edit of a deleted note becomes a new note", async () => {
     const post = answer((body) => [
       { action: "edit", kind: "person", noteId: "sam", text: "moving to Leeds in May", lineIds: [body.lines[0].id] },
