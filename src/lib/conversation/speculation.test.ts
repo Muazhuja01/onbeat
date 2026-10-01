@@ -43,4 +43,11 @@ describe("Speculation", () => {
     s.turnDone();
     expect(s.needsFinal("what size would")).toBe(true);
   });
+
+  it("on a line carried on after a pause, counts only the new words", () => {
+    const s = new Speculation();
+    s.newTurn("So the physio");
+    expect(s.shouldSend("So the physio moved", 10_000)).toBe(false);
+    expect(s.shouldSend("So the physio moved to Thursdays", 10_000)).toBe(true);
+  });
 });

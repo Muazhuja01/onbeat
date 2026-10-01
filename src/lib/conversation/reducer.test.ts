@@ -107,3 +107,61 @@ describe("conversationReducer", () => {
     expect(s.partnerPartial).toBe("");
   });
 });
+
+describe("joining the partner's pauses into one line", () => {
+  const heard = (id: string, text: string, startedAt: number, endedAt: number, join = true) =>
+    ({ type: "partnerSaid", id, text, at: endedAt, heard: { startedAt, endedAt }, join }) as const;
+  const first = r(s0, heard("1", "So the physio", 1_000, 2_000));
+
+  it("adds speech that starts within 3 s of the last heard line to that line", () => {
+    const s = r(first, heard("2", " moved to Thursdays ", 5_000, 6_500));
+    expect(s.turns).toEqual([{ id: "1", speaker: "partner", text: "So the physio moved to Thursdays", at: 2_000, endedAt: 6_500 }]);
+    // Measured from the end of the line as it is now.
+    const s2 = r(s, heard("3", "is that OK?", 9_400, 10_000));
+    expect(s2.turns).toHaveLength(1);
+    expect(s2.turns[0].text).toBe("So the physio moved to Thursdays is that OK?");
+  });
+
+  it("starts a new line when the speech starts more than 3 s after it", () => {
+    const s = r(first, heard("2", "Anything else?", 5_001, 6_000));
+    expect(s.turns.map((t) => t.text)).toEqual(["So the physio", "Anything else?"]);
+  });
+
+  it("starts a new line after a line from the user", () => {
+    const s = r(r(first, { type: "speakStart", id: "u1", text: "Sorry?", at: 2_500 }), heard("2", "moved to Thursdays", 3_000, 4_000));
+    expect(s.turns.map((t) => t.text)).toEqual(["So the physio", "Sorry?", "moved to Thursdays"]);
+  });
+
+  it("starts a new line with the setting off", () => {
+    const s = r(first, heard("2", "moved to Thursdays", 3_000, 4_000, false));
+    expect(s.turns.map((t) => t.text)).toEqual(["So the physio", "moved to Thursdays"]);
+  });
+
+  it("never joins a typed line, or onto one", () => {
+    const typed = r(first, { type: "partnerSaid", id: "2", text: "moved to Thursdays", at: 2_100 });
+    expect(typed.turns.map((t) => t.text)).toEqual(["So the physio", "moved to Thursdays"]);
+    const after = r(typed, heard("3", "is that OK?", 2_200, 3_000));
+    expect(after.turns.map((t) => t.text)).toEqual(["So the physio", "moved to Thursdays", "is that OK?"]);
+  });
+
+  it("starts a new line when the start of the speech is unknown", () => {
+    const s = r(first, { type: "partnerSaid", id: "2", text: "moved", at: 2_500, heard: { endedAt: 2_500 }, join: true });
+    expect(s.turns).toHaveLength(2);
+  });
+
+  it("never joins across a cleared conversation", () => {
+    const s = r(r(first, { type: "reset" }), heard("2", "moved to Thursdays", 3_000, 4_000));
+    expect(s.turns).toEqual([{ id: "2", speaker: "partner", text: "moved to Thursdays", at: 4_000, endedAt: 4_000 }]);
+  });
+
+  it("says when the words still being heard will join the last line", () => {
+    const partial = (text: string, startedAt: number | undefined, join = true) => ({ type: "partnerPartial", text, startedAt, join }) as const;
+    expect(r(first, partial("moved to", 3_000)).partialJoins).toBe(true);
+    expect(r(first, partial("moved to", 5_500)).partialJoins).toBe(false);
+    expect(r(first, partial("moved to", 3_000, false)).partialJoins).toBe(false);
+    expect(r(first, partial("moved to", undefined)).partialJoins).toBe(false);
+    const joining = r(first, partial("moved to", 3_000));
+    expect(r(joining, partial("", 3_000)).partialJoins).toBe(false);
+    expect(r(joining, heard("2", "moved to Thursdays", 3_000, 4_000)).partialJoins).toBe(false);
+  });
+});

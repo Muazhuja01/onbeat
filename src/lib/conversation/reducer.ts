@@ -7,6 +7,8 @@ export interface ConversationState {
   turns: Turn[];
   /** What the partner has said so far in the turn they are still speaking; "" when nobody is talking. */
   partnerPartial: string;
+  /** True while those words carry on the last line after a short pause, so they will be added to it. */
+  partialJoins: boolean;
   placeId?: string;
   partnerId?: string;
   typed: string;
@@ -24,8 +26,12 @@ export interface ConversationState {
 
 export type ConversationAction =
   | { type: "setContext"; placeId?: string; partnerId?: string }
-  | { type: "partnerSaid"; id: string; text: string; at: number }
-  | { type: "partnerPartial"; text: string }
+  /**
+   * `heard`: the line came from the microphone, with when this piece of speech started (if known) and ended.
+   * `join`: the setting to keep the partner's pauses in one line is on.
+   */
+  | { type: "partnerSaid"; id: string; text: string; at: number; heard?: { startedAt?: number; endedAt: number }; join?: boolean }
+  | { type: "partnerPartial"; text: string; startedAt?: number; join?: boolean }
   | { type: "typed"; text: string }
   | { type: "thinking"; speculative?: boolean }
   | { type: "suggestions"; replies: Reply[]; reactions: Reaction[]; done: boolean; hold: boolean; askedAt?: number }
@@ -39,10 +45,13 @@ export type ConversationAction =
 
 export const PAUSED_NOTICE = "Suggestions are paused. Typing and speaking still work.";
 const MAX_TURNS = 50;
+/** Speech that starts this soon after the partner's last heard line ended carries that line on. */
+export const JOIN_WINDOW_MS = 3000;
 
 export const initialConversation: ConversationState = {
   turns: [],
   partnerPartial: "",
+  partialJoins: false,
   typed: "",
   replies: [],
   heldReplies: null,
@@ -59,6 +68,16 @@ function addTurn(turns: Turn[], turn: Turn): Turn[] {
   return [...turns, turn].slice(-MAX_TURNS);
 }
 
+/**
+ * The line that speech starting at `startedAt` carries on: the last line, when the partner said it
+ * and it was heard, not typed, and ended at most JOIN_WINDOW_MS before. Otherwise undefined.
+ */
+function lineToJoin(turns: Turn[], startedAt: number | undefined): Turn | undefined {
+  const last = turns.at(-1);
+  if (!last || last.speaker !== "partner" || last.endedAt === undefined || startedAt === undefined) return undefined;
+  return startedAt - last.endedAt <= JOIN_WINDOW_MS ? last : undefined;
+}
+
 export function conversationReducer(state: ConversationState, action: ConversationAction): ConversationState {
   switch (action.type) {
     case "setContext":
@@ -66,10 +85,20 @@ export function conversationReducer(state: ConversationState, action: Conversati
     case "partnerSaid": {
       const text = action.text.trim();
       if (!text) return state;
-      return { ...state, partnerPartial: "", turns: addTurn(state.turns, { id: action.id, speaker: "partner", text, at: action.at }) };
+      const { heard } = action;
+      // They paused for a moment and carried on: the line grows in place and keeps its id.
+      const joined = action.join && heard ? lineToJoin(state.turns, heard.startedAt) : undefined;
+      if (joined && heard) {
+        const grown = { ...joined, text: `${joined.text} ${text}`, endedAt: heard.endedAt };
+        return { ...state, partnerPartial: "", partialJoins: false, turns: [...state.turns.slice(0, -1), grown] };
+      }
+      const turn = { id: action.id, speaker: "partner" as const, text, at: action.at, ...(heard ? { endedAt: heard.endedAt } : {}) };
+      return { ...state, partnerPartial: "", partialJoins: false, turns: addTurn(state.turns, turn) };
     }
-    case "partnerPartial":
-      return { ...state, partnerPartial: action.text.trim() };
+    case "partnerPartial": {
+      const text = action.text.trim();
+      return { ...state, partnerPartial: text, partialJoins: !!text && !!action.join && lineToJoin(state.turns, action.startedAt) !== undefined };
+    }
     case "typed":
       return { ...state, typed: action.text };
     case "thinking":

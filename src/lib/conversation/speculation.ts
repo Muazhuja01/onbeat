@@ -13,9 +13,12 @@ export class Speculation {
   private pending: string | null = null;
   private answered: string | null = null;
 
-  /** The partner started a new turn. Word counts restart; the 2.5 s spacing carries over. */
-  newTurn(): void {
-    this.wordsAtLast = 0;
+  /**
+   * The partner started a new turn. Word counts restart; the 2.5 s spacing carries over.
+   * `carried`: the line they are carrying on after a pause, whose words don't count as new.
+   */
+  newTurn(carried = ""): void {
+    this.wordsAtLast = tokenize(carried).length;
     this.pending = null;
     this.answered = null;
   }

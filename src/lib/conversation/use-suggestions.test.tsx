@@ -265,6 +265,58 @@ describe("useSuggestions", () => {
     expect(client.calls[1]).toMatchObject({ partnerSaid: "What size would you like?", priority: "final" });
   });
 
+  describe("when the partner carries a line on after a pause", () => {
+    const heard = (id: string, text: string, startedAt: number, endedAt: number) =>
+      ({ type: "partnerSaid", id, text, at: endedAt, heard: { startedAt, endedAt }, join: true }) as const;
+
+    it("asks with the whole line while they talk, and again with the whole line when the piece ends", async () => {
+      const client = fakeClient(done);
+      const { result } = await setup(client);
+      vi.setSystemTime(10_000);
+      await act(async () => result.current.dispatch(heard("1", "So the physio", 8_000, 9_000)));
+      expect(client.calls).toHaveLength(1);
+      // Only one new word: too soon to ask.
+      await act(async () => result.current.dispatch({ type: "partnerPartial", text: "moved", startedAt: 10_500, join: true }));
+      expect(client.calls).toHaveLength(1);
+      await act(async () => result.current.dispatch({ type: "partnerPartial", text: "moved to Thursdays", startedAt: 10_500, join: true }));
+      expect(client.calls[1]).toMatchObject({ partnerSaid: "So the physio moved to Thursdays", priority: "speculative" });
+      await act(async () => result.current.dispatch(heard("2", "moved to Thursdays, is that OK?", 10_500, 13_000)));
+      expect(result.current.state.turns).toHaveLength(1);
+      expect(client.calls).toHaveLength(3);
+      expect(client.calls[2]).toMatchObject({ partnerSaid: "So the physio moved to Thursdays, is that OK?", priority: "final" });
+    });
+
+    it("asks again when a piece with no live caption grows the line", async () => {
+      const client = fakeClient(done);
+      const { result } = await setup(client);
+      await act(async () => result.current.dispatch(heard("1", "So the physio", 8_000, 9_000)));
+      await act(async () => result.current.dispatch(heard("2", "moved.", 10_000, 10_400)));
+      expect(client.calls.map((c) => [c.partnerSaid, c.priority])).toEqual([
+        ["So the physio", "final"],
+        ["So the physio moved.", "final"],
+      ]);
+    });
+
+    it("skips the final request when the speculative one already asked with the whole grown line", async () => {
+      const client = fakeClient(done);
+      const { result } = await setup(client);
+      vi.setSystemTime(10_000);
+      await act(async () => result.current.dispatch(heard("1", "So the physio", 8_000, 9_000)));
+      await act(async () => result.current.dispatch({ type: "partnerPartial", text: "moved to Thursdays", startedAt: 10_500, join: true }));
+      await act(async () => result.current.dispatch(heard("2", "moved to Thursdays.", 10_500, 12_000)));
+      expect(client.calls.map((c) => c.partnerSaid)).toEqual(["So the physio", "So the physio moved to Thursdays"]);
+    });
+
+    it("asks with only the new words when they don't carry the line on", async () => {
+      const client = fakeClient(done);
+      const { result } = await setup(client);
+      vi.setSystemTime(10_000);
+      await act(async () => result.current.dispatch(heard("1", "So the physio", 8_000, 9_000)));
+      await act(async () => result.current.dispatch({ type: "partnerPartial", text: "Anything else today", startedAt: 12_500, join: true }));
+      expect(client.calls[1]).toMatchObject({ partnerSaid: "Anything else today", priority: "speculative" });
+    });
+  });
+
   it("keeps the typed retry when a speculative request is skipped in the meantime", async () => {
     const calls: SuggestInput[] = [];
     let typedSkips = 1;
