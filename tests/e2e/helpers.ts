@@ -33,6 +33,8 @@ export async function prepare(page: Page, theme?: string) {
     if (themeName) localStorage.setItem("onbeat:theme", themeName);
     const spoken: string[] = [];
     (window as unknown as { __spoken: string[] }).__spoken = spoken;
+    const rates: number[] = [];
+    (window as unknown as { __rates: number[] }).__rates = rates;
     const synth = {
       speaking: false,
       pending: false,
@@ -45,6 +47,7 @@ export async function prepare(page: Page, theme?: string) {
       removeEventListener() {},
       speak(u: SpeechSynthesisUtterance) {
         spoken.push(u.text);
+        rates.push(u.rate);
         setTimeout(() => u.onend?.(new Event("end") as SpeechSynthesisEvent), 30);
       },
     };

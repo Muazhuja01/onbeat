@@ -1,12 +1,20 @@
 import { learningKeys } from "@/lib/learning/keys";
 import { retireProfile } from "@/lib/learning/lifecycle";
 import type { Persist, Snapshot } from "@/lib/memory/persist";
+import { DEFAULT_VOICE, isVoiceChoice, type VoiceChoice } from "@/lib/voice/choices";
 import { idbKeyValue, memoryKeyValue, type KeyValue } from "./kv";
 
 export interface ProfileInfo {
   id: string;
   name: string;
   createdAt: number;
+  /** How replies sound. Missing on profiles made before voices could be chosen. */
+  voice?: VoiceChoice;
+}
+
+/** The profile's voice when it is a valid choice, else the default. */
+export function profileVoice(p: ProfileInfo | null | undefined): VoiceChoice {
+  return p && isVoiceChoice(p.voice) ? p.voice : DEFAULT_VOICE;
 }
 
 interface RegistryState {
@@ -52,10 +60,10 @@ export class ProfileRegistry {
     return this.kv;
   }
 
-  async create(name: string): Promise<ProfileInfo> {
+  async create(name: string, voice?: VoiceChoice): Promise<ProfileInfo> {
     const clean = cleanName(name);
     if (!clean) throw new Error("A profile needs a name");
-    const profile = { id: crypto.randomUUID(), name: clean, createdAt: this.now() };
+    const profile = { id: crypto.randomUUID(), name: clean, createdAt: this.now(), ...(voice ? { voice } : {}) };
     await this.write({ ...this.state, activeId: profile.id, profiles: [...this.state.profiles, profile] });
     return profile;
   }
@@ -64,6 +72,10 @@ export class ProfileRegistry {
     const clean = cleanName(name);
     if (!clean) throw new Error("A profile needs a name");
     await this.write({ ...this.state, profiles: this.state.profiles.map((p) => (p.id === id ? { ...p, name: clean } : p)) });
+  }
+
+  async setVoice(id: string, voice: VoiceChoice): Promise<void> {
+    await this.write({ ...this.state, profiles: this.state.profiles.map((p) => (p.id === id ? { ...p, voice } : p)) });
   }
 
   async remove(id: string): Promise<void> {

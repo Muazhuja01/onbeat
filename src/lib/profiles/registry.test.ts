@@ -2,7 +2,8 @@ import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
 import { idbKeyValue, memoryKeyValue } from "./kv";
 import { pendingKey, queueKey, skippedKey } from "@/lib/learning/keys";
-import { cleanName, openBrowserRegistry, ProfileRegistry } from "./registry";
+import { DEFAULT_VOICE } from "@/lib/voice/choices";
+import { cleanName, openBrowserRegistry, ProfileRegistry, profileVoice } from "./registry";
 
 describe("ProfileRegistry", () => {
   it("starts empty and creates an active profile", async () => {
@@ -103,5 +104,23 @@ describe("ProfileRegistry learning data in flight", () => {
     await queue.add({ id: "l1", speaker: "partner", text: "hi", at: Date.now() });
     await pending.merge([{ id: "s1", action: "add", draft: { kind: "routine", text: "I swim on Fridays." }, sources: [], createdAt: 1 }], []);
     for (const key of [queueKey(p.id), pendingKey(p.id)]) expect(await kv.get(key)).toBeUndefined();
+  });
+});
+
+describe("voice", () => {
+  it("keeps a profile's voice, and uses the default when none is stored", async () => {
+    const kv = memoryKeyValue();
+    const r = await ProfileRegistry.open(kv);
+    const tom = await r.create("Tom", { gender: "male", accent: "american", style: "calm", speed: "normal" });
+    const maya = await r.create("Maya");
+    expect(profileVoice(r.list().find((p) => p.id === tom.id))).toEqual({ gender: "male", accent: "american", style: "calm", speed: "normal" });
+    expect(profileVoice(r.list().find((p) => p.id === maya.id))).toEqual(DEFAULT_VOICE);
+    await r.setVoice(maya.id, { gender: "female", accent: "british", style: "clear", speed: "faster" });
+    const reopened = await ProfileRegistry.open(kv);
+    expect(profileVoice(reopened.list().find((p) => p.id === maya.id))?.style).toBe("clear");
+  });
+
+  it("treats a stored value that isn't a valid choice as the default", () => {
+    expect(profileVoice({ id: "x", name: "X", createdAt: 0, voice: { gender: "male", accent: "british", style: "deep", speed: "normal" } })).toEqual(DEFAULT_VOICE);
   });
 });

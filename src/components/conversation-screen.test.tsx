@@ -5,10 +5,18 @@ import * as browserMemory from "@/lib/memory/browser";
 import { MemoryStore } from "@/lib/memory/store";
 import type { SuggestInput, SuggestUpdate } from "@/lib/suggest/client";
 import type { Reply } from "@/lib/types";
+import { DEFAULT_VOICE } from "@/lib/voice/choices";
 
 const h = vi.hoisted(() => {
   type Listener = (v: unknown) => void;
-  const listeners: Record<string, Set<Listener>> = { start: new Set(), end: new Set(), mode: new Set(), progress: new Set() };
+  const listeners: Record<string, Set<Listener>> = {
+    start: new Set(),
+    end: new Set(),
+    sampleStart: new Set(),
+    sampleEnd: new Set(),
+    mode: new Set(),
+    progress: new Set(),
+  };
   const voice = {
     mode: "basic" as const,
     on(event: string, cb: Listener) {
@@ -20,8 +28,12 @@ const h = vi.hoisted(() => {
     speak: async (text: string) => {
       for (const cb of listeners.start) cb(text);
     },
+    sample: async (text: string) => {
+      for (const cb of listeners.sampleStart) cb(text);
+    },
     stop: () => {},
   };
+  const setCurrentVoice = vi.fn();
   const emit = (event: string, v: unknown) => {
     for (const cb of listeners[event]) cb(v);
   };
@@ -59,7 +71,7 @@ const h = vi.hoisted(() => {
     learnBodies.push(body);
     return { ok: true as const, proposals: learnAnswer(body) };
   };
-  return { voice, emit, requests, hearing, hear, learnBodies, setLearnAnswer, postLearn };
+  return { voice, setCurrentVoice, emit, requests, hearing, hear, learnBodies, setLearnAnswer, postLearn };
 });
 
 const flags = vi.hoisted(() => ({ assistant: true }));
@@ -68,7 +80,7 @@ vi.mock("@/lib/assist/enabled", () => ({
     return flags.assistant;
   },
 }));
-vi.mock("@/lib/voice/browser", () => ({ getBrowserVoice: () => h.voice }));
+vi.mock("@/lib/voice/browser", () => ({ getBrowserVoice: () => h.voice, setCurrentVoice: h.setCurrentVoice }));
 vi.mock("@/lib/hearing/browser", () => ({ getBrowserHearing: () => h.hearing }));
 vi.mock("@/lib/learning/client", () => ({ postLearnBatch: (body: import("@/lib/learning/protocol").LearnRequest) => h.postLearn(body) }));
 
@@ -137,12 +149,25 @@ async function startWithMaya() {
   await screen.findByRole("heading", { name: "Replies" });
 }
 
-async function setUpPriya() {
-  render(<ConversationScreen />);
-  await userEvent.type(await screen.findByLabelText("What's your name?"), "Priya{Enter}");
+/** Goes through setup (already on screen) for `name`, choosing a male voice if asked. */
+async function fillSetup(name: string, male = false) {
+  await userEvent.type(await screen.findByLabelText("What's your name?"), `${name}{Enter}`);
+  await userEvent.click(screen.getByRole("button", { name: "Next" }));
+  if (male) await userEvent.click(screen.getByRole("radio", { name: "Male" }));
   await userEvent.click(screen.getByRole("button", { name: "Next" }));
   await userEvent.click(screen.getByRole("button", { name: "Finish" }));
   await screen.findByRole("heading", { name: "Replies" });
+}
+
+async function setUpPriya() {
+  render(<ConversationScreen />);
+  await fillSetup("Priya");
+}
+
+/** Opens the profile menu and picks an item from it. */
+async function fromMenu(profile: string, item: string | RegExp) {
+  await userEvent.click(screen.getByRole("button", { name: profile }));
+  await userEvent.click(screen.getByRole("button", { name: item }));
 }
 
 /** The page goes to the background, which sends any queued lines. */
@@ -157,6 +182,7 @@ const liveRegion = () => document.querySelector<HTMLElement>('[aria-live="polite
 beforeEach(() => {
   h.requests.length = 0;
   h.voice.stop = vi.fn();
+  h.setCurrentVoice.mockClear();
   h.hearing.start = vi.fn(async () => {});
   h.hearing.stop = vi.fn();
   h.hearing.pause = vi.fn();
@@ -303,6 +329,7 @@ describe("ConversationScreen", () => {
     render(<ConversationScreen />);
     await userEvent.type(await screen.findByLabelText("What's your name?"), "Priya{Enter}");
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await userEvent.type(screen.getByLabelText("Name", { selector: "#person-name" }), "Sam");
     await userEvent.type(screen.getByLabelText("Who they are to you"), "my barista");
     await userEvent.click(screen.getByRole("button", { name: "Add person" }));
@@ -310,6 +337,20 @@ describe("ConversationScreen", () => {
     expect(await screen.findByRole("option", { name: "Sam" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Priya" })).toBeInTheDocument();
     expect(screen.getByText("You can add or change notes any time from your profile menu.")).toBeInTheDocument();
+  });
+
+  it("prepares the on-screen replies again after a voice is saved", async () => {
+    await setUpPriya();
+    await partnerSays("What size?");
+    answer("Large, please.");
+    const prepare = vi.spyOn(h.voice, "prepare");
+    await userEvent.click(screen.getByRole("button", { name: "Priya" }));
+    await userEvent.click(screen.getByRole("button", { name: /^Voice:/ }));
+    await userEvent.click(screen.getByRole("radio", { name: "Faster" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByRole("heading", { name: "Replies" });
+    await waitFor(() => expect(prepare).toHaveBeenCalledWith("Large, please."));
+    prepare.mockRestore();
   });
 
   it("goes back from the demo list to setup", async () => {
@@ -324,6 +365,7 @@ describe("ConversationScreen", () => {
     await userEvent.click(screen.getByRole("button", { name: "Demo: Maya" }));
     await userEvent.click(screen.getByRole("button", { name: "Set up your own profile" }));
     await userEvent.type(screen.getByLabelText("What's your name?"), "Priya{Enter}");
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await userEvent.type(screen.getByLabelText("Name", { selector: "#person-name" }), "Sam");
     await userEvent.click(screen.getByRole("button", { name: "Add person" }));
@@ -368,6 +410,87 @@ describe("ConversationScreen listening", () => {
     expect(h.hearing.pause).toHaveBeenCalled();
     act(() => h.emit("end", "Large, please."));
     expect(h.hearing.resume).toHaveBeenCalledWith(400);
+  });
+});
+
+describe("ConversationScreen voice", () => {
+  const MALE = { gender: "male", accent: "american", style: "calm", speed: "normal" };
+  const lastVoice = () => h.setCurrentVoice.mock.calls.at(-1)?.[0];
+
+  it("speaks in Tom's voice when his demo opens", async () => {
+    render(<ConversationScreen />);
+    await userEvent.click(await screen.findByRole("button", { name: "Try a demo first" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^Tom/ }));
+    await screen.findByRole("heading", { name: "Replies" });
+    expect(lastVoice()).toEqual(MALE);
+  });
+
+  it("speaks in each profile's voice after switching between them", async () => {
+    await setUpPriya();
+    await fromMenu("Priya", "New profile");
+    await fillSetup("Ravi", true);
+    expect(lastVoice()).toEqual(MALE);
+    await fromMenu("Ravi", "Switch to Priya");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Priya" })).toBeInTheDocument());
+    expect(lastVoice()).toEqual(DEFAULT_VOICE);
+    await fromMenu("Priya", "Switch to Ravi");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Ravi" })).toBeInTheDocument());
+    expect(lastVoice()).toEqual(MALE);
+  });
+
+  it("keeps the old voice until the profile being switched to has opened", async () => {
+    await setUpPriya();
+    await fromMenu("Priya", "New profile");
+    await fillSetup("Ravi", true);
+    const real = browserMemory.openProfileMemory;
+    let open = () => {};
+    const spy = vi.spyOn(browserMemory, "openProfileMemory").mockImplementationOnce(async (reg, id) => {
+      await new Promise<void>((r) => (open = r));
+      return real(reg, id);
+    });
+    h.setCurrentVoice.mockClear();
+    await fromMenu("Ravi", "Switch to Priya");
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(h.setCurrentVoice).not.toHaveBeenCalledWith(DEFAULT_VOICE);
+    await act(async () => open());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Priya" })).toBeInTheDocument());
+    expect(lastVoice()).toEqual(DEFAULT_VOICE);
+    spy.mockRestore();
+  });
+
+  it("goes back to the default voice after the last profile is deleted", async () => {
+    render(<ConversationScreen />);
+    await fillSetup("Ravi", true);
+    expect(lastVoice()).toEqual(MALE);
+    await fromMenu("Ravi", "Delete this profile");
+    await userEvent.click(screen.getByRole("button", { name: "Delete Ravi" }));
+    await screen.findByRole("heading", { name: "Set up OnBeat" });
+    expect(lastVoice()).toEqual(DEFAULT_VOICE);
+  });
+
+  it("offers the Settings voice row only on the conversation", async () => {
+    await setUpPriya();
+    await userEvent.click(screen.getByText("Settings"));
+    expect(screen.getByRole("button", { name: "Change voice" })).toBeInTheDocument();
+    await fromMenu("Priya", "New profile");
+    expect(screen.getByRole("heading", { name: "Set up OnBeat" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Change voice" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await fromMenu("Priya", /^Voice:/);
+    expect(screen.getByRole("heading", { name: "Your voice" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Change voice" })).toBeNull();
+  });
+
+  it("pauses listening while a sample plays, and the sample is not something the user said", async () => {
+    await setUpPriya();
+    await fromMenu("Priya", /^Voice:/);
+    await userEvent.click(screen.getByRole("button", { name: "Play a sample" }));
+    expect(h.hearing.pause).toHaveBeenCalled();
+    act(() => h.emit("sampleEnd", "Hi, I'm Priya. This is how I'll sound."));
+    expect(h.hearing.resume).toHaveBeenCalledWith(400);
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await screen.findByRole("heading", { name: "Replies" });
+    expect(screen.queryByText(/This is how I'll sound/)).toBeNull();
   });
 });
 

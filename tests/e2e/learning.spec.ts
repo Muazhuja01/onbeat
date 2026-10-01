@@ -9,6 +9,7 @@ async function setUp(page: Page) {
   await page.getByRole("button", { name: "Next" }).click();
   await page.getByLabel("About you", { exact: true }).fill("I type to talk.");
   await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("button", { name: "Next" }).click();
   await expect(page.getByText("OnBeat will suggest notes from your conversations.")).toBeVisible();
   await page.getByRole("button", { name: "Finish" }).click();
 }
