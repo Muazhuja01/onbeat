@@ -22,7 +22,7 @@ export function getBrowserHearing(): Hearing {
         : new Worker(new URL("../../workers/hearing.worker.ts", import.meta.url), { type: "module" }),
     openMic,
     model: en.asrModel,
-    // Off unless the user turns on "Clearer captions"; read at every turn.
+    // On unless the user turns off "Clearer captions"; read at every turn.
     refineTurn: createCloudCaptions({ enabled: () => getSettings().cloudCaptions }),
   });
   return engine;

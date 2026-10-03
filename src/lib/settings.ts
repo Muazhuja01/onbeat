@@ -9,7 +9,7 @@ export type ThemeChoice = (typeof THEMES)[number];
 export interface Settings {
   theme: ThemeChoice;
   digitKeys: boolean;
-  /** Send the other person's finished lines to Deepgram Nova-3 for more accurate captions. Off unless the user turns it on. */
+  /** Send the other person's finished lines to Deepgram Nova-3 for more accurate captions. On unless the user turns it off. */
   cloudCaptions: boolean;
   /** Suggest notes from conversations. On unless the user turns it off. */
   learning: boolean;
@@ -49,7 +49,8 @@ export function getSettings(): Settings {
     current = {
       theme: THEMES.includes(theme as ThemeChoice) ? (theme as ThemeChoice) : "system",
       digitKeys: read(DIGIT_KEYS_KEY) !== "off",
-      cloudCaptions: read(CLOUD_CAPTIONS_KEY) === "on",
+      // Earlier versions saved "on" when it was turned on; that still reads as on.
+      cloudCaptions: read(CLOUD_CAPTIONS_KEY) !== "off",
       learning: read(LEARNING_KEY) !== "off",
       joinLines: read(JOIN_LINES_KEY) !== "off",
     };
@@ -57,7 +58,7 @@ export function getSettings(): Settings {
   return current;
 }
 
-const SERVER_SETTINGS: Settings = { theme: "system", digitKeys: true, cloudCaptions: false, learning: true, joinLines: true };
+const SERVER_SETTINGS: Settings = { theme: "system", digitKeys: true, cloudCaptions: true, learning: true, joinLines: true };
 export const getServerSettings = (): Settings => SERVER_SETTINGS;
 
 export function subscribeSettings(cb: () => void): () => void {
@@ -83,7 +84,7 @@ export function setDigitKeys(on: boolean) {
 }
 
 export function setCloudCaptions(on: boolean) {
-  write(CLOUD_CAPTIONS_KEY, on ? "on" : null);
+  write(CLOUD_CAPTIONS_KEY, on ? null : "off");
   update({ cloudCaptions: on });
 }
 

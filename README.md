@@ -20,6 +20,7 @@ Phones already offer captions and type-to-speak. OnBeat tries to shorten the gap
 - A reply is discarded if it mentions a name, number or time that isn't in the user's notes or the conversation.
 - Notes are stored in the browser. Only the few notes relevant to the current reply, or to the lines being learned from, are sent to the model. The assistant sends more when it's used: notes up to 12,000 characters, and the quick phrases.
 - Each line the app speaks is sent through OnBeat's server to the voice service on Modal, which makes the audio. It isn't stored or logged.
+- Each finished line from the other person is sent through OnBeat's server to Deepgram Nova-3 on Cloudflare for a more accurate caption ("Clearer captions", on unless turned off in Settings). It isn't stored or logged.
 
 ## Status
 
@@ -29,7 +30,7 @@ Profiles: the first visit asks for a name, a short note about the user, how thei
 
 Suggested notes: after a pause in a conversation, the recent lines (what the other person said and what the user typed) and the few notes they relate to are sent to the language model, which suggests new notes or changes to existing ones. Each suggestion shows the line it came from, and nothing is saved until the user chooses Keep. Replies the user tapped without changing them are never learned from. It can be turned off in Settings. Measurements are in [eval/learning/RESULTS.md](eval/learning/RESULTS.md).
 
-Captions come from Moonshine in the browser. "Clearer captions" in Settings (off by default) sends each finished line from the other person to Deepgram Nova-3 through Cloudflare, which roughly halves the word errors on clear speech; the browser's caption is used whenever that service is slow or unavailable. Measurements are in [eval/hearing/RESULTS.md](eval/hearing/RESULTS.md).
+Captions come from Moonshine in the browser. "Clearer captions" in Settings (on by default) sends each finished line from the other person to Deepgram Nova-3 through Cloudflare, which roughly halves the word errors on clear speech; the browser's caption is used whenever that service is slow or unavailable. Measurements are in [eval/hearing/RESULTS.md](eval/hearing/RESULTS.md).
 
 Assistant: a short chat, opened from the profile menu, for updating notes, preparing for an appointment and making quick phrases. It proposes changes as cards, and nothing is saved until the user chooses Keep. When used, it sends the chat, the user's notes (up to 12,000 characters) and their quick phrases to the language model. It is built but hidden, because its eval missed the target; building with `NEXT_PUBLIC_ASSISTANT=1` shows it. Measurements are in [eval/assist/RESULTS.md](eval/assist/RESULTS.md).
 
