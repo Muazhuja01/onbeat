@@ -8,20 +8,20 @@ describe("Speculation", () => {
     expect(s.shouldSend("What size would", 10_000)).toBe(true);
   });
 
-  it("sends at most every 2.5 s and only after 3 new words", () => {
+  it("sends at most every 5 s and only after 3 new words", () => {
     const s = new Speculation();
     s.sent("What size would", 10_000);
-    expect(s.shouldSend("What size would you like today", 11_000)).toBe(false);
-    expect(s.shouldSend("What size would you", 13_000)).toBe(false);
-    expect(s.shouldSend("What size would you like today", 12_500)).toBe(true);
+    expect(s.shouldSend("What size would you like today", 12_500)).toBe(false);
+    expect(s.shouldSend("What size would you", 16_000)).toBe(false);
+    expect(s.shouldSend("What size would you like today", 15_000)).toBe(true);
   });
 
   it("counts words again on a new turn but keeps the spacing", () => {
     const s = new Speculation();
     s.sent("one two three four five six", 10_000);
     s.newTurn();
-    expect(s.shouldSend("Hi there Maya", 11_000)).toBe(false);
-    expect(s.shouldSend("Hi there Maya", 12_500)).toBe(true);
+    expect(s.shouldSend("Hi there Maya", 12_500)).toBe(false);
+    expect(s.shouldSend("Hi there Maya", 15_000)).toBe(true);
   });
 
   it("skips the final request when the same words are on their way or answered", () => {

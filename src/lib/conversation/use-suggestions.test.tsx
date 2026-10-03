@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import { useReducer } from "react";
+import { useReducer, type Dispatch } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "@/lib/memory/store";
 import { SuggestSkippedError, SuggestUnavailableError, type SuggestClient, type SuggestInput, type SuggestUpdate } from "@/lib/suggest/client";
@@ -229,7 +229,7 @@ describe("useSuggestions", () => {
     expect(result.current.state.replies[0].text).toBe("Large, please.");
   });
 
-  it("asks while the partner is still talking, at most every 2.5 s after 3 new words", async () => {
+  it("asks while the partner is still talking, at most every 5 s after 3 new words", async () => {
     const client = fakeClient(done);
     const { result } = await setup(client);
     vi.setSystemTime(10_000);
@@ -237,10 +237,10 @@ describe("useSuggestions", () => {
     expect(client.calls).toHaveLength(0);
     await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would" }));
     expect(client.calls[0]).toMatchObject({ mode: "replies+reactions", partnerSaid: "What size would", priority: "speculative" });
-    vi.setSystemTime(11_000);
+    vi.setSystemTime(12_600);
     await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would you like today" }));
     expect(client.calls).toHaveLength(1);
-    vi.setSystemTime(12_600);
+    vi.setSystemTime(15_000);
     await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would you like today then" }));
     expect(client.calls).toHaveLength(2);
   });
@@ -256,19 +256,26 @@ describe("useSuggestions", () => {
     }
     const shown = (state: ConversationState) => state.replies.map((r) => r.text);
 
-    it("keeps the replies on screen for at least 5 s", async () => {
+    /** Replies from the user's typing, shown at `at` while the partner is still talking. */
+    async function typeAt(result: { current: { dispatch: Dispatch<ConversationAction> } }, at: number) {
+      vi.setSystemTime(at);
+      await act(async () => result.current.dispatch({ type: "typed", text: "yes pl" }));
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+    }
+
+    it("keeps replies on screen for at least 5 s, even when the next request is due", async () => {
       const client = countingClient();
       const { result } = await setup(client);
       vi.setSystemTime(10_000);
       await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would" }));
-      expect(shown(result.current.state)).toEqual(["Reply 1."]);
-      vi.setSystemTime(12_600);
+      await typeAt(result, 13_000);
+      expect(shown(result.current.state)).toEqual(["Reply 2."]);
+      vi.setSystemTime(15_100);
       await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would you like today" }));
-      expect(client.calls).toHaveLength(2);
-      expect(shown(result.current.state)).toEqual(["Reply 1."]);
-      vi.setSystemTime(15_200);
-      await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would you like today with your coffee" }));
-      expect(shown(result.current.state)).toEqual(["Reply 3."]);
+      expect(client.calls).toHaveLength(3);
+      expect(shown(result.current.state)).toEqual(["Reply 2."]);
     });
 
     it("shows the newest replies when the turn ends without a final request", async () => {
@@ -276,11 +283,12 @@ describe("useSuggestions", () => {
       const { result } = await setup(client);
       vi.setSystemTime(10_000);
       await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would" }));
-      vi.setSystemTime(12_600);
+      await typeAt(result, 13_000);
+      vi.setSystemTime(15_100);
       await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would you like today" }));
       await act(async () => result.current.dispatch({ type: "partnerSaid", id: "1", text: "What size would you like today?", at: 1 }));
-      expect(client.calls).toHaveLength(2);
-      expect(shown(result.current.state)).toEqual(["Reply 2."]);
+      expect(client.calls).toHaveLength(3);
+      expect(shown(result.current.state)).toEqual(["Reply 3."]);
     });
   });
 
@@ -409,7 +417,7 @@ describe("useSuggestions", () => {
 
     vi.setSystemTime(10_000);
     await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would" }));
-    vi.setSystemTime(12_600);
+    vi.setSystemTime(15_000);
     await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would you like today" }));
     expect(client.calls.filter((c) => c.priority === "speculative")).toHaveLength(2);
     expect(notices.length).toBeGreaterThan(0);
