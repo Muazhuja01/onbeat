@@ -3,10 +3,14 @@ import type { MemoryStore } from "@/lib/memory/store";
 import type { RequestPriority } from "@/lib/suggest/budget";
 import { SuggestSkippedError, SuggestUnavailableError, type SuggestClient, type SuggestInput } from "@/lib/suggest/client";
 import type { ConversationAction, ConversationState } from "./reducer";
-import { Speculation } from "./speculation";
+import { SPECULATE_EVERY_MS, Speculation } from "./speculation";
 
-/** While the partner talks, replies stay on screen at least this long before newer ones replace them. */
-export const REPLY_STEADY_MS = 5000;
+/**
+ * While the partner talks, replies stay on screen at least this long before newer ones replace them.
+ * Requests made while they talk are spaced the same, so this only holds back answers that land soon
+ * after other replies, such as ones from the user's typing.
+ */
+export const REPLY_STEADY_MS = SPECULATE_EVERY_MS;
 
 type Run = (mode: SuggestInput["mode"], typed: string, partnerSaid: string, priority: RequestPriority) => Promise<boolean>;
 

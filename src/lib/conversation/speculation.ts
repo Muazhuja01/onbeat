@@ -1,6 +1,7 @@
 import { tokenize } from "@/lib/text";
 
-export const SPECULATE_EVERY_MS = 2500;
+/** Matches how long replies stay on screen while the partner talks, so no answer is asked for and then never shown. */
+export const SPECULATE_EVERY_MS = 5000;
 export const SPECULATE_AFTER_WORDS = 3;
 
 /** Same words, ignoring case, accents and punctuation. */
@@ -14,7 +15,7 @@ export class Speculation {
   private answered: string | null = null;
 
   /**
-   * The partner started a new turn. Word counts restart; the 2.5 s spacing carries over.
+   * The partner started a new turn. Word counts restart; the 5 s spacing carries over.
    * `carried`: the line they are carrying on after a pause, whose words don't count as new.
    */
   newTurn(carried = ""): void {

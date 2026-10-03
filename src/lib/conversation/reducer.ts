@@ -106,7 +106,7 @@ export function conversationReducer(state: ConversationState, action: Conversati
       return { ...state, typed: action.text };
     case "thinking":
       // While suggestions are paused, a speculative attempt changes nothing on
-      // screen, so the notice isn't cleared and read out again every 2.5 s.
+      // screen, so the notice isn't cleared and read out again every 5 s.
       if (action.speculative && state.status === "paused") return state;
       return {
         ...state,
