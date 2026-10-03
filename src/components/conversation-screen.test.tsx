@@ -51,6 +51,7 @@ const h = vi.hoisted(() => {
     speechStart: new Set(),
     partial: new Set(),
     turnEnd: new Set(),
+    turnRevised: new Set(),
   };
   const hearing = {
     status: "off",
@@ -763,6 +764,35 @@ describe("ConversationScreen assistant", () => {
     } finally {
       flags.assistant = true;
     }
+  });
+});
+
+describe("ConversationScreen cloud caption corrections", () => {
+  const piece = (text: string, startedAt: number, endedAt: number) => act(() => h.hear("turnEnd", { text, startedAt, endedAt }));
+  const lines = () => within(screen.getByRole("region", { name: "Conversation" })).getAllByRole("listitem").map((li) => li.textContent);
+
+  it("corrects the line in place and asks for replies to the corrected words, without reading it out again", async () => {
+    await startWithMaya();
+    piece("So the fizzy oh moved", 1_000, 2_000);
+    await waitFor(() => expect(liveRegion().textContent).toBe("Sam said: So the fizzy oh moved"), { timeout: 2000 });
+    act(() => h.hear("turnRevised", { from: "So the fizzy oh moved", to: "So the physio moved." }));
+    expect(lines()).toEqual(["SamSo the physio moved."]);
+    expect(h.requests.at(-1)?.input).toMatchObject({ partnerSaid: "So the physio moved.", priority: "final" });
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(liveRegion().textContent).not.toContain("physio");
+  });
+
+  it("learns from the corrected line", async () => {
+    await setUpPriya();
+    piece("Your fizzy oh moved", 1_000, 2_000);
+    act(() => h.hear("turnRevised", { from: "Your fizzy oh moved", to: "Your physio moved." }));
+    await userEvent.type(screen.getByLabelText("Type a reply"), "OK, thanks{Enter}");
+    hidePage();
+    await waitFor(() => expect(h.learnBodies).toHaveLength(1));
+    expect(h.learnBodies[0].lines.map((l) => [l.speaker, l.text])).toEqual([
+      ["partner", "Your physio moved."],
+      ["user", "OK, thanks"],
+    ]);
   });
 });
 

@@ -191,3 +191,29 @@ describe("joining the partner's pauses into one line", () => {
     expect(r(joining, heard("2", "moved to Thursdays", 3_000, 4_000)).partialJoins).toBe(false);
   });
 });
+
+describe("correcting a heard line with the cloud's text", () => {
+  const heard = (id: string, text: string, startedAt: number, endedAt: number) =>
+    ({ type: "partnerSaid", id, text, at: endedAt, heard: { startedAt, endedAt }, join: true }) as const;
+
+  it("replaces the piece in the line it went into, keeping the line's id", () => {
+    let s = r(s0, heard("1", "So the physio", 1_000, 2_000));
+    s = r(s, heard("2", "move to Thursday", 3_000, 4_000));
+    s = r(s, { type: "partnerRevised", from: "So the physio", to: "So the physio," });
+    s = r(s, { type: "partnerRevised", from: "move to Thursday", to: "moved to Thursdays." });
+    expect(s.turns).toEqual([{ id: "1", speaker: "partner", text: "So the physio, moved to Thursdays.", at: 2_000, endedAt: 4_000 }]);
+  });
+
+  it("corrects the newest line that holds the piece", () => {
+    let s = r(s0, heard("1", "Yes", 1_000, 2_000));
+    s = r(s, { type: "speakStart", id: "u1", text: "Sorry?", at: 2_500 });
+    s = r(s, heard("2", "Yes", 3_000, 4_000));
+    s = r(s, { type: "partnerRevised", from: "Yes", to: "Yes, please." });
+    expect(s.turns.map((t) => t.text)).toEqual(["Yes", "Sorry?", "Yes, please."]);
+  });
+
+  it("ignores a correction for a line that's gone", () => {
+    const s = r(r(s0, heard("1", "Hello", 1_000, 2_000)), { type: "reset" });
+    expect(r(s, { type: "partnerRevised", from: "Hello", to: "Hello there." })).toBe(s);
+  });
+});

@@ -226,6 +226,24 @@ describe("LearningSession", () => {
     expect(post.mock.calls[1][0].lines.map((l) => l.text)).toEqual(["moved", "OK."]);
   });
 
+  it("learns a waiting line with its corrected text, and leaves a sent one alone", async () => {
+    const post = answer(() => []);
+    const { session } = await open(post);
+    await session.addLine({ id: "t1", speaker: "partner", text: "So the fizzy oh" });
+    await session.reviseLine({ id: "t1", speaker: "partner", text: "So the physio" });
+    await session.addLine({ speaker: "user", text: "OK." });
+    session.pageHidden();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(post.mock.calls[0][0].lines.map((l) => l.text)).toEqual(["So the physio", "OK."]);
+
+    await session.reviseLine({ id: "t1", speaker: "partner", text: "So the physio said" });
+    await session.addLine({ id: "t2", speaker: "partner", text: "See you Tuesday." });
+    await session.addLine({ speaker: "user", text: "Bye." });
+    session.pageHidden();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(post.mock.calls[1][0].lines.map((l) => l.text)).toEqual(["See you Tuesday.", "Bye."]);
+  });
+
   it("writes a late result to the profile it was sent for", async () => {
     let release!: (r: LearnResult) => void;
     const post = vi.fn<Post>(() => new Promise<LearnResult>((r) => (release = r)));

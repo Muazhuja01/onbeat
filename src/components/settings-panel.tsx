@@ -102,8 +102,8 @@ export function SettingsPanel({ theme, digitKeys, cloudCaptions, learning, joinL
             Clearer captions
           </label>
           <p id="cloud-captions-hint" className="text-label text-muted">
-            When the other person finishes speaking, their words are sent to Deepgram, through Cloudflare, for a more accurate caption.
-            OnBeat doesn&apos;t keep the audio. If the service is busy, the caption from this device is used.
+            When the other person finishes speaking, their words are sent to Deepgram, through Cloudflare, and the caption from this device
+            is corrected with its more accurate one. OnBeat doesn&apos;t keep the audio. If the service is busy, the caption from this device stays.
           </p>
         </div>
         <div className="flex flex-col gap-1">

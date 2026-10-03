@@ -8,8 +8,13 @@ afterEach(() => {
 });
 
 describe("settings", () => {
-  it("defaults to the system theme, number keys on, cloud captions off, suggested notes on and pauses kept in one line", () => {
-    expect(getSettings()).toEqual({ theme: "system", digitKeys: true, cloudCaptions: false, learning: true, joinLines: true });
+  it("defaults to the system theme, number keys on, cloud captions on, suggested notes on and pauses kept in one line", () => {
+    expect(getSettings()).toEqual({ theme: "system", digitKeys: true, cloudCaptions: true, learning: true, joinLines: true });
+  });
+
+  it("keeps cloud captions on for someone who turned them on before they were the default", () => {
+    localStorage.setItem("onbeat:cloud-captions", "on");
+    expect(getSettings().cloudCaptions).toBe(true);
   });
 
   it("keeps pauses in one line for someone whose saved settings predate it", () => {
@@ -28,14 +33,14 @@ describe("settings", () => {
     expect(getSettings().joinLines).toBe(true);
   });
 
-  it("saves the cloud captions choice, and forgets it when turned off", () => {
-    setCloudCaptions(true);
-    expect(localStorage.getItem("onbeat:cloud-captions")).toBe("on");
-    forgetSettings();
-    expect(getSettings().cloudCaptions).toBe(true);
+  it("saves cloud captions turned off, and forgets it when turned back on", () => {
     setCloudCaptions(false);
-    expect(localStorage.getItem("onbeat:cloud-captions")).toBeNull();
+    expect(localStorage.getItem("onbeat:cloud-captions")).toBe("off");
+    forgetSettings();
     expect(getSettings().cloudCaptions).toBe(false);
+    setCloudCaptions(true);
+    expect(localStorage.getItem("onbeat:cloud-captions")).toBeNull();
+    expect(getSettings().cloudCaptions).toBe(true);
   });
 
   it("saves learning turned off, and forgets it when turned back on", () => {
