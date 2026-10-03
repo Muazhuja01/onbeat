@@ -285,6 +285,8 @@ function Screen() {
   // The conversation view stays mounted (useStableTargets attaches to the reply
   // list once, on mount); it is only hidden while another view is showing.
   const conversationHidden = memory === null || view !== "conversation";
+  // Once someone has spoken, the reactions row and reply list keep their room so the screen stays still.
+  const conversationStarted = state.turns.length > 0 || state.partnerPartial !== "";
 
   // Each new line from the partner is announced. A line that grew (they carried on
   // after a pause) keeps its id, and only the new words are read out.
@@ -735,9 +737,9 @@ function Screen() {
           </div>
           <div className="flex min-w-0 flex-col gap-6 [grid-area:side]">
             <SpokenCaption speaking={state.speaking} lastSpoken={state.lastSpoken} waiting={voiceWaiting} />
-            <ReactionBar reactions={state.reactions} onReact={(text) => speak(text, { isReaction: true })} />
+            <ReactionBar reactions={state.reactions} reserve={conversationStarted} onReact={(text) => speak(text, { isReaction: true })} />
             <PhraseRow phrases={quickPhrases} onSpeak={(text) => speak(text, { quick: true })} />
-            <ReplyList ref={replyListRef} replies={state.replies} speaking={state.speaking} status={state.status} onSpeak={speak} onStop={stop} />
+            <ReplyList ref={replyListRef} replies={state.replies} reserve={conversationStarted} speaking={state.speaking} status={state.status} onSpeak={speak} onStop={stop} />
             <Composer
               value={state.typed}
               onChange={(text) => dispatch({ type: "typed", text })}

@@ -14,6 +14,8 @@ export interface ConversationState {
   typed: string;
   replies: Reply[];
   heldReplies: Reply[] | null;
+  /** The reactions that came with heldReplies, shown with them. */
+  heldReactions: Reaction[] | null;
   /** When the request behind `replies` was made (ms since epoch); null for the user's own phrase matches. */
   repliesAskedAt: number | null;
   heldAskedAt: number | null;
@@ -55,6 +57,7 @@ export const initialConversation: ConversationState = {
   typed: "",
   replies: [],
   heldReplies: null,
+  heldReactions: null,
   repliesAskedAt: null,
   heldAskedAt: null,
   reactions: [],
@@ -115,14 +118,27 @@ export function conversationReducer(state: ConversationState, action: Conversati
       const askedAt = action.askedAt ?? null;
       // Replies from the model mean suggestions work again.
       const notice = state.notice === PAUSED_NOTICE && action.replies.some((r) => r.source === "model") ? null : state.notice;
+      // While the partner talks, a set still arriving doesn't replace a fuller one or empty
+      // the reactions row, so the screen doesn't jump with each reply as it streams in.
+      const arriving = !action.done && state.partnerPartial !== "";
+      const reactions = arriving && action.reactions.length === 0 ? state.reactions : action.reactions;
+      if (arriving && action.replies.length < state.replies.length) return { ...state, reactions, status, notice };
       if (action.hold && state.replies.length) {
-        return { ...state, heldReplies: action.replies, heldAskedAt: askedAt, reactions: action.reactions, status, notice };
+        return { ...state, heldReplies: action.replies, heldReactions: reactions, heldAskedAt: askedAt, status, notice };
       }
-      return { ...state, replies: action.replies, repliesAskedAt: askedAt, heldReplies: null, heldAskedAt: null, reactions: action.reactions, status, notice };
+      return { ...state, replies: action.replies, repliesAskedAt: askedAt, heldReplies: null, heldReactions: null, heldAskedAt: null, reactions, status, notice };
     }
     case "releaseHeld":
       return state.heldReplies
-        ? { ...state, replies: state.heldReplies, repliesAskedAt: state.heldAskedAt, heldReplies: null, heldAskedAt: null }
+        ? {
+            ...state,
+            replies: state.heldReplies,
+            reactions: state.heldReactions ?? state.reactions,
+            repliesAskedAt: state.heldAskedAt,
+            heldReplies: null,
+            heldReactions: null,
+            heldAskedAt: null,
+          }
         : state;
     case "unavailable":
       return { ...state, status: "paused", notice: PAUSED_NOTICE };

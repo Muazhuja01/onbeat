@@ -1,7 +1,8 @@
 import type { Reaction } from "@/lib/language-packs/types";
 
-export function ReactionBar({ reactions, onReact }: { reactions: Reaction[]; onReact: (text: string) => void }) {
-  if (reactions.length === 0) return null;
+/** `reserve`: keep the row's height while there are no reactions, so what's below doesn't move. */
+export function ReactionBar({ reactions, onReact, reserve = false }: { reactions: Reaction[]; onReact: (text: string) => void; reserve?: boolean }) {
+  if (reactions.length === 0) return reserve ? <div aria-hidden="true" className="min-h-12" /> : null;
   return (
     <div role="group" aria-labelledby="reactions-label" className="flex flex-wrap items-center gap-3">
       <span id="reactions-label" className="text-label text-muted">

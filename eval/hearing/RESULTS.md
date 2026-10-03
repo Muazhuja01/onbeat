@@ -86,3 +86,24 @@ Keep Moonshine in the browser for the live caption while someone talks, and send
 Keep the turn thresholds at 0.3 / 0.1 unless café use matters most; then 0.4 / 0.25.
 
 The test split has not been used yet. It is for one check of Nova-3 with the Moonshine fallback, once Cloudflare's allowance allows (it was used up on 2026-09-30).
+
+## Long speech: live captions fell behind (2026-10-02)
+
+Two screen recordings from the owner showed live captions running far behind someone who talked for a long time without stopping: about 10 s behind on a 20 s monologue, and still writing words 53 s after a 62 s one ended. The screen also jumped as captions and replies changed.
+
+**Why.** Every live caption re-read the whole turn from its start, and one was due for each 0.5 s of audio. A turn only ended after a 600 ms pause, so a talker who never paused that long made one turn up to the 30 s cap. Once re-reading took over 0.5 s (about 20 s of audio here), each half second of speech cost up to four times as long to read, and the delay grew without limit. Speech detection waited in the same queue, so the turn's end was late too.
+
+**Change.** A turn is now cut into pieces of 2 to 6 s: at the first 160 ms dip under the speech threshold once a piece is 2 s long, or at the quietest frame of the last 2 s by 6 s. Each piece is read once and kept; the live caption is the kept pieces plus a reading of the piece being spoken. Frames go through speech detection before any reading, and a live caption reads the newest audio when it runs, so a slow reading can't leave a queue of stale ones. When a piece's own reading has under half the words of its last live reading (Moonshine looped on one piece, "year 10, 10, 10", trimmed to "10,"), the live reading is kept instead.
+
+**Measured** by playing each recording into Chromium as a fake microphone on the owner's machine (16 threads, cross-origin isolated), against the live site and the change. Layout shift is Chrome's cumulative layout shift while listening.
+
+| Recording | Version | Last caption after speech ended | Layout shift |
+|---|---|---|---|
+| 20 s monologue | live site | 10 s in the owner's recording | – |
+| 20 s monologue | this change | 0.7 s | 0.21 |
+| 62 s monologue | live site | 22 s (32 s at the slowest run) | 2.13 |
+| 62 s monologue | this change | on time | 0.48 |
+
+The remaining layout shift is mostly the live line's own words growing. The screen side of the change: room for the scrollbar is always kept; once someone has spoken, the reactions row and three reply slots keep their space and the caption box has a fixed height; a set of replies still arriving doesn't replace a fuller one; and while the other person talks, replies stay on screen at least 5 s before newer ones (and their reactions) replace them.
+
+Not measured: word error rate with pieces against whole turns. Pieces are 2 to 6 s, inside the 1 to 8 s clips the dev set uses.

@@ -6,13 +6,14 @@ import { SuggestSkippedError, SuggestUnavailableError, type SuggestClient, type 
 import { conversationReducer, initialConversation, PAUSED_NOTICE, type ConversationAction, type ConversationState } from "./reducer";
 import { useSuggestions } from "./use-suggestions";
 
-function fakeClient(result: SuggestUpdate | Error) {
+function fakeClient(fixed: SuggestUpdate | Error, next?: () => SuggestUpdate) {
   const calls: SuggestInput[] = [];
   const client = {
     calls,
     cancel: vi.fn(),
     request: vi.fn(async (input: SuggestInput, onUpdate: (u: SuggestUpdate) => void) => {
       calls.push(input);
+      const result = next ? next() : fixed;
       if (result instanceof Error) throw result;
       onUpdate(result);
       return result;
@@ -242,6 +243,45 @@ describe("useSuggestions", () => {
     vi.setSystemTime(12_600);
     await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would you like today then" }));
     expect(client.calls).toHaveLength(2);
+  });
+
+  describe("while the partner is still talking", () => {
+    /** Answers each request with a reply naming its number. */
+    function countingClient() {
+      let n = 0;
+      return fakeClient({ replies: [], reactions: [], done: true }, () => {
+        n++;
+        return { replies: [{ text: `Reply ${n}.`, noteIds: [], source: "model" }], reactions: [], done: true };
+      });
+    }
+    const shown = (state: ConversationState) => state.replies.map((r) => r.text);
+
+    it("keeps the replies on screen for at least 5 s", async () => {
+      const client = countingClient();
+      const { result } = await setup(client);
+      vi.setSystemTime(10_000);
+      await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would" }));
+      expect(shown(result.current.state)).toEqual(["Reply 1."]);
+      vi.setSystemTime(12_600);
+      await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would you like today" }));
+      expect(client.calls).toHaveLength(2);
+      expect(shown(result.current.state)).toEqual(["Reply 1."]);
+      vi.setSystemTime(15_200);
+      await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would you like today with your coffee" }));
+      expect(shown(result.current.state)).toEqual(["Reply 3."]);
+    });
+
+    it("shows the newest replies when the turn ends without a final request", async () => {
+      const client = countingClient();
+      const { result } = await setup(client);
+      vi.setSystemTime(10_000);
+      await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would" }));
+      vi.setSystemTime(12_600);
+      await act(async () => result.current.dispatch({ type: "partnerPartial", text: "What size would you like today" }));
+      await act(async () => result.current.dispatch({ type: "partnerSaid", id: "1", text: "What size would you like today?", at: 1 }));
+      expect(client.calls).toHaveLength(2);
+      expect(shown(result.current.state)).toEqual(["Reply 2."]);
+    });
   });
 
   it("skips the final request when the speculative one already answered the same words", async () => {

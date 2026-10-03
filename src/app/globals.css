@@ -83,6 +83,8 @@
 
 html {
   background: var(--ground);
+  /* Room for the scrollbar is kept even when the page fits, so the layout doesn't shift sideways as it grows. */
+  scrollbar-gutter: stable;
 }
 
 body {

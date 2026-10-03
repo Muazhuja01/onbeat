@@ -5,6 +5,9 @@ import { SuggestSkippedError, SuggestUnavailableError, type SuggestClient, type 
 import type { ConversationAction, ConversationState } from "./reducer";
 import { Speculation } from "./speculation";
 
+/** While the partner talks, replies stay on screen at least this long before newer ones replace them. */
+export const REPLY_STEADY_MS = 5000;
+
 type Run = (mode: SuggestInput["mode"], typed: string, partnerSaid: string, priority: RequestPriority) => Promise<boolean>;
 
 interface Args {
@@ -57,10 +60,21 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
       dispatch({ type: "thinking", speculative: priority === "speculative" });
       // Lets the reply timer tell answers prepared for this turn from late ones.
       const askedAt = Date.now();
+      // While the partner talks, replies from another request wait until those on screen have had REPLY_STEADY_MS.
+      const steady = () => {
+        const now = stateRef.current;
+        return (
+          priority === "speculative" &&
+          now.partnerPartial !== "" &&
+          now.repliesAskedAt !== null &&
+          now.repliesAskedAt !== askedAt &&
+          askedAt - now.repliesAskedAt < REPLY_STEADY_MS
+        );
+      };
       try {
         const final = await client.request(
           { mode, typed, partnerSaid, priority, context: { now: new Date(), placeId: s.placeId, partnerId: s.partnerId } },
-          (u) => dispatch({ type: "suggestions", replies: u.replies, reactions: u.reactions, done: u.done, hold: holdingRef.current(), askedAt }),
+          (u) => dispatch({ type: "suggestions", replies: u.replies, reactions: u.reactions, done: u.done, hold: holdingRef.current() || steady(), askedAt }),
         );
         return final !== null;
       } catch (err) {
@@ -105,7 +119,9 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
     const needed = speculation.needsFinal(said);
     speculation.turnDone();
     if (needed) void run("replies+reactions", s.typed, said, "final");
-  }, [partnerTurnKey, run, speculation]);
+    // The newest replies for these words were held to keep the screen steady: show them now.
+    else if (s.heldReplies && !holdingRef.current()) dispatch({ type: "releaseHeld" });
+  }, [partnerTurnKey, run, speculation, dispatch]);
 
   // The partner is still talking: prepare replies from what they've said so far.
   // When they are carrying their last line on after a pause, that is the whole line so far.
