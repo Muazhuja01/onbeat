@@ -1,7 +1,7 @@
 import { AutoModel, env, pipeline, Tensor } from "@huggingface/transformers";
 import { Framer, maxTranscriptTokens, SAMPLE_RATE } from "@/lib/hearing/audio";
 import type { HearingWorkerMessage, HearingWorkerRequest } from "@/lib/hearing/messages";
-import { Segmenter, type SegmentEvent } from "@/lib/hearing/segmenter";
+import { LiveTranscriber } from "@/lib/hearing/live-transcriber";
 import { trimRepeatedTail } from "@/lib/hearing/transcript";
 
 env.allowLocalModels = false;
@@ -97,20 +97,11 @@ async function loadModels(model: string): Promise<{ vad: Vad; asr: Transcriber }
 const sr = new Tensor("int64", BigInt64Array.from([BigInt(SAMPLE_RATE)]), []);
 const freshState = () => new Tensor("float32", new Float32Array(2 * 128), [2, 1, 128]);
 let vadState = freshState();
+/** Bumped by "reset", so a VAD call already running doesn't bring back the old state. */
+let vadGeneration = 0;
 const framer = new Framer();
-const segmenter = new Segmenter();
-/** Inference runs one call at a time, in arrival order. */
-let chain: Promise<void> = Promise.resolve();
-/** Bumped by "reset", so work queued before it is dropped. */
-let generation = 0;
-/** A partial transcript is queued or running; newer ones are skipped until it is done. */
-let partialBusy = false;
-/** VAD and partial failures log once per generation, not once per frame; reset on "reset". */
+/** VAD and read failures log once per reset, not once per frame. */
 let loggedError = false;
-
-function enqueue(task: () => Promise<void>): void {
-  chain = chain.then(task).catch((err) => console.error("hearing worker:", err));
-}
 
 async function transcribe(audio: Float32Array): Promise<{ text: string; ms: number }> {
   const { asr } = await models!;
@@ -120,71 +111,32 @@ async function transcribe(audio: Float32Array): Promise<{ text: string; ms: numb
   return { text, ms: Math.round(performance.now() - started) };
 }
 
-function logOnce(context: string, err: unknown): void {
-  if (loggedError) return;
-  loggedError = true;
-  console.error(`hearing worker (${context}):`, err);
-}
-
-function handle(events: SegmentEvent[], at: number, gen: number): void {
-  for (const e of events) {
-    if (e.type === "start") {
-      // Posted through the chain too, so it can't arrive after a still-pending turnEnd.
-      enqueue(async () => {
-        if (gen === generation) post({ type: "speechStart" });
-      });
-    } else if (e.type === "partial") {
-      if (partialBusy) continue;
-      partialBusy = true;
-      enqueue(async () => {
-        try {
-          if (gen !== generation) return;
-          const { text, ms } = await transcribe(e.audio);
-          if (gen === generation && text) post({ type: "partial", text, ms });
-        } catch (err) {
-          logOnce("partial", err);
-        } finally {
-          if (gen === generation) partialBusy = false;
-        }
-      });
-    } else if (e.type === "end") {
-      const endedAt = at - e.silenceMs;
-      enqueue(async () => {
-        if (gen !== generation) return;
-        try {
-          const { text, ms } = await transcribe(e.audio);
-          // Sent even when empty, so the page can clear a live caption. A copy of the
-          // audio goes along for cloud captions; the segmenter may reuse its buffer.
-          const audio = e.audio.slice();
-          if (gen === generation) post({ type: "turnEnd", text, endedAt, ms, audio }, [audio.buffer]);
-        } catch (err) {
-          console.error("hearing worker (turnEnd):", err);
-          // Still resolve the turn, so the page never waits forever for it.
-          const audio = e.audio.slice();
-          if (gen === generation) post({ type: "turnEnd", text: "", endedAt, ms: 0, audio }, [audio.buffer]);
-        }
-      });
+const live = new LiveTranscriber({
+  vad: async (frame) => {
+    const { vad } = await models!;
+    const gen = vadGeneration;
+    const { output, stateN } = await vad({ input: new Tensor("float32", frame, [1, frame.length]), sr, state: vadState });
+    if (gen === vadGeneration) vadState = stateN;
+    return (output.data as Float32Array)[0];
+  },
+  transcribe,
+  post,
+  onError: (context, err) => {
+    if (context === "turnEnd") {
+      console.error("hearing worker (turnEnd):", err);
+      return;
     }
-  }
-}
+    if (loggedError) return;
+    loggedError = true;
+    console.error(`hearing worker (${context}):`, err);
+  },
+});
 
 function onAudio(samples: Float32Array): void {
+  if (!models) return;
   const at = Date.now();
-  const gen = generation;
-  framer.push(samples, (frame) =>
-    enqueue(async () => {
-      if (gen !== generation || !models) return;
-      try {
-        const { vad } = await models;
-        const { output, stateN } = await vad({ input: new Tensor("float32", frame, [1, frame.length]), sr, state: vadState });
-        if (gen !== generation) return;
-        vadState = stateN;
-        handle(segmenter.push(frame, (output.data as Float32Array)[0]), at, gen);
-      } catch (err) {
-        logOnce("vad", err);
-      }
-    }),
-  );
+  // The framer reuses nothing it hands out, so each frame can be kept.
+  framer.push(samples, (frame) => live.push(frame, at));
 }
 
 self.onmessage = (event: MessageEvent<HearingWorkerRequest>) => {
@@ -202,11 +154,10 @@ self.onmessage = (event: MessageEvent<HearingWorkerRequest>) => {
       );
       return;
     case "reset":
-      generation++;
+      live.reset();
       framer.reset();
-      segmenter.reset();
+      vadGeneration++;
       vadState = freshState();
-      partialBusy = false;
       loggedError = false;
       return;
     case "audio":

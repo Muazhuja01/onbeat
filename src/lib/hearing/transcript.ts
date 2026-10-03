@@ -24,3 +24,27 @@ export function trimRepeatedTail(text: string): string {
   }
   return best ? words.slice(0, best.start + best.period).join(" ") : text;
 }
+
+const I_WORDS = new Set(["i", "i'm", "i'll", "i've", "i'd"]);
+
+/**
+ * Joins the transcripts of a turn's pieces. The speech model ends each piece as a sentence, so
+ * after a cut made mid-flow (`forced`, no pause) the full stop is dropped, the next word loses
+ * its capital (except "I"), and a word heard on both sides of the cut is kept once.
+ */
+export function joinPieces(pieces: { text: string; forced: boolean }[]): string {
+  const words: string[] = [];
+  let smooth = false;
+  for (const piece of pieces) {
+    const next = piece.text.split(/\s+/).filter(Boolean);
+    if (!next.length) continue;
+    if (smooth && words.length) {
+      if (norm(words[words.length - 1]) === norm(next[0])) words.pop();
+      else words[words.length - 1] = words[words.length - 1].replace(/\.$/, "");
+      if (!I_WORDS.has(norm(next[0]))) next[0] = next[0].charAt(0).toLowerCase() + next[0].slice(1);
+    }
+    words.push(...next);
+    smooth = piece.forced && !/[?!]$/.test(next[next.length - 1]);
+  }
+  return words.join(" ");
+}
