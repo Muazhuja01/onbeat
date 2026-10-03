@@ -57,8 +57,9 @@ test("a suggested note is reviewed, kept, and used by the next reply", async ({ 
   await page.getByRole("button", { name: "Done" }).click();
 
   await say(page, "Is Ana coming tomorrow?");
-  await expect(page.locator("#replies").getByText("Replies ready")).toBeVisible();
-  expect(suggestBodies.at(-1)).toContain("Ana is my new carer.");
+  // "Replies ready" is already showing from the last line, so wait for this line's request itself.
+  await expect.poll(() => suggestBodies.find((b) => b.includes("Is Ana coming tomorrow?"))).toBeDefined();
+  expect(suggestBodies.find((b) => b.includes("Is Ana coming tomorrow?"))).toContain("Ana is my new carer.");
 });
 
 test("an existing profile is told about suggested notes once", async ({ page }) => {
