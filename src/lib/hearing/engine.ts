@@ -1,3 +1,4 @@
+import { tokenize } from "@/lib/text";
 import type { WorkerLike } from "@/lib/worker-like";
 import { SAMPLE_RATE } from "./audio";
 import type { HearingWorkerMessage } from "./messages";
@@ -17,9 +18,6 @@ export interface TurnEnd {
   endedAt: number;
 }
 
-/** A speech start held behind a turn being refined, with the time it arrived. */
-type HeldStart = { type: "speechStart"; at: number };
-
 export type HearingEvents = {
   status: HearingStatus;
   progress: number;
@@ -29,6 +27,8 @@ export type HearingEvents = {
   /** Live caption so far; "" clears it. */
   partial: string;
   turnEnd: TurnEnd;
+  /** Cloud captions heard a finished line differently: the line shown as `from` should read `to`. */
+  turnRevised: { from: string; to: string };
 };
 
 /** What the conversation screen needs from hearing, so tests can pass a fake. */
@@ -49,8 +49,8 @@ export interface HearingDeps {
   levelEveryMs?: number;
   now?: () => number;
   /**
-   * A second, more accurate transcription of a finished turn (cloud captions).
-   * Resolves to null to keep the in-browser text: when it's off, fails or is slow.
+   * A second, more accurate transcription of a finished turn (cloud captions), shown as a
+   * correction once it arrives. Resolves to null to keep the in-browser text: when it's off, fails or is slow.
    */
   refineTurn?: (audio: Float32Array) => Promise<string | null>;
 }
@@ -64,6 +64,7 @@ export class HearingEngine implements Hearing {
     speechStart: new Set(),
     partial: new Set(),
     turnEnd: new Set(),
+    turnRevised: new Set(),
   };
   private worker: WorkerLike | null = null;
   private mic: MicSource | null = null;
@@ -74,10 +75,7 @@ export class HearingEngine implements Hearing {
   private startToken = 0;
   private lastLevelAt = -Infinity;
   private hasPartial = false;
-  /** Worker messages that arrived while a turn was being refined, kept in order. */
-  private backlog: (HearingWorkerMessage | HeldStart)[] = [];
-  private refining = false;
-  /** Bumped when hearing stops, so a late refined turn is dropped. */
+  /** Bumped when hearing stops, so a late cloud caption is dropped. */
   private epoch = 0;
   /** When the piece of speech being heard started, for a turn that comes without audio. */
   private speechStartedAt: number | undefined;
@@ -210,13 +208,7 @@ export class HearingEngine implements Hearing {
     this.worker.postMessage({ type: "audio", samples }, [samples.buffer as ArrayBuffer]);
   }
 
-  private onWorkerMessage(msg: HearingWorkerMessage | HeldStart): void {
-    // Captions must stay in order: the next turn waits for the one being refined.
-    // A speech start keeps the time it arrived, so a slow cloud caption doesn't make the pause look longer.
-    if (this.refining && (msg.type === "speechStart" || msg.type === "partial" || msg.type === "turnEnd")) {
-      this.backlog.push(msg.type === "speechStart" && !("at" in msg) ? { type: "speechStart", at: this.deps.now?.() ?? Date.now() } : msg);
-      return;
-    }
+  private onWorkerMessage(msg: HearingWorkerMessage): void {
     switch (msg.type) {
       case "progress":
         this.emit("progress", msg.value);
@@ -237,7 +229,7 @@ export class HearingEngine implements Hearing {
         return;
       case "speechStart":
         if (!this.active) return;
-        this.speechStartedAt = "at" in msg ? msg.at : (this.deps.now?.() ?? Date.now());
+        this.speechStartedAt = this.deps.now?.() ?? Date.now();
         this.emit("speechStart", this.speechStartedAt);
         return;
       case "partial":
@@ -250,43 +242,42 @@ export class HearingEngine implements Hearing {
         // The audio runs up to when the last word ended (with a little padding either side).
         const startedAt = msg.audio?.length ? msg.endedAt - (msg.audio.length / SAMPLE_RATE) * 1000 : this.speechStartedAt;
         this.speechStartedAt = undefined;
-        if (this.deps.refineTurn && msg.audio?.length) void this.refine(msg, msg.audio, startedAt);
-        else this.endTurn(msg.text, msg.endedAt, startedAt);
+        // The line shows at once; a cloud caption corrects it later without holding up what comes next.
+        this.endTurn(msg.text, msg.endedAt, startedAt);
+        if (this.deps.refineTurn && msg.audio?.length) void this.refine(msg.text.trim(), msg.audio, msg.endedAt, startedAt);
         return;
       }
     }
   }
 
-  /** Refines one turn, then handles what arrived meanwhile, in order. */
-  private async refine(msg: Extract<HearingWorkerMessage, { type: "turnEnd" }>, audio: Float32Array, startedAt: number | undefined): Promise<void> {
-    this.refining = true;
+  /**
+   * Asks the cloud for a finished line, `shown` being the in-browser text already on screen.
+   * A line with different words becomes a correction; an empty line is shown with the cloud's text.
+   */
+  private async refine(shown: string, audio: Float32Array, endedAt: number, startedAt: number | undefined): Promise<void> {
     const epoch = this.epoch;
-    let better: string | null = null;
+    let better: string | undefined;
     try {
-      better = await this.deps.refineTurn!(audio);
+      better = (await this.deps.refineTurn!(audio))?.trim() || undefined;
     } catch {
-      better = null;
+      better = undefined;
     }
-    this.refining = false;
-    if (epoch !== this.epoch) return;
-    // The partner finished this line before any pause for the app's own voice, so it is kept.
-    this.endTurn(better?.trim() || msg.text, msg.endedAt, startedAt, true);
-    while (this.backlog.length && !this.refining) this.onWorkerMessage(this.backlog.shift()!);
+    // A correction still applies after a pause for the app's own voice: the line is already on screen.
+    if (epoch !== this.epoch || !better || this.status !== "listening") return;
+    if (!shown) this.emit("turnEnd", startedAt === undefined ? { text: better, endedAt } : { text: better, startedAt, endedAt });
+    else if (tokenize(better).join(" ") !== tokenize(shown).join(" ")) this.emit("turnRevised", { from: shown, to: better });
   }
 
-  private endTurn(text: string, endedAt: number, startedAt: number | undefined, evenIfPaused = false): void {
-    if (evenIfPaused ? this.status !== "listening" : !this.active) return;
+  private endTurn(text: string, endedAt: number, startedAt: number | undefined): void {
     const had = this.hasPartial;
     this.hasPartial = false;
     if (text) this.emit("turnEnd", startedAt === undefined ? { text, endedAt } : { text, startedAt, endedAt });
     else if (had) this.emit("partial", "");
   }
 
-  /** Forgets a turn being refined and anything queued behind it. */
+  /** Forgets cloud captions still on their way. */
   private dropPending(): void {
     this.epoch++;
-    this.refining = false;
-    this.backlog = [];
   }
 
   private clearPartial(): void {

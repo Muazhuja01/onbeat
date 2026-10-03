@@ -162,6 +162,16 @@ export class LearningSession {
     await this.addLine({ ...line, id: undefined, text: added });
   }
 
+  /**
+   * Cloud captions corrected a line's words. A line still waiting takes the corrected text when it
+   * fits; one already sent (or being sent) was learned from as it was, so nothing more goes.
+   */
+  async reviseLine(line: NewLine & { id: string }): Promise<void> {
+    if (!this.enabled) return;
+    const text = line.text.trim();
+    if (text && text.length <= LEARN_LINE_MAX && !this.batcher.isSending(line.id)) await this.queue.replace(line.id, text);
+  }
+
   /** Turning learning off empties the queue; suggestions already made stay for review. */
   async setEnabled(on: boolean): Promise<void> {
     this.enabled = on;

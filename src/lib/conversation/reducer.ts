@@ -34,6 +34,8 @@ export type ConversationAction =
    */
   | { type: "partnerSaid"; id: string; text: string; at: number; heard?: { startedAt?: number; endedAt: number }; join?: boolean }
   | { type: "partnerPartial"; text: string; startedAt?: number; join?: boolean }
+  /** Cloud captions heard a finished piece differently: the piece shown as `from` should read `to`. */
+  | { type: "partnerRevised"; from: string; to: string }
   | { type: "typed"; text: string }
   | { type: "thinking"; speculative?: boolean }
   | { type: "suggestions"; replies: Reply[]; reactions: Reaction[]; done: boolean; hold: boolean; askedAt?: number }
@@ -97,6 +99,17 @@ export function conversationReducer(state: ConversationState, action: Conversati
       }
       const turn = { id: action.id, speaker: "partner" as const, text, at: action.at, ...(heard ? { endedAt: heard.endedAt } : {}) };
       return { ...state, partnerPartial: "", partialJoins: false, turns: addTurn(state.turns, turn) };
+    }
+    case "partnerRevised": {
+      // The piece is in the newest partner line holding it: its own line, or one it grew.
+      const from = action.from.trim();
+      const to = action.to.trim();
+      const i = state.turns.findLastIndex((t) => t.speaker === "partner" && t.text.includes(from));
+      if (!from || !to || i < 0) return state;
+      const line = state.turns[i];
+      const at = line.text.lastIndexOf(from);
+      const text = line.text.slice(0, at) + to + line.text.slice(at + from.length);
+      return { ...state, turns: state.turns.map((t, j) => (j === i ? { ...t, text } : t)) };
     }
     case "partnerPartial": {
       const text = action.text.trim();

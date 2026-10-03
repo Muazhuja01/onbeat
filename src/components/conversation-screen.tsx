@@ -186,6 +186,7 @@ function Screen() {
         dispatch({ type: "partnerSaid", id: crypto.randomUUID(), text, at: Date.now(), heard: { startedAt, endedAt }, join: getSettings().joinLines });
         gapTimer.turnEnded(endedAt);
       }),
+      hearing.on("turnRevised", ({ from, to }) => dispatch({ type: "partnerRevised", from, to })),
     ];
     return () => {
       offs.forEach((off) => off());
@@ -289,7 +290,8 @@ function Screen() {
   const conversationStarted = state.turns.length > 0 || state.partnerPartial !== "";
 
   // Each new line from the partner is announced. A line that grew (they carried on
-  // after a pause) keeps its id, and only the new words are read out.
+  // after a pause) keeps its id, and only the new words are read out. A line corrected
+  // by cloud captions isn't read out again.
   const lastPartnerTurn = state.turns.findLast((t) => t.speaker === "partner");
   const announcedTurn = useRef<{ id: string; text: string } | null>(null);
   useEffect(() => {
@@ -298,11 +300,12 @@ function Screen() {
     if (before?.id === lastPartnerTurn.id && before.text === lastPartnerTurn.text) return;
     announcedTurn.current = { id: lastPartnerTurn.id, text: lastPartnerTurn.text };
     const grew = before?.id === lastPartnerTurn.id && lastPartnerTurn.text.startsWith(before.text);
+    if (before?.id === lastPartnerTurn.id && !grew) return;
     announce(`${partnerName} said: ${grew ? lastPartnerTurn.text.slice(before.text.length).trim() : lastPartnerTurn.text}`);
   }, [lastPartnerTurn, partnerName, announce]);
 
-  // Each line from the partner goes to learning once. A line that grew updates what
-  // was queued for it rather than being learned again.
+  // Each line from the partner goes to learning once. A line that grew, or was corrected
+  // by cloud captions, updates what was queued for it rather than being learned again.
   const learnedTurns = useRef(new Map<string, string>());
   useEffect(() => {
     for (const turn of state.turns) {
@@ -312,7 +315,8 @@ function Screen() {
       learnedTurns.current.set(turn.id, turn.text);
       const line = { id: turn.id, speaker: "partner" as const, text: turn.text, ...lineContext() };
       if (before === undefined) void learning.session?.addLine(line);
-      else void learning.session?.growLine(line, turn.text.slice(before.length).trim());
+      else if (turn.text.startsWith(before)) void learning.session?.growLine(line, turn.text.slice(before.length).trim());
+      else void learning.session?.reviseLine(line);
     }
   }, [state.turns, learning.session, lineContext]);
 
