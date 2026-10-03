@@ -17,6 +17,32 @@ describe("conversationReducer", () => {
     expect(s1.status).toBe("ready");
   });
 
+  describe("while the partner is talking", () => {
+    const talking = r(
+      r(s0, { type: "suggestions", replies: [reply("A"), reply("B"), reply("C")], reactions: [{ id: "r1", text: "Mm-hmm" }], done: true, hold: false }),
+      { type: "partnerPartial", text: "So I was" },
+    );
+
+    it("keeps a full set of replies until the next set has arrived", () => {
+      const streaming = r(talking, { type: "suggestions", replies: [reply("D")], reactions: [], done: false, hold: false });
+      expect(streaming.replies.map((x) => x.text)).toEqual(["A", "B", "C"]);
+      const arrived = r(streaming, { type: "suggestions", replies: [reply("D"), reply("E")], reactions: [], done: true, hold: false });
+      expect(arrived.replies.map((x) => x.text)).toEqual(["D", "E"]);
+    });
+
+    it("keeps the quick reactions until new ones arrive", () => {
+      const streaming = r(talking, { type: "suggestions", replies: [reply("D"), reply("E"), reply("F")], reactions: [], done: false, hold: false });
+      expect(streaming.reactions).toEqual([{ id: "r1", text: "Mm-hmm" }]);
+    });
+  });
+
+  it("holds new reactions with the replies they came with", () => {
+    const s1 = r(s0, { type: "suggestions", replies: [reply("A")], reactions: [{ id: "r1", text: "Mm-hmm" }], done: true, hold: false });
+    const s2 = r(s1, { type: "suggestions", replies: [reply("B")], reactions: [{ id: "r2", text: "Oh no" }], done: true, hold: true });
+    expect(s2.reactions).toEqual([{ id: "r1", text: "Mm-hmm" }]);
+    expect(r(s2, { type: "releaseHeld" }).reactions).toEqual([{ id: "r2", text: "Oh no" }]);
+  });
+
   it("holds new suggestions while the user is aiming, then releases them", () => {
     const s1 = r(s0, { type: "suggestions", replies: [reply("A")], reactions: [], done: true, hold: false });
     const s2 = r(s1, { type: "suggestions", replies: [reply("B")], reactions: [], done: true, hold: true });

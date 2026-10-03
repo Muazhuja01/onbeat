@@ -6,15 +6,20 @@ import type { SuggestStatus } from "@/lib/conversation/reducer";
 import type { Reply } from "@/lib/types";
 import { CueLight } from "./cue-light";
 
+/** Room kept for this many replies, so the list doesn't change height as they come and go. */
+const SLOTS = 3;
+
 interface Props {
   replies: Reply[];
+  /** Keep room for three replies even before there are any (once a conversation has started). */
+  reserve?: boolean;
   speaking: string | null;
   status: SuggestStatus;
   onSpeak: (text: string) => void;
   onStop: () => void;
 }
 
-export const ReplyList = forwardRef<HTMLElement, Props>(function ReplyList({ replies, speaking, status, onSpeak, onStop }, ref) {
+export const ReplyList = forwardRef<HTMLElement, Props>(function ReplyList({ replies, reserve = false, speaking, status, onSpeak, onStop }, ref) {
   return (
     <section ref={ref} id="replies" tabIndex={-1} aria-labelledby="replies-heading" className="flex flex-col gap-3 outline-none">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
@@ -24,7 +29,8 @@ export const ReplyList = forwardRef<HTMLElement, Props>(function ReplyList({ rep
         <CueLight status={status} />
       </div>
       {replies.length === 0 ? (
-        <p className="text-body text-muted">Replies will appear here when someone talks to you or you start typing.</p>
+        // min-h: three 4rem slots and the gaps between them.
+        <p className={`text-body text-muted ${reserve ? "min-h-[13.5rem]" : ""}`}>Replies will appear here when someone talks to you or you start typing.</p>
       ) : (
         <ol className="flex flex-col gap-3">
           {replies.map((reply, i) => {
@@ -57,6 +63,9 @@ export const ReplyList = forwardRef<HTMLElement, Props>(function ReplyList({ rep
               </li>
             );
           })}
+          {Array.from({ length: Math.max(0, SLOTS - replies.length) }, (_, i) => (
+            <li key={`slot-${i}`} aria-hidden="true" className="min-h-16" />
+          ))}
         </ol>
       )}
     </section>

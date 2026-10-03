@@ -109,7 +109,8 @@ export function CaptionLog({
         <ol
           ref={list}
           onScroll={onScroll}
-          className="flex max-h-[45dvh] flex-col gap-4 overflow-y-auto pr-1 lg:max-h-[70dvh]"
+          // A fixed height, so new lines scroll inside it instead of pushing what's below.
+          className="flex h-[45dvh] flex-col gap-4 overflow-y-auto pr-1 lg:h-[70dvh]"
         >
           {turns.map((t) =>
             t.speaker === "partner" ? (
