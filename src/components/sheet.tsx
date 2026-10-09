@@ -62,6 +62,7 @@ export function Sheet({ open, onClose, title, side = "bottom", closeLabel, child
     >
       {open && (
         <div className="flex flex-col gap-4 p-5">
+          {side === "bottom" && <div aria-hidden="true" data-handle className="mx-auto -mt-2 h-1.5 w-10 rounded-full bg-muted/40" />}
           <div className="flex items-center justify-between gap-3">
             <h2 id={titleId} className="text-reply font-bold">
               {title}

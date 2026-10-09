@@ -52,4 +52,19 @@ describe("Sheet", () => {
     await userEvent.click(dialog);
     expect(dialog).not.toHaveAttribute("open");
   });
+
+  it("has a grab handle on a bottom sheet but not on a side panel", () => {
+    const { rerender } = render(
+      <Sheet open onClose={() => {}} title="T" closeLabel="Close">
+        <p>Inside</p>
+      </Sheet>,
+    );
+    expect(document.querySelector("[data-handle]")).not.toBeNull();
+    rerender(
+      <Sheet open onClose={() => {}} title="T" side="right" closeLabel="Close">
+        <p>Inside</p>
+      </Sheet>,
+    );
+    expect(document.querySelector("[data-handle]")).toBeNull();
+  });
 });
