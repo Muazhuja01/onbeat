@@ -1,5 +1,6 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Composer } from "./composer";
 import { CueLight } from "./cue-light";
@@ -9,6 +10,7 @@ import { AnnouncerProvider, useAnnounce } from "./announcer";
 import { ListenControl } from "./listen-control";
 import { ResponseGap } from "./response-gap";
 import { SettingsPanel } from "./settings-panel";
+import { SettingsButton, SettingsDrawer } from "./settings-drawer";
 import type { Reply } from "@/lib/types";
 
 const replies: Reply[] = [
@@ -229,7 +231,6 @@ describe("SettingsPanel", () => {
     const onTheme = vi.fn();
     const onDigitKeys = vi.fn();
     render(<SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} learning={true} joinLines={true} onJoinLines={() => {}} onLearning={() => {}} onTheme={onTheme} onDigitKeys={onDigitKeys} onCloudCaptions={() => {}} />);
-    await userEvent.click(screen.getByText("Settings"));
     expect(screen.getByRole("radio", { name: "Match this device" })).toBeChecked();
     await userEvent.click(screen.getByRole("radio", { name: "High contrast" }));
     expect(onTheme).toHaveBeenCalledWith("contrast");
@@ -240,7 +241,6 @@ describe("SettingsPanel", () => {
   it("turns clearer captions on, saying where the audio goes", async () => {
     const onCloudCaptions = vi.fn();
     render(<SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} learning={true} joinLines={true} onJoinLines={() => {}} onLearning={() => {}} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={onCloudCaptions} />);
-    await userEvent.click(screen.getByText("Settings"));
     const box = screen.getByRole("checkbox", { name: "Clearer captions" });
     expect(box).not.toBeChecked();
     expect(box).toHaveAccessibleDescription(/sent to Deepgram, through Cloudflare/);
@@ -253,7 +253,6 @@ describe("SettingsPanel", () => {
     render(
       <SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} learning={true} joinLines={true} onJoinLines={() => {}} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={() => {}} onLearning={onLearning} />,
     );
-    await userEvent.click(screen.getByText("Settings"));
     const box = screen.getByRole("checkbox", { name: "Suggest notes from my conversations" });
     expect(box).toBeChecked();
     expect(box).toHaveAccessibleDescription(/sends recent lines from your conversations, and the notes they relate to/);
@@ -266,7 +265,6 @@ describe("SettingsPanel", () => {
     render(
       <SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} learning={true} joinLines={true} onJoinLines={onJoinLines} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={() => {}} onLearning={() => {}} />,
     );
-    await userEvent.click(screen.getByText("Settings"));
     const box = screen.getByRole("checkbox", { name: "Keep the other person's pauses in one line" });
     expect(box).toBeChecked();
     expect(box).toHaveAccessibleDescription(/When they pause for a moment and carry on, their words stay in one line/);
@@ -277,9 +275,44 @@ describe("SettingsPanel", () => {
 
   it("lists the keyboard shortcuts", async () => {
     render(<SettingsPanel theme="dark" digitKeys={false} cloudCaptions={false} learning={true} joinLines={true} onJoinLines={() => {}} onLearning={() => {}} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={() => {}} />);
-    await userEvent.click(screen.getByText("Settings"));
     expect(screen.getByRole("radio", { name: "Dark" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /Number keys speak replies/ })).not.toBeChecked();
     for (const key of ["1, 2, 3", "Alt+1, Alt+2", "Enter", "Up arrow", "Esc"]) expect(screen.getByText(key)).toBeInTheDocument();
+  });
+});
+
+describe("SettingsDrawer", () => {
+  function Harness() {
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <SettingsButton onOpen={() => setOpen(true)} />
+        <SettingsDrawer
+          open={open}
+          onClose={() => setOpen(false)}
+          theme="system"
+          digitKeys
+          cloudCaptions={false}
+          learning
+          joinLines
+          onTheme={() => {}}
+          onDigitKeys={() => {}}
+          onCloudCaptions={() => {}}
+          onLearning={() => {}}
+          onJoinLines={() => {}}
+        />
+      </>
+    );
+  }
+
+  it("opens from the gear and closes with its close button, giving focus back to the gear", async () => {
+    render(<Harness />);
+    const gear = screen.getByRole("button", { name: "Settings" });
+    await userEvent.click(gear);
+    const drawer = screen.getByRole("dialog", { name: "Settings" });
+    expect(within(drawer).getByRole("radio", { name: "Match this device" })).toBeChecked();
+    await userEvent.click(within(drawer).getByRole("button", { name: "Close settings" }));
+    expect(drawer).not.toHaveAttribute("open");
+    expect(gear).toHaveFocus();
   });
 });

@@ -592,7 +592,7 @@ describe("ConversationScreen voice", () => {
 
   it("offers the Settings voice row only on the conversation", async () => {
     await setUpPriya();
-    await userEvent.click(screen.getByText("Settings"));
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByRole("button", { name: "Change voice" })).toBeInTheDocument();
     await fromMenu("Priya", "New profile");
     expect(screen.getByRole("heading", { name: "Set up OnBeat" })).toBeInTheDocument();
@@ -697,7 +697,7 @@ describe("ConversationScreen learning", () => {
 
   it("learns nothing with the setting off", async () => {
     await setUpPriya();
-    await userEvent.click(screen.getByText("Settings"));
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
     const box = screen.getByRole("checkbox", { name: "Suggest notes from my conversations" });
     await userEvent.click(box);
     await partnerSays("Your physio moved to Thursdays.");
@@ -829,7 +829,7 @@ describe("ConversationScreen pauses in one line", () => {
 
   it("keeps each piece on its own line with the setting off", async () => {
     await startWithMaya();
-    await userEvent.click(screen.getByText("Settings"));
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(joinBox()).toBeChecked();
     await userEvent.click(joinBox());
     piece("So the physio", 1_000, 2_000);

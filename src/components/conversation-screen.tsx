@@ -43,7 +43,7 @@ import { ProfileSetup } from "./profile-setup";
 import { PhraseRow } from "./phrase-row";
 import { ReactionBar } from "./reaction-bar";
 import { ReplyList } from "./reply-list";
-import { SettingsPanel } from "./settings-panel";
+import { SettingsButton, SettingsDrawer } from "./settings-drawer";
 import { ResponseGap } from "./response-gap";
 import { SpokenCaption } from "./spoken-caption";
 import { SuggestedNotes } from "./suggested-notes";
@@ -220,6 +220,15 @@ function Screen() {
     [memory, state.partnerId, state.placeId],
   );
 
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  /** Runs once the settings drawer has closed, so a screen it opens gets focus after the drawer gives it back. */
+  const afterSettings = useRef<(() => void) | null>(null);
+  const closeSettings = () => {
+    setSettingsOpen(false);
+    const next = afterSettings.current;
+    afterSettings.current = null;
+    next?.();
+  };
   const replyListRef = useRef<HTMLElement>(null);
   const releaseHeld = useCallback(() => dispatch({ type: "releaseHeld" }), []);
   const isHolding = useStableTargets(replyListRef, releaseHeld);
@@ -328,7 +337,7 @@ function Screen() {
   }, [memory, demo, view, settings.learning]);
 
   useReplyShortcuts({
-    enabled: !conversationHidden,
+    enabled: !conversationHidden && !settingsOpen,
     digitKeys: settings.digitKeys,
     replyCount: state.replies.length,
     reactionCount: state.reactions.length,
@@ -591,7 +600,8 @@ function Screen() {
         <p className="text-2xl font-extrabold tracking-tight" translate="no">
           OnBeat
         </p>
-        {showMenu && (
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+          {showMenu && (
           <ProfileMenu
             profiles={profiles}
             activeId={registry?.active()?.id ?? null}
@@ -610,7 +620,9 @@ function Screen() {
             onSuggestions={() => goTo("suggestions")}
             onAssistant={demo || !ASSISTANT_ENABLED ? undefined : openAssistant}
           />
-        )}
+          )}
+          <SettingsButton onOpen={() => setSettingsOpen(true)} />
+        </div>
       </header>
       <main id="main" className="mx-auto w-full max-w-[90rem] px-4 pb-[calc(env(safe-area-inset-bottom)+2rem)] lg:px-8">
         <h1 className="sr-only">{view === "conversation" ? "Conversation" : "OnBeat"}</h1>
@@ -763,23 +775,30 @@ function Screen() {
             </div>
           </div>
         </div>
-        <div className="mt-10 max-w-xl">
-          <SettingsPanel
-            theme={settings.theme}
-            digitKeys={settings.digitKeys}
-            cloudCaptions={settings.cloudCaptions}
-            learning={settings.learning}
-            joinLines={settings.joinLines}
-            voiceLabel={settingsVoice ? describeVoice(settingsVoice) : undefined}
-            voiceBasic={voiceMode === "basic"}
-            onVoice={settingsVoice ? () => leaveConversation("voice") : undefined}
-            onTheme={setTheme}
-            onDigitKeys={setDigitKeys}
-            onCloudCaptions={setCloudCaptions}
-            onLearning={toggleLearning}
-            onJoinLines={setJoinLines}
-          />
-        </div>
+        <SettingsDrawer
+          open={settingsOpen}
+          onClose={closeSettings}
+          theme={settings.theme}
+          digitKeys={settings.digitKeys}
+          cloudCaptions={settings.cloudCaptions}
+          learning={settings.learning}
+          joinLines={settings.joinLines}
+          voiceLabel={settingsVoice ? describeVoice(settingsVoice) : undefined}
+          voiceBasic={voiceMode === "basic"}
+          onVoice={
+            settingsVoice
+              ? () => {
+                  afterSettings.current = () => leaveConversation("voice");
+                  setSettingsOpen(false);
+                }
+              : undefined
+          }
+          onTheme={setTheme}
+          onDigitKeys={setDigitKeys}
+          onCloudCaptions={setCloudCaptions}
+          onLearning={toggleLearning}
+          onJoinLines={setJoinLines}
+        />
       </main>
     </>
   );

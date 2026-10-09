@@ -242,3 +242,14 @@ body {
   max-height: 100dvh;
   border-radius: 1.375rem 0 0 1.375rem;
 }
+.sheet-right[open] {
+  animation: sheet-in-right 200ms ease-out;
+}
+@keyframes sheet-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}

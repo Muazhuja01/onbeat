@@ -100,7 +100,7 @@ test("the settings panel passes axe in every theme", async ({ page }) => {
   // Theme changes animate colours for 150 ms; axe must not sample mid-fade.
   await page.emulateMedia({ reducedMotion: "reduce" });
   await startWithMaya(page);
-  await page.getByText("Settings", { exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   for (const name of ["Light", "Dark", "High contrast"]) {
     await page.getByRole("radio", { name }).check();
     const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
@@ -111,11 +111,11 @@ test("the settings panel passes axe in every theme", async ({ page }) => {
 test("a chosen theme is kept after a reload", async ({ page }) => {
   await prepare(page);
   await startWithMaya(page);
-  await page.getByText("Settings", { exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("radio", { name: "High contrast" }).check();
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "contrast");
-  await page.getByText("Settings", { exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("radio", { name: "Match this device" }).check();
   await expect(page.locator("html")).not.toHaveAttribute("data-theme", /.*/);
 });
@@ -131,8 +131,9 @@ test("the device's more-contrast setting turns on high contrast", async ({ page 
 test("number keys can be turned off for voice control users", async ({ page }) => {
   await prepare(page);
   await startWithMaya(page);
-  await page.getByText("Settings", { exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("checkbox", { name: /Number keys speak replies/ }).uncheck();
+  await page.getByRole("button", { name: "Close settings" }).click();
   await page.getByLabel("What they said").fill("What size would you like?");
   await page.getByRole("button", { name: "Add" }).click();
   await expect(page.getByRole("button", { name: "Large, please." })).toBeVisible();

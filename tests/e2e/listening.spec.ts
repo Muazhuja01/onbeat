@@ -206,7 +206,7 @@ test("a 2 s pause keeps the other person's words in one line, unless that is tur
 
   await page.getByRole("button", { name: "New conversation" }).click();
   await page.getByRole("button", { name: "Clear" }).click();
-  await page.getByText("Settings").click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("checkbox", { name: "Keep the other person's pauses in one line" }).uncheck();
 
   await hearPiece(page, "So the physio", 20_000, 21_000);
