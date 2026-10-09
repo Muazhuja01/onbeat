@@ -1,8 +1,9 @@
 "use client";
 
-import { CaretDown, UserCircle } from "@phosphor-icons/react";
+import { CaretDown, List, UserCircle } from "@phosphor-icons/react";
 import { useEffect, useId, useRef, useState } from "react";
 import { NAME_MAX, type ProfileInfo } from "@/lib/profiles/registry";
+import { Sheet } from "./sheet";
 import { fieldLabel, hint, primaryButton, secondaryButton, textField } from "./ui";
 
 interface Props {
@@ -25,6 +26,10 @@ interface Props {
   suggestionCount?: number;
   onSuggestions?: () => void;
   onAssistant?: () => void;
+  /** Phones: the toggle shows ☰ only (its name stays the profile's) and the menu rises from the bottom as a sheet. */
+  compact?: boolean;
+  /** Phones: Settings lives in this menu instead of behind a gear. */
+  onSettings?: () => void;
 }
 
 const item = `${secondaryButton} w-full text-left`;
@@ -84,159 +89,189 @@ export function ProfileMenu(props: Props) {
         aria-expanded={open}
         aria-controls={`${id}-panel`}
         onClick={() => (open ? close(false) : setOpen(true))}
-        className="flex min-h-12 max-w-full sm:max-w-[16rem] items-center gap-2 rounded-control border-2 border-ink/30 px-4 text-label font-bold transition-[border-color] duration-150 hover:border-ink sm:text-body"
+        className={`flex min-h-12 max-w-full items-center gap-2 rounded-full border-2 border-edge bg-raised px-4 text-label font-bold shadow-lift transition-[border-color] duration-150 hover:border-ink sm:max-w-[16rem] sm:text-body ${props.compact ? "min-w-12 justify-center px-3" : ""}`}
       >
-        <UserCircle aria-hidden="true" size={22} className="shrink-0" />
-        <span className="truncate">{label}</span>
+        {props.compact ? <List aria-hidden="true" size={22} className="shrink-0" /> : <UserCircle aria-hidden="true" size={22} className="shrink-0" />}
+        <span className={props.compact ? "sr-only" : "truncate"}>{label}</span>
         {count > 0 && (
           <span aria-hidden="true" className="shrink-0 rounded-full border-2 border-ink bg-ink px-2 text-label text-surface">
             {count}
           </span>
         )}
-        <CaretDown aria-hidden="true" size={18} className={`shrink-0 transition-transform duration-150 ${open ? "rotate-180" : ""}`} />
+        {!props.compact && <CaretDown aria-hidden="true" size={18} className={`shrink-0 transition-transform duration-150 ${open ? "rotate-180" : ""}`} />}
       </button>
-      {open && (
-        <div
-          id={`${id}-panel`}
-          className="absolute top-full right-0 z-20 mt-2 flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-3 rounded-control border-2 border-ink/30 bg-surface p-4 shadow-lg"
+      {props.compact ? (
+        <Sheet
+          open={open}
+          onClose={() => {
+            setOpen(false);
+            setMode("list");
+          }}
+          title={label}
+          closeLabel="Close menu"
         >
-          {mode === "rename" && active ? (
-            <form
-              className="flex flex-col gap-3"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!draftName.trim()) return;
-                props.onRename(draftName);
-                close();
-              }}
-            >
-              <label htmlFor={`${id}-name`} className={fieldLabel}>
-                Profile name
-              </label>
-              <input
-                id={`${id}-name`}
-                type="text"
-                maxLength={NAME_MAX}
-                value={draftName}
-                onChange={(e) => setDraftName(e.target.value)}
-                autoFocus
-                className={textField}
-              />
-              <div className="flex flex-wrap gap-3">
-                <button type="submit" disabled={!draftName.trim()} className={primaryButton}>
-                  Save
-                </button>
-                <button type="button" onClick={() => setMode("list")} className={secondaryButton}>
-                  Cancel
-                </button>
-              </div>
-            </form>
-          ) : mode === "delete" && active ? (
-            <div className="flex flex-col gap-3">
-              <p className="text-body">
-                Delete {active.name}? Their notes and phrases will be removed from this browser. Export first if you might want them back.
-              </p>
-              <div className="flex flex-wrap gap-3">
-                <button type="button" onClick={() => act(props.onDelete)} className={primaryButton}>
-                  Delete {active.name}
-                </button>
-                <button type="button" onClick={() => setMode("list")} autoFocus className={secondaryButton}>
-                  Keep
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
-              {demoName && (
-                <>
-                  <button type="button" onClick={() => act(props.onNew)} className={primaryButton}>
-                    Set up your own profile
-                  </button>
-                  <button type="button" onClick={() => act(props.onDemo)} className={item}>
-                    Try another demo
-                  </button>
-                </>
-              )}
-              {others.length > 0 && (
-                <div className="flex flex-col gap-2">
-                  <h2 className={fieldLabel}>{demoName ? "Your profiles" : "Other profiles"}</h2>
-                  {others.map((p) => (
-                    <button key={p.id} type="button" onClick={() => act(() => props.onSwitch(p.id))} className={item}>
-                      Switch to {p.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {!demoName && active && (
-                <>
-                  <button type="button" onClick={() => act(props.onNotes)} className={item}>
-                    Your notes
-                  </button>
-                  {props.onVoice && (
-                    <button type="button" onClick={() => act(props.onVoice!)} className={item}>
-                      Voice: {props.voiceLabel}
-                    </button>
-                  )}
-                  {props.onAssistant && (
-                    <button type="button" onClick={() => act(props.onAssistant!)} className={item}>
-                      Assistant
-                    </button>
-                  )}
-                  {props.onSuggestions && (
-                    <button type="button" onClick={() => act(props.onSuggestions!)} className={item}>
-                      Suggested notes{count > 0 ? ` (${count})` : ""}
-                    </button>
-                  )}
-                  <button type="button" onClick={() => act(props.onNew)} className={item}>
-                    New profile
-                  </button>
-                  <div className="flex flex-col gap-1">
-                    <button type="button" onClick={() => act(props.onExport)} aria-describedby={`${id}-export-hint`} className={item}>
-                      Export this profile
-                    </button>
-                    <p id={`${id}-export-hint`} className={hint}>
-                      Saves a file you can import later or on another device.
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label htmlFor={`${id}-import`} className={fieldLabel}>
-                      Import a profile
-                    </label>
-                    <input
-                      id={`${id}-import`}
-                      type="file"
-                      accept=".json,application/json"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        close();
-                        props.onImport(file);
-                      }}
-                      className="min-h-12 max-w-full text-label file:mr-3 file:min-h-12 file:rounded-control file:border-2 file:border-ink/40 file:bg-surface file:px-4 file:font-bold file:text-ink"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDraftName(active.name);
-                      setMode("rename");
-                    }}
-                    className={item}
-                  >
-                    Rename
-                  </button>
-                  <button type="button" onClick={() => setMode("delete")} className={item}>
-                    Delete this profile
-                  </button>
-                  <button type="button" onClick={() => act(props.onDemo)} className={item}>
-                    Try a demo
-                  </button>
-                </>
-              )}
-            </>
-          )}
-        </div>
+          <div id={`${id}-panel`} className="flex flex-col gap-3">
+            {panel()}
+          </div>
+        </Sheet>
+      ) : (
+        open && (
+          <div
+            id={`${id}-panel`}
+            className="absolute top-full right-0 z-20 mt-2 flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-3 rounded-control border-2 border-edge bg-surface p-4 shadow-tray"
+          >
+            {panel()}
+          </div>
+        )
       )}
     </div>
   );
+
+  /** The menu's contents: the list of actions, or the rename or delete step. */
+  function panel() {
+    return (
+      <>
+        {mode === "rename" && active ? (
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!draftName.trim()) return;
+              props.onRename(draftName);
+              close();
+            }}
+          >
+            <label htmlFor={`${id}-name`} className={fieldLabel}>
+              Profile name
+            </label>
+            <input
+              id={`${id}-name`}
+              type="text"
+              maxLength={NAME_MAX}
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              autoFocus
+              className={textField}
+            />
+            <div className="flex flex-wrap gap-3">
+              <button type="submit" disabled={!draftName.trim()} className={primaryButton}>
+                Save
+              </button>
+              <button type="button" onClick={() => setMode("list")} className={secondaryButton}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : mode === "delete" && active ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-body">
+              Delete {active.name}? Their notes and phrases will be removed from this browser. Export first if you might want them back.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <button type="button" onClick={() => act(props.onDelete)} className={primaryButton}>
+                Delete {active.name}
+              </button>
+              <button type="button" onClick={() => setMode("list")} autoFocus className={secondaryButton}>
+                Keep
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {demoName && (
+              <>
+                <button type="button" onClick={() => act(props.onNew)} className={primaryButton}>
+                  Set up your own profile
+                </button>
+                <button type="button" onClick={() => act(props.onDemo)} className={item}>
+                  Try another demo
+                </button>
+              </>
+            )}
+            {others.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <h2 className={fieldLabel}>{demoName ? "Your profiles" : "Other profiles"}</h2>
+                {others.map((p) => (
+                  <button key={p.id} type="button" onClick={() => act(() => props.onSwitch(p.id))} className={item}>
+                    Switch to {p.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            {!demoName && active && (
+              <>
+                <button type="button" onClick={() => act(props.onNotes)} className={item}>
+                  Your notes
+                </button>
+                {props.onVoice && (
+                  <button type="button" onClick={() => act(props.onVoice!)} className={item}>
+                    Voice: {props.voiceLabel}
+                  </button>
+                )}
+                {props.onAssistant && (
+                  <button type="button" onClick={() => act(props.onAssistant!)} className={item}>
+                    Assistant
+                  </button>
+                )}
+                {props.onSuggestions && (
+                  <button type="button" onClick={() => act(props.onSuggestions!)} className={item}>
+                    Suggested notes{count > 0 ? ` (${count})` : ""}
+                  </button>
+                )}
+                <button type="button" onClick={() => act(props.onNew)} className={item}>
+                  New profile
+                </button>
+                <div className="flex flex-col gap-1">
+                  <button type="button" onClick={() => act(props.onExport)} aria-describedby={`${id}-export-hint`} className={item}>
+                    Export this profile
+                  </button>
+                  <p id={`${id}-export-hint`} className={hint}>
+                    Saves a file you can import later or on another device.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label htmlFor={`${id}-import`} className={fieldLabel}>
+                    Import a profile
+                  </label>
+                  <input
+                    id={`${id}-import`}
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      close();
+                      props.onImport(file);
+                    }}
+                    className="min-h-12 max-w-full text-label file:mr-3 file:min-h-12 file:rounded-control file:border-2 file:border-ink/40 file:bg-surface file:px-4 file:font-bold file:text-ink"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraftName(active.name);
+                    setMode("rename");
+                  }}
+                  className={item}
+                >
+                  Rename
+                </button>
+                <button type="button" onClick={() => setMode("delete")} className={item}>
+                  Delete this profile
+                </button>
+                <button type="button" onClick={() => act(props.onDemo)} className={item}>
+                  Try a demo
+                </button>
+              </>
+            )}
+            {props.onSettings && (
+              <button type="button" onClick={() => act(props.onSettings!)} className={item}>
+                Settings
+              </button>
+            )}
+          </>
+        )}
+      </>
+    );
+  }
 }
