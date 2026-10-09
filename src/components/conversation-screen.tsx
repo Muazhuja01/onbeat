@@ -75,6 +75,7 @@ export function ConversationScreen() {
 type View = "loading" | "setup" | "demo-picker" | "notes" | "suggestions" | "voice" | "assistant" | "conversation";
 
 const SAVE_FAILED = "Couldn't save. Your browser's storage may be full.";
+const UNSAVED_NOTICE = "Profiles and notes won't be saved in this window.";
 const LEARNING_NOTICE = "New: OnBeat can suggest notes from your conversations for you to review. Turn it off in Settings.";
 const VOICE_BACKUP = "Said in the backup voice: yours wasn't ready in time.";
 const VOICE_FALLBACK = "Said in your device's voice: yours wasn't ready in time.";
@@ -273,6 +274,15 @@ function Screen() {
     const n = state.replies.length;
     if (n) announce(n === 1 ? "1 reply ready" : `${n} replies ready`, "replies");
   }, [state.replies, announce]);
+
+  // Notices are read out here, so their Dismiss buttons aren't read with them.
+  const unsavedNotice = registry && !registry.durable && !unsavedDismissed ? UNSAVED_NOTICE : null;
+  useEffect(() => {
+    if (unsavedNotice) announce(unsavedNotice);
+  }, [unsavedNotice, announce]);
+  useEffect(() => {
+    if (state.notice) announce(state.notice);
+  }, [state.notice, announce]);
 
   const speak = useCallback(
     (text: string, opts?: { isReaction?: boolean; quick?: boolean }) => {
@@ -679,11 +689,8 @@ function Screen() {
         }
       >
         <h1 className="sr-only">{view === "conversation" ? "Conversation" : "OnBeat"}</h1>
-        {/* Always mounted, so screen readers hear a notice when its text changes. */}
-        <div role="status" className={`mx-auto flex w-full max-w-[54rem] flex-col gap-2 empty:hidden ${inConversation ? "px-4 pt-3" : "pb-4"}`}>
-          {registry && !registry.durable && !unsavedDismissed && (
-            <Notice text="Profiles and notes won't be saved in this window." onDismiss={() => setUnsavedDismissed(true)} />
-          )}
+        <div className={`mx-auto flex w-full max-w-[54rem] flex-col gap-2 empty:hidden ${inConversation ? "px-4 pt-3" : "pb-4"}`}>
+          {unsavedNotice && <Notice text={unsavedNotice} onDismiss={() => setUnsavedDismissed(true)} />}
           {state.notice && <Notice text={state.notice} onDismiss={() => dispatch({ type: "notice", text: null })} />}
         </div>
         {view === "setup" && (

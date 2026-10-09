@@ -305,9 +305,12 @@ describe("ConversationScreen", () => {
     // The page recovers with profiles kept in memory instead of staying blank forever.
     await screen.findByRole("heading", { name: "Set up OnBeat" });
     await screen.findByText("Profiles and notes won't be saved in this window.");
+    // Read out once, without the Dismiss button's name, which sits outside any live region.
+    await waitFor(() => expect(liveRegion()).toHaveTextContent("Profiles and notes won't be saved in this window."), { timeout: 2000 });
+    expect(screen.getByRole("button", { name: "Dismiss" }).closest('[role="status"], [aria-live]')).toBeNull();
     // It can be dismissed once read.
     await userEvent.click(screen.getByRole("button", { name: "Dismiss" }));
-    expect(screen.queryByText("Profiles and notes won't be saved in this window.")).toBeNull();
+    expect(within(screen.getByRole("main")).queryByText("Profiles and notes won't be saved in this window.")).toBeNull();
     expect(errorSpy).toHaveBeenCalled();
 
     errorSpy.mockRestore();
