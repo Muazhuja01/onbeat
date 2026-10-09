@@ -38,10 +38,10 @@ One row, `surface` background, a 1 px hairline below.
 
 - **Mark:** a 12 px amber dot and "OnBeat".
 - **Place** and **Talking with:** native `<select>` elements styled as round chips ("📍 Blue Door Café ▾", "👤 Sam ▾"). Their accessible names stay "Place" and "Talking with".
-- **Listen:** one round toggle (`aria-pressed`). Its label carries the state:
-  - off: "Listen" with the microphone-slash icon;
-  - loading: "Getting ready 42%";
-  - on: amber fill, "Listening" and the level meter.
+- **Listen:** one round toggle (`aria-pressed`). Its text is always "Listen", so its accessible name matches what's on screen (WCAG 2.5.3) and stays the same for tests. The state shows around the word:
+  - off: outlined, microphone-slash icon;
+  - loading: outlined, microphone icon and "42%" after the word;
+  - on: amber fill, microphone icon and the moving level meter.
   The status sentence stays in a `role="status"` region for screen readers but is only shown on screen for problem states (denied, unavailable, error, interrupted), as a short note under the bar.
 - Right side: the **demo chip** in demo mode ("Demo: Maya · Set up your own", amber tint), the **profile menu**, and a **gear button** ("Settings").
 
@@ -63,10 +63,11 @@ A centred column, `max-width: 54rem`, that fills the space between the bar and t
 
 A floating card at the bottom of the column: `surface` background, 22 px corners, the tray shadow.
 
-1. **Cue row:** the cue light and its status text ("Waiting", "Finding replies…", "Replies ready", "Paused"), reactions on the right.
-2. **Replies:** three slots, each at least 64 px tall, kept even when empty, `raised` background with the lift shadow, numbered badges. Empty before the first turn: one muted line, "Replies show up here when someone talks to you, or as you type."
-3. **Type row:** "+ They said" (secondary), the type box ("Type a reply"), and **Speak**.
-   - "+ They said" swaps the type row for a "Sam said [ ] Add · Cancel" row with a partner-colour rule on the left. The box's accessible name stays "What they said". Enter adds the line, Escape or Cancel closes it, and focus returns to "Type a reply".
+1. **Cue row:** the cue light and its status text ("Waiting", "Finding replies…", "Replies ready", "Suggestions paused"), reactions on the right.
+2. **Your phrases:** the quick phrases for this person or place, as round chips in one row under the cue row (group named "Your phrases", as today). Only shown when there are some. On phones it hides with the reactions while typing.
+3. **Replies:** three slots, each at least 64 px tall, kept even when empty, `raised` background with the lift shadow, numbered badges. Empty before the first turn: one muted line, "Replies show up here when someone talks to you, or as you type."
+4. **Type row:** "+ They said" (secondary), the type box ("Type a reply"), and **Speak**.
+   - "+ They said" swaps the type row for a "What they said [ ] Add · Cancel" row with a partner-colour rule on the left. Its visible label is "What they said", which is also its accessible name. Enter adds the line, Escape or Cancel closes it, and focus returns to "Type a reply".
    - Voice status ("Waking your voice…", "Using the backup voice.") shows as one muted line under the type row only when the voice isn't the chosen one and ready. "Your voice is ready." is no longer shown.
 
 ### 3.4 Notices
@@ -85,7 +86,7 @@ The same zones, arranged for one hand.
 - **Context chip** under the bar: "📍 Blue Door Café · 👤 Sam ▾". It opens a bottom sheet, "Where and who", with the two selects and **Done**. From 640 px wide, the chip splits back into the two select chips in the bar.
 - **Thread:** their lines are 26 px; your bubbles max 80 % wide. "+ They said" sits as a small pill on their side at the bottom of the thread (from 640 px it moves next to the type box, as on laptop).
 - **Tray:** docked to the bottom edge, 24 px top corners, shadow above it.
-- **Keyboard open:** the viewport sets `interactiveWidget: "resizes-content"`, so the tray stays above the keyboard and the thread shrinks. All three replies stay; only the reactions row hides while "Type a reply" has focus (CSS `:has()`), and returns when it loses focus. The thread always keeps room for their latest line.
+- **Keyboard open:** the viewport sets `interactiveWidget: "resizes-content"`, so the tray stays above the keyboard and the thread shrinks. All three replies stay; only the reactions and phrases rows hide while "Type a reply" has focus (CSS `:has()`), and returns when it loses focus. The thread always keeps room for their latest line.
 - Bottom sheets are native `<dialog>` elements with a grab handle, a heading and a close or Done button.
 
 ## 5. Visual system
