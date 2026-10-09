@@ -128,6 +128,46 @@ test("live captions don't scroll the page away from the replies on a phone", asy
   await expect(reply).toBeInViewport();
 });
 
+for (const size of [
+  { width: 1280, height: 720 },
+  { width: 1440, height: 800 },
+  { width: 1920, height: 1080 },
+]) {
+  test(`long lines on a ${size.width}×${size.height} screen keep both text boxes and the replies on screen`, async ({ page }) => {
+    await page.setViewportSize(size);
+    await prepare(page);
+    await installFakeHearing(page);
+    await startWithMaya(page);
+    await page.getByRole("button", { name: "Listen" }).click();
+    const long =
+      "So at eight weeks, when you think you're feeling good, the graft is not ready, and it takes a while for that graft to become a ligament, so you gotta respect the tissue healing.";
+    for (let i = 0; i < 4; i++) await hear(page, "turnEnd", long);
+    await hear(page, "partial", long);
+    // Replies first: speaking what you typed cancels a reply request still on its way.
+    await expect(page.getByRole("button", { name: "Large, please." })).toBeVisible();
+    const said =
+      "My name is Alex. I'm a comp sci major, currently working on different projects, and I also like competing in hackathons with my friends on the weekends when I have the time.";
+    await page.getByLabel("Type a reply").fill(said);
+    await page.getByRole("button", { name: "Speak" }).click();
+    await expect(page.getByRole("region", { name: "What you said" })).toContainText(said);
+
+    // Nothing moved the page, and everything you need is inside the window without scrolling.
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    for (const target of [
+      page.getByLabel("Type a reply"),
+      page.getByRole("button", { name: "Speak" }),
+      page.getByLabel("What they said"),
+      page.getByRole("button", { name: "Large, please." }),
+      page.getByRole("button", { name: "What sizes do you have?" }),
+    ])
+      await expect(target).toBeInViewport({ ratio: 1 });
+    // The long line got smaller to fit, but not below the body text size.
+    const fontPx = await page.getByRole("region", { name: "What you said" }).getByText(said).evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+    expect(fontPx).toBeGreaterThanOrEqual(20);
+    expect(fontPx).toBeLessThanOrEqual(32);
+  });
+}
+
 test("a blocked microphone explains what still works", async ({ page }) => {
   await prepare(page);
   await installFakeHearing(page, "denied");

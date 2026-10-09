@@ -587,7 +587,7 @@ function Screen() {
 
   return (
     <>
-      <header className="mx-auto flex w-full max-w-[90rem] flex-wrap items-center justify-between gap-4 px-4 py-4 lg:px-8">
+      <header className="mx-auto flex w-full max-w-[90rem] flex-wrap items-center justify-between gap-4 px-4 py-4 lg:h-(--header-h) lg:px-8">
         <p className="text-2xl font-extrabold tracking-tight" translate="no">
           OnBeat
         </p>
@@ -614,144 +614,153 @@ function Screen() {
       </header>
       <main id="main" className="mx-auto w-full max-w-[90rem] px-4 pb-[calc(env(safe-area-inset-bottom)+2rem)] lg:px-8">
         <h1 className="sr-only">{view === "conversation" ? "Conversation" : "OnBeat"}</h1>
-        {/* Always mounted, so screen readers hear the notice when its text changes. */}
-        <div role="status">
-          {registry && !registry.durable && (
-            <p className="mb-4 rounded-control border-2 border-ink/30 px-4 py-3 text-body">Profiles and notes won&apos;t be saved in this window.</p>
+        <div className={conversationHidden ? undefined : "conv-fit"}>
+          {/* Always mounted, so screen readers hear the notice when its text changes. */}
+          <div role="status">
+            {registry && !registry.durable && (
+              <p className="mb-4 rounded-control border-2 border-ink/30 px-4 py-3 text-body">Profiles and notes won&apos;t be saved in this window.</p>
+            )}
+            {state.notice && <p className="mb-4 rounded-control border-2 border-ink/30 px-4 py-3 text-body">{state.notice}</p>}
+          </div>
+          {demo && view === "conversation" && <DemoBar name={demo.name} onSetup={() => leaveConversation("setup")} />}
+          {view === "setup" && (
+            <ProfileSetup
+              onDone={finishSetup}
+              onDemo={() => setView("demo-picker")}
+              onCancel={back}
+              onImport={(file) => void importFile(file)}
+              voice={voice}
+              voiceMode={voiceMode}
+              voiceProgress={voiceProgress}
+            />
           )}
-          {state.notice && <p className="mb-4 rounded-control border-2 border-ink/30 px-4 py-3 text-body">{state.notice}</p>}
-        </div>
-        {demo && view === "conversation" && <DemoBar name={demo.name} onSetup={() => leaveConversation("setup")} />}
-        {view === "setup" && (
-          <ProfileSetup
-            onDone={finishSetup}
-            onDemo={() => setView("demo-picker")}
-            onCancel={back}
-            onImport={(file) => void importFile(file)}
-            voice={voice}
-            voiceMode={voiceMode}
-            voiceProgress={voiceProgress}
-          />
-        )}
-        {view === "demo-picker" && (
-          <ProfilePicker personas={personas} onChoose={(p) => void startDemo(p)} onBack={back ?? (() => setView("setup"))} />
-        )}
-        {view === "assistant" && memory && !demo && (
-          <AssistantScreen
-            ref={assistantRef}
-            key={activeProfileId ?? "none"}
-            memory={memory}
-            announce={announce}
-            onChanged={() => {
-              // Notes or phrases changed: cached replies are stale (R13), and a removed note may be the current Talking with or Place.
-              client?.clearCache();
-              setNotesVersion((v) => v + 1);
-              setPhrasesVersion((v) => v + 1);
-              if ((state.partnerId && !memory.getNote(state.partnerId)) || (state.placeId && !memory.getNote(state.placeId))) {
-                dispatch({
-                  type: "setContext",
-                  partnerId: state.partnerId && memory.getNote(state.partnerId) ? state.partnerId : undefined,
-                  placeId: state.placeId && memory.getNote(state.placeId) ? state.placeId : undefined,
-                });
-              }
-            }}
-            onClose={() => {
-              setView("conversation");
-              resetFocusToTop();
-            }}
-          />
-        )}
-        {view === "notes" && memory && (
-          <NotesEditor
-            notes={notes}
-            onSave={(note) => void saveNote(note)}
-            onRemove={(id) => void removeNote(id)}
-            phrases={memory.allQuickPhrases()}
-            onAddPhrase={async (text, tie) => {
-              const made = await memory.addQuickPhrase(text, tie);
-              setPhrasesVersion((v) => v + 1);
-              if (made) announce("Phrase saved");
-              return made !== null;
-            }}
-            onUpdatePhrase={async (id, text, tie) => {
-              const ok = await memory.updateQuickPhrase(id, text, tie);
-              setPhrasesVersion((v) => v + 1);
-              if (ok) announce("Phrase saved");
-              return ok;
-            }}
-            onRemovePhrase={(id) =>
-              void memory.removePhrase(id).then(() => {
+          {view === "demo-picker" && (
+            <ProfilePicker personas={personas} onChoose={(p) => void startDemo(p)} onBack={back ?? (() => setView("setup"))} />
+          )}
+          {view === "assistant" && memory && !demo && (
+            <AssistantScreen
+              ref={assistantRef}
+              key={activeProfileId ?? "none"}
+              memory={memory}
+              announce={announce}
+              onChanged={() => {
+                // Notes or phrases changed: cached replies are stale (R13), and a removed note may be the current Talking with or Place.
+                client?.clearCache();
+                setNotesVersion((v) => v + 1);
                 setPhrasesVersion((v) => v + 1);
-                announce("Phrase deleted");
-              })
-            }
-            onDone={() => {
-              setView("conversation");
-              resetFocusToTop();
-            }}
-          />
-        )}
-        {view === "suggestions" && memory && (
-          <SuggestedNotes
-            suggestions={learning.suggestions}
-            notes={notes}
-            onKeep={(s, draft) => void keepSuggestion(s, draft)}
-            onSkip={(id) => {
-              void learning.session?.pending.skip(id);
-              announce("Skipped");
-            }}
-            onSkipAll={() => {
-              void learning.session?.pending.skipAll();
-              announce("Skipped all");
-            }}
-            onDone={() => {
-              setView("conversation");
-              resetFocusToTop();
-            }}
-          />
-        )}
-        {view === "voice" && activeProfile && activeVoice && (
-          <VoiceScreen
-            initial={activeVoice}
-            name={activeProfile.name}
-            voice={voice}
-            mode={voiceMode}
-            progress={voiceProgress}
-            onSave={(v) => void saveVoice(v)}
-            onCancel={() => {
-              setView("conversation");
-              resetFocusToTop();
-            }}
-          />
-        )}
-        <div className="conv-grid" hidden={conversationHidden}>
-          <div className="flex flex-col gap-4 [grid-area:context]">
-            <ContextBar
-              places={places}
-              people={people}
-              placeId={state.placeId}
-              partnerId={state.partnerId}
-              onChange={(placeId, partnerId) => dispatch({ type: "setContext", placeId, partnerId })}
+                if ((state.partnerId && !memory.getNote(state.partnerId)) || (state.placeId && !memory.getNote(state.placeId))) {
+                  dispatch({
+                    type: "setContext",
+                    partnerId: state.partnerId && memory.getNote(state.partnerId) ? state.partnerId : undefined,
+                    placeId: state.placeId && memory.getNote(state.placeId) ? state.placeId : undefined,
+                  });
+                }
+              }}
+              onClose={() => {
+                setView("conversation");
+                resetFocusToTop();
+              }}
             />
-            <ListenControl hearing={hearing} status={hearingStatus} progress={hearingProgress} onToggle={toggleListening} />
-          </div>
-          <div className="flex min-w-0 flex-col gap-6 [grid-area:log]">
-            <CaptionLog turns={state.turns} partnerName={partnerName} partial={state.partnerPartial} onNewConversation={newConversation} />
-            <PartnerInput key={conversationKey} onSubmit={(text) => dispatch({ type: "partnerSaid", id: crypto.randomUUID(), text, at: Date.now() })} />
-          </div>
-          <div className="flex min-w-0 flex-col gap-6 [grid-area:side]">
-            <SpokenCaption speaking={state.speaking} lastSpoken={state.lastSpoken} waiting={voiceWaiting} />
-            <ReactionBar reactions={state.reactions} reserve={conversationStarted} onReact={(text) => speak(text, { isReaction: true })} />
-            <PhraseRow phrases={quickPhrases} onSpeak={(text) => speak(text, { quick: true })} />
-            <ReplyList ref={replyListRef} replies={state.replies} reserve={conversationStarted} speaking={state.speaking} status={state.status} onSpeak={speak} onStop={stop} />
-            <Composer
-              value={state.typed}
-              onChange={(text) => dispatch({ type: "typed", text })}
-              onSpeak={speak}
-              onFocusReplies={focusReplies}
+          )}
+          {view === "notes" && memory && (
+            <NotesEditor
+              notes={notes}
+              onSave={(note) => void saveNote(note)}
+              onRemove={(id) => void removeNote(id)}
+              phrases={memory.allQuickPhrases()}
+              onAddPhrase={async (text, tie) => {
+                const made = await memory.addQuickPhrase(text, tie);
+                setPhrasesVersion((v) => v + 1);
+                if (made) announce("Phrase saved");
+                return made !== null;
+              }}
+              onUpdatePhrase={async (id, text, tie) => {
+                const ok = await memory.updateQuickPhrase(id, text, tie);
+                setPhrasesVersion((v) => v + 1);
+                if (ok) announce("Phrase saved");
+                return ok;
+              }}
+              onRemovePhrase={(id) =>
+                void memory.removePhrase(id).then(() => {
+                  setPhrasesVersion((v) => v + 1);
+                  announce("Phrase deleted");
+                })
+              }
+              onDone={() => {
+                setView("conversation");
+                resetFocusToTop();
+              }}
             />
-            <VoiceStatus mode={voiceMode} source={voiceSource} progress={voiceProgress} />
-            {showTimer && <ResponseGap gaps={gaps} />}
+          )}
+          {view === "suggestions" && memory && (
+            <SuggestedNotes
+              suggestions={learning.suggestions}
+              notes={notes}
+              onKeep={(s, draft) => void keepSuggestion(s, draft)}
+              onSkip={(id) => {
+                void learning.session?.pending.skip(id);
+                announce("Skipped");
+              }}
+              onSkipAll={() => {
+                void learning.session?.pending.skipAll();
+                announce("Skipped all");
+              }}
+              onDone={() => {
+                setView("conversation");
+                resetFocusToTop();
+              }}
+            />
+          )}
+          {view === "voice" && activeProfile && activeVoice && (
+            <VoiceScreen
+              initial={activeVoice}
+              name={activeProfile.name}
+              voice={voice}
+              mode={voiceMode}
+              progress={voiceProgress}
+              onSave={(v) => void saveVoice(v)}
+              onCancel={() => {
+                setView("conversation");
+                resetFocusToTop();
+              }}
+            />
+          )}
+          <div className="conv-grid" hidden={conversationHidden}>
+            <div className="flex flex-col gap-4 [grid-area:context]">
+              <ContextBar
+                places={places}
+                people={people}
+                placeId={state.placeId}
+                partnerId={state.partnerId}
+                onChange={(placeId, partnerId) => dispatch({ type: "setContext", placeId, partnerId })}
+              />
+              <ListenControl hearing={hearing} status={hearingStatus} progress={hearingProgress} onToggle={toggleListening} />
+            </div>
+            <div className="flex min-w-0 flex-col gap-6 [grid-area:log] lg:min-h-0 lg:gap-4">
+              <CaptionLog turns={state.turns} partnerName={partnerName} partial={state.partnerPartial} onNewConversation={newConversation} />
+              <PartnerInput key={conversationKey} onSubmit={(text) => dispatch({ type: "partnerSaid", id: crypto.randomUUID(), text, at: Date.now() })} />
+            </div>
+            <div className="flex min-w-0 flex-col gap-6 [grid-area:side] lg:min-h-0 lg:gap-3">
+              {/* Wide screens: the "Last said" box takes the room left over and fits its text to it, so the
+                  replies don't move and the reply box stays on screen. If the window is too short even so,
+                  this part scrolls on its own; the padding keeps focus rings from being cut off. */}
+              <div className="flex flex-col gap-6 lg:-m-1.5 lg:min-h-0 lg:flex-1 lg:gap-3 lg:overflow-y-auto lg:overscroll-contain lg:p-1.5">
+                <div className="flex flex-col lg:min-h-[4.5rem] lg:flex-1">
+                  <SpokenCaption speaking={state.speaking} lastSpoken={state.lastSpoken} waiting={voiceWaiting} />
+                </div>
+                <ReactionBar reactions={state.reactions} reserve={conversationStarted} onReact={(text) => speak(text, { isReaction: true })} />
+                <PhraseRow phrases={quickPhrases} onSpeak={(text) => speak(text, { quick: true })} />
+                <ReplyList ref={replyListRef} replies={state.replies} reserve={conversationStarted} speaking={state.speaking} status={state.status} onSpeak={speak} onStop={stop} />
+              </div>
+              <Composer
+                value={state.typed}
+                onChange={(text) => dispatch({ type: "typed", text })}
+                onSpeak={speak}
+                onFocusReplies={focusReplies}
+              />
+              <VoiceStatus mode={voiceMode} source={voiceSource} progress={voiceProgress} />
+              {showTimer && <ResponseGap gaps={gaps} />}
+            </div>
           </div>
         </div>
         <div className="mt-10 max-w-xl">
