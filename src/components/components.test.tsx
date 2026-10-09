@@ -217,6 +217,20 @@ describe("ListenControl", () => {
       "Speech recognition couldn't load or stopped working. Check your connection, then press Listen to try again.",
     );
   });
+
+  it("keeps the status sentence for screen readers, and shows it on screen only when something is wrong", () => {
+    const { rerender } = render(<ListenControl hearing={null} status="listening" progress={100} onToggle={() => {}} />);
+    expect(screen.getByText("Listening. Their words appear in the conversation.").closest("p")).toHaveClass("sr-only");
+    rerender(<ListenControl hearing={null} status="denied" progress={0} onToggle={() => {}} />);
+    expect(screen.getByText(/Microphone is off/).closest("p")).not.toHaveClass("sr-only");
+  });
+
+  it("shows the download progress on the button without changing its name", () => {
+    render(<ListenControl hearing={null} status="loading" progress={42} onToggle={() => {}} />);
+    const button = screen.getByRole("button", { name: "Listen" });
+    expect(button).toHaveAttribute("aria-pressed", "true");
+    expect(button).toHaveTextContent("Listen42%");
+  });
 });
 
 describe("ResponseGap", () => {
