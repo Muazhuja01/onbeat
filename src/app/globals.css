@@ -253,3 +253,13 @@ body {
     transform: translateX(0);
   }
 }
+
+/* A new reply fades in; each new text is a new list item, so this runs once per reply. */
+.reply-in {
+  animation: reply-in 150ms ease-out;
+}
+@keyframes reply-in {
+  from {
+    opacity: 0;
+  }
+}

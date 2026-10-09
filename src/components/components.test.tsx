@@ -36,7 +36,20 @@ describe("ReplyList", () => {
 
   it("explains the empty state", () => {
     render(<ReplyList replies={[]} speaking={null} status="idle" onSpeak={vi.fn()} onStop={vi.fn()} />);
-    expect(screen.getByText("Replies will appear here when someone talks to you or you start typing.")).toBeInTheDocument();
+    expect(screen.getByText("Replies show up here when someone talks to you, or as you type.")).toBeInTheDocument();
+  });
+
+  it("puts the cue light first, with anything else beside and under it", () => {
+    render(<ReplyList replies={replies} speaking={null} status="ready" onSpeak={vi.fn()} onStop={vi.fn()} aside={<button type="button">Mm-hmm</button>} below={<p>Your phrases</p>} />);
+    expect(screen.getByRole("heading", { name: "Replies" })).toHaveClass("sr-only");
+    expect(screen.getByText("Replies ready")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mm-hmm" })).toBeInTheDocument();
+    expect(screen.getByText("Your phrases")).toBeInTheDocument();
+  });
+
+  it("fades new replies in", () => {
+    render(<ReplyList replies={replies} speaking={null} status="ready" onSpeak={vi.fn()} onStop={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Large, please." })).toHaveClass("reply-in");
   });
 });
 
@@ -65,6 +78,16 @@ describe("Composer", () => {
     render(<Composer value="" onChange={vi.fn()} onSpeak={vi.fn()} onFocusReplies={onFocusReplies} />);
     await userEvent.type(screen.getByLabelText("Type a reply"), "{ArrowUp}");
     expect(onFocusReplies).toHaveBeenCalled();
+  });
+
+  it("shows what comes before the box", () => {
+    render(<Composer value="" onChange={vi.fn()} onSpeak={vi.fn()} onFocusReplies={vi.fn()} before={<button type="button">They said</button>} />);
+    expect(screen.getByRole("button", { name: "They said" })).toBeInTheDocument();
+  });
+
+  it("gives the box an outline that meets 3:1", () => {
+    render(<Composer value="" onChange={vi.fn()} onSpeak={vi.fn()} onFocusReplies={vi.fn()} />);
+    expect(screen.getByLabelText("Type a reply")).toHaveClass("border-muted");
   });
 });
 

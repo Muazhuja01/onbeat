@@ -41,11 +41,14 @@ test("the picker offers the Chatterbox voices, and lines are made by the voice s
   await expect.poll(() => bodies.map((b) => b.voice)).toContain("m_us_deep");
   await page.getByRole("button", { name: "Next" }).click();
   await page.getByRole("button", { name: "Finish" }).click();
-  await expect(page.getByText("Your voice is ready.")).toBeVisible();
   await page.getByLabel("Type a reply").fill("Hello there");
   await page.keyboard.press("Enter");
   await expect.poll(() => bodies.map((b) => b.text)).toContain("Hello there");
   expect(await spoken(page)).not.toContain("Hello there");
+  // Your own voice is ready, so there is nothing to say about it.
+  for (const text of ["Waking your voice…", "Using the backup voice.", "Using the basic voice."]) {
+    await expect(page.getByText(text)).toHaveCount(0);
+  }
 });
 
 test("when the voice server fails a line, the device voice says it and the screen says so", async ({ page }) => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { Stop } from "@phosphor-icons/react";
-import { forwardRef } from "react";
+import { forwardRef, type ReactNode } from "react";
 import type { SuggestStatus } from "@/lib/conversation/reducer";
 import type { Reply } from "@/lib/types";
 import { CueLight } from "./cue-light";
@@ -17,20 +17,26 @@ interface Props {
   status: SuggestStatus;
   onSpeak: (text: string) => void;
   onStop: () => void;
+  /** Shown to the right of the cue light (quick reactions). */
+  aside?: ReactNode;
+  /** Shown under the cue row (your phrases). */
+  below?: ReactNode;
 }
 
-export const ReplyList = forwardRef<HTMLElement, Props>(function ReplyList({ replies, reserve = false, speaking, status, onSpeak, onStop }, ref) {
+export const ReplyList = forwardRef<HTMLElement, Props>(function ReplyList({ replies, reserve = false, speaking, status, onSpeak, onStop, aside, below }, ref) {
   return (
     <section ref={ref} id="replies" tabIndex={-1} aria-labelledby="replies-heading" className="flex flex-col gap-3 outline-none">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <h2 id="replies-heading" className="text-body font-bold">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <h2 id="replies-heading" className="sr-only">
           Replies
         </h2>
         <CueLight status={status} />
+        <div className="ml-auto">{aside}</div>
       </div>
+      {below}
       {replies.length === 0 ? (
         // min-h: three 4rem slots and the gaps between them.
-        <p className={`text-body text-muted ${reserve ? "min-h-[13.5rem]" : ""}`}>Replies will appear here when someone talks to you or you start typing.</p>
+        <p className={`text-body text-muted ${reserve ? "min-h-[13.5rem]" : ""}`}>Replies show up here when someone talks to you, or as you type.</p>
       ) : (
         <ol className="flex flex-col gap-3">
           {replies.map((reply, i) => {
@@ -42,14 +48,14 @@ export const ReplyList = forwardRef<HTMLElement, Props>(function ReplyList({ rep
                   aria-keyshortcuts={String(i + 1)}
                   aria-label={isSpeaking ? `Stop saying: ${reply.text}` : undefined}
                   onClick={() => (isSpeaking ? onStop() : onSpeak(reply.text))}
-                  className={`flex min-h-16 w-full items-center gap-4 rounded-control border-2 px-4 py-3 text-left transition-[border-color,background-color,transform] duration-150 active:translate-y-px ${
-                    isSpeaking ? "border-ink bg-cue text-on-cue" : "border-ink/15 bg-surface text-ink hover:border-ink/50"
+                  className={`reply-in flex min-h-16 w-full items-center gap-4 rounded-2xl border-2 px-4 py-3 text-left transition-[border-color,background-color,transform] duration-150 active:translate-y-px ${
+                    isSpeaking ? "border-ink bg-cue text-on-cue" : "border-edge bg-raised text-ink shadow-lift hover:border-ink/50"
                   }`}
                 >
                   <span
                     aria-hidden="true"
                     className={`grid size-9 shrink-0 place-items-center rounded-full border-2 text-label font-bold ${
-                      isSpeaking ? "border-on-cue" : "border-ink/30 text-muted"
+                      isSpeaking ? "border-on-cue" : "border-transparent bg-ground text-ink"
                     }`}
                   >
                     {isSpeaking ? <Stop weight="fill" size={16} /> : i + 1}

@@ -10,5 +10,7 @@ export function voiceStatusText(mode: VoiceMode, source: VoiceSource, progress: 
 }
 
 export function VoiceStatus({ mode, source, progress }: { mode: VoiceMode; source: VoiceSource; progress: number }) {
+  // Nothing to say when your own voice is ready.
+  if (source === "awake") return null;
   return <p className="text-label text-muted">{voiceStatusText(mode, source, progress)}</p>;
 }
