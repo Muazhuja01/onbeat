@@ -4,6 +4,8 @@ Scenarios: 60 in the dev set (`eval/scenarios.ts`, used for tuning) and 60 in th
 
 Run it with `npm run eval` (needs the keys in `.env.local`). The raw output of the runs of record is in `results/latest-dev.md` (dev run B4) and `results/latest-test.md` (test run T1). Both are without the claim check, which is how the app ships.
 
+To tune on part of the dev set without replacing the runs of record, pick scenarios with `--ids maya-06,tom-19` and write elsewhere with `--out slice-name`. `--judges groq` keeps the judge off Cloudflare, whose free allowance the live site shares for captions and backup replies. On a free Groq key the judge model allows about 200k tokens a day, roughly 50 judge calls at high effort, so a 20-scenario slice needs `--votes 1` to fit two runs in a day.
+
 ## Quality pass (2026-09-29)
 
 What changed:

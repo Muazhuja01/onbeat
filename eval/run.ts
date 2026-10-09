@@ -155,13 +155,21 @@ async function main() {
   const votes = Number(arg("votes") ?? JUDGE_VOTES);
   if (!Number.isInteger(votes) || votes < 1) throw new Error(`--votes must be a whole number of at least 1, not "${arg("votes")}".`);
   const judgeModel = process.env.EVAL_JUDGE_MODEL ?? "openai/gpt-oss-120b";
-  const endpoints = judgeEndpoints();
+  // --judges groq keeps the judge off Cloudflare, whose free allowance the live site shares.
+  const judges = arg("judges")?.split(",");
+  const endpoints = judgeEndpoints().filter((e) => !judges || judges.includes(e.name));
   if (endpoints.length === 0) throw new Error("No judge endpoint: set GROQ_API_KEY (and optionally the Cloudflare keys) in .env.local.");
   const claimCheck = process.argv.includes("--claim-check");
   const set = arg("set") ?? "dev";
   if (set !== "dev" && set !== "test") throw new Error(`Unknown set "${set}". Use --set dev or --set test.`);
   const pool = set === "test" ? testScenarios : scenarios;
-  const chosen = pool.filter((s) => !persona || s.persona === persona).slice(0, limit);
+  // --ids picks scenarios by id, such as a slice to tune on; any unknown id is an error.
+  const ids = arg("ids")?.split(",");
+  const unknown = ids?.filter((id) => !pool.some((s) => s.id === id)) ?? [];
+  if (unknown.length) throw new Error(`Unknown scenario ids in the ${set} set: ${unknown.join(", ")}`);
+  const chosen = pool.filter((s) => (!persona || s.persona === persona) && (!ids || ids.includes(s.id))).slice(0, limit);
+  // A slice writes elsewhere with --out, so it never replaces the run of record.
+  const out = arg("out") ?? `latest-${set}`;
 
   const cache = new JudgeCache("eval/results/judge-cache.json");
   const spent = new Set<string>();
@@ -205,9 +213,9 @@ async function main() {
       modelsDone,
       modelsTotal,
     });
-    writeFileSync(`eval/results/latest-${set}.json`, json);
-    writeFileSync(`eval/results/latest-${set}.md`, md);
-    console.log(`  wrote eval/results/latest-${set}.{json,md} (${modelsDone} of ${modelsTotal} models)`);
+    writeFileSync(`eval/results/${out}.json`, json);
+    writeFileSync(`eval/results/${out}.md`, md);
+    console.log(`  wrote eval/results/${out}.{json,md} (${modelsDone} of ${modelsTotal} models)`);
   }
 
   const table = toMarkdown(summaries);
