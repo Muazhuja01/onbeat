@@ -13,6 +13,7 @@
   --bubble: #15233b;
   --on-bubble: #f3f6fa;
   --edge: rgb(21 35 59 / 0.1);
+  --scrim: rgb(16 24 38 / 0.45);
   --elev-lift: 0 1px 2px rgb(21 35 59 / 0.06), 0 4px 14px rgb(21 35 59 / 0.07);
   --elev-tray: 0 10px 30px rgb(21 35 59 / 0.1);
   color-scheme: light;
@@ -31,6 +32,7 @@
     --bubble: #e8edf4;
     --on-bubble: #101826;
     --edge: rgb(232 237 244 / 0.08);
+    --scrim: rgb(0 0 0 / 0.6);
     --elev-lift: none;
     --elev-tray: 0 0 0 1px rgb(232 237 244 / 0.07), 0 12px 30px rgb(0 0 0 / 0.35);
     color-scheme: dark;
@@ -49,6 +51,7 @@
   --bubble: #e8edf4;
   --on-bubble: #101826;
   --edge: rgb(232 237 244 / 0.08);
+  --scrim: rgb(0 0 0 / 0.6);
   --elev-lift: none;
   --elev-tray: 0 0 0 1px rgb(232 237 244 / 0.07), 0 12px 30px rgb(0 0 0 / 0.35);
   color-scheme: dark;
@@ -66,6 +69,7 @@
   --bubble: #ffffff;
   --on-bubble: #000000;
   --edge: #ffffff;
+  --scrim: rgb(0 0 0 / 0.8);
   --elev-lift: none;
   --elev-tray: none;
   color-scheme: dark;
@@ -85,6 +89,7 @@
     --bubble: #ffffff;
     --on-bubble: #000000;
     --edge: #ffffff;
+    --scrim: rgb(0 0 0 / 0.8);
     --elev-lift: none;
     --elev-tray: none;
     color-scheme: dark;
@@ -219,7 +224,7 @@ body {
   overflow-y: auto;
 }
 .sheet::backdrop {
-  background: rgb(16 24 38 / 0.45);
+  background: var(--scrim);
 }
 .sheet-bottom {
   inset: auto 0 0 0;

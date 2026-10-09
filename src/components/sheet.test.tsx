@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -49,8 +49,18 @@ describe("Sheet", () => {
     render(<Harness />);
     await userEvent.click(screen.getByRole("button", { name: "Open" }));
     const dialog = screen.getByRole("dialog", { name: "Where and who" });
-    await userEvent.click(dialog);
+    dialog.getBoundingClientRect = () => new DOMRect(100, 100, 300, 300);
+    fireEvent.click(dialog, { clientX: 5, clientY: 5 });
     expect(dialog).not.toHaveAttribute("open");
+  });
+
+  it("stays open when empty space inside the sheet is clicked", async () => {
+    render(<Harness />);
+    await userEvent.click(screen.getByRole("button", { name: "Open" }));
+    const dialog = screen.getByRole("dialog", { name: "Where and who" });
+    dialog.getBoundingClientRect = () => new DOMRect(100, 100, 300, 300);
+    fireEvent.click(dialog, { clientX: 150, clientY: 150 });
+    expect(dialog).toHaveAttribute("open");
   });
 
   it("has a grab handle on a bottom sheet but not on a side panel", () => {

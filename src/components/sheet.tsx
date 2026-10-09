@@ -56,8 +56,12 @@ export function Sheet({ open, onClose, title, side = "bottom", closeLabel, child
         ref.current?.close();
       }}
       onClick={(e) => {
-        // A click on the backdrop lands on the dialog element itself.
-        if (e.target === e.currentTarget) ref.current?.close();
+        // A click on the backdrop lands on the dialog element itself, but so does one on its own
+        // padding or empty space. Only a click outside the dialog's box is a backdrop click.
+        if (e.target !== e.currentTarget) return;
+        const r = e.currentTarget.getBoundingClientRect();
+        const outside = e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+        if (outside) ref.current?.close();
       }}
     >
       {open && (
