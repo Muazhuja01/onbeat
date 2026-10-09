@@ -54,7 +54,7 @@ export function CaptionLog({
   return (
     <section
       aria-labelledby="conversation-heading"
-      className="flex min-h-0 flex-col gap-3"
+      className="flex min-h-0 flex-col gap-3 lg:flex-1"
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="conversation-heading" className="text-body font-bold">
@@ -109,8 +109,12 @@ export function CaptionLog({
         <ol
           ref={list}
           onScroll={onScroll}
+          // A tab stop, so keyboard users can scroll back through earlier lines with the arrow keys.
+          tabIndex={0}
+          aria-label="Conversation lines"
           // A fixed height, so new lines scroll inside it instead of pushing what's below.
-          className="flex h-[45dvh] flex-col gap-4 overflow-y-auto pr-1 lg:h-[70dvh]"
+          // Wide screens: the room left in the column. Scrolling past the end doesn't move the page.
+          className="flex h-[45dvh] flex-col gap-4 overflow-y-auto overscroll-contain pr-1 lg:h-auto lg:min-h-0 lg:flex-1"
         >
           {turns.map((t) =>
             t.speaker === "partner" ? (
