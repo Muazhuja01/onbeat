@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { contrastRatio, simulate, themes, type ColourBlindness } from "./tokens";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { contrastRatio, simulate, themes, type ColourBlindness, type ThemeName } from "./tokens";
 
 type Key = keyof (typeof themes)["light"];
 
@@ -51,4 +53,34 @@ describe("theme tokens", () => {
       });
     });
   }
+});
+
+describe("globals.css", () => {
+  const css = readFileSync(resolve(__dirname, "../app/globals.css"), "utf8");
+  /** The colour variables in the rule after `anchor`, e.g. { "on-cue": "#15233b" }. */
+  function colours(anchor: string): Record<string, string> {
+    const at = css.indexOf(anchor);
+    expect(at, `globals.css has ${anchor}`).toBeGreaterThanOrEqual(0);
+    const open = css.indexOf("{", at);
+    // A media query's own brace comes first: the variables are in the rule inside it.
+    const start = anchor.startsWith("@media") ? css.indexOf("{", open + 1) : open;
+    const body = css.slice(start + 1, css.indexOf("}", start));
+    return Object.fromEntries([...body.matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})\b/gi)].map(([, name, hex]) => [name, hex.toLowerCase()]));
+  }
+  const kebab = (key: string) => key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+  const RULES: [string, ThemeName][] = [
+    [':root,\n[data-theme="light"]', "light"],
+    ["@media (prefers-color-scheme: dark)", "dark"],
+    ['[data-theme="dark"] {', "dark"],
+    ['[data-theme="contrast"] {', "contrast"],
+    ["@media (prefers-contrast: more)", "contrast"],
+  ];
+
+  it.each(RULES)("uses the %s colours from tokens.ts", (anchor, theme) => {
+    const expected = Object.fromEntries(Object.entries(themes[theme]).map(([key, hex]) => [kebab(key), hex.toLowerCase()]));
+    // Every token, and no solid colour that tokens.ts doesn't check.
+    const actual = colours(anchor);
+    delete actual.edge; // Not a token: a faint ink line, or white in high contrast.
+    expect(actual).toEqual(expected);
+  });
 });
