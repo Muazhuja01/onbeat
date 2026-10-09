@@ -51,10 +51,10 @@ describe("ContextButton", () => {
 });
 
 describe("DemoChip", () => {
-  it("names the demo, says nothing is saved and offers your own profile", async () => {
+  it("marks the demo, says nothing is saved and offers your own profile", async () => {
     const onSetup = vi.fn();
-    render(<DemoChip name="Maya" onSetup={onSetup} />);
-    expect(screen.getByText("Demo: Maya")).toBeInTheDocument();
+    render(<DemoChip onSetup={onSetup} />);
+    expect(screen.getByText("Demo", { exact: true })).toBeInTheDocument();
     expect(screen.getByText("Nothing you do here is saved.")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Set up your own" }));
     expect(onSetup).toHaveBeenCalled();

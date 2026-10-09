@@ -636,7 +636,7 @@ function Screen() {
         end={
           <>
             {inConversation && !wide && listen}
-            {demo && inConversation && wide && <DemoChip name={demo.name} onSetup={() => leaveConversation("setup")} />}
+            {demo && inConversation && wide && <DemoChip onSetup={() => leaveConversation("setup")} />}
             {showMenu && (
               <ProfileMenu
                 profiles={profiles}
