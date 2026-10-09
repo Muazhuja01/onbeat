@@ -135,6 +135,48 @@ describe("useSuggestions", () => {
     expect(result.current.state.replies.some((r) => r.text === "late")).toBe(false);
   });
 
+  it("still shows replies to their line when you speak what you typed while those replies were on their way", async () => {
+    // Each request waits until answered; a cancel drops every one still waiting, as the real client does.
+    const waiting: { input: SuggestInput; answer: () => void }[] = [];
+    const client = {
+      calls: [] as SuggestInput[],
+      cancel: vi.fn(() => {
+        for (const w of waiting.splice(0)) w.answer = () => {};
+      }),
+      request: vi.fn(
+        (input: SuggestInput, onUpdate: (u: SuggestUpdate) => void) =>
+          new Promise<SuggestUpdate | null>((resolve) => {
+            client.calls.push(input);
+            const entry = {
+              input,
+              answer: () => {
+                const u: SuggestUpdate = { replies: [{ text: `For ${input.partnerSaid} / ${input.typed}`, noteIds: [], source: "model" }], reactions: [], done: true };
+                onUpdate(u);
+                resolve(u);
+              },
+            };
+            waiting.push(entry);
+          }),
+      ),
+    };
+
+    const { result } = await setup(client as unknown as SuggestClient);
+    await act(async () => result.current.dispatch({ type: "partnerSaid", id: "1", text: "What size?", at: 1 }));
+    expect(client.calls).toHaveLength(1);
+
+    // You type and speak before the replies to their line arrive.
+    await act(async () => result.current.dispatch({ type: "typed", text: "Large" }));
+    await act(async () => result.current.dispatch({ type: "speakStart", id: "2", text: "Large", at: 2 }));
+
+    // Asked again for their line, with nothing typed, and that answer is shown.
+    expect(client.calls).toHaveLength(2);
+    expect(client.calls[1]).toMatchObject({ mode: "replies+reactions", partnerSaid: "What size?", typed: "" });
+    await act(async () => {
+      for (const w of waiting.splice(0)) w.answer();
+    });
+    expect(result.current.state.replies.map((r) => r.text)).toEqual(["For What size? / "]);
+  });
+
   it("returns to idle instead of staying stuck thinking when the typed text is cleared mid-request", async () => {
     const calls: SuggestInput[] = [];
     let resolveRequest: (() => void) | null = null;

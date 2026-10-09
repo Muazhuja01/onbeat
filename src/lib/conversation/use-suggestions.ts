@@ -166,6 +166,12 @@ export function useSuggestions({ client, memory, state, dispatch, isHolding, deb
         // (Task: stuck "Finding replies..."); resolve it now instead of
         // waiting for a response that will never come.
         dispatch({ type: "cancelled" });
+        // The cancel may also have stopped the replies to their last line, and the ones on screen
+        // were for your words: ask for their line again. Usually it's cached, so nothing is sent.
+        // While they are still talking, the next request made as they talk does this instead.
+        const s = stateRef.current;
+        const said = s.turns.findLast((x) => x.speaker === "partner")?.text ?? "";
+        if (said && !s.partnerPartial) void run("replies+reactions", "", said, "final");
       }
       return;
     }
