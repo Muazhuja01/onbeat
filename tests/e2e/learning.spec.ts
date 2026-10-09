@@ -69,7 +69,7 @@ test("an existing profile is told about suggested notes once", async ({ page }) 
   await expect(page.getByRole("heading", { name: "Replies" })).toBeVisible();
   await page.evaluate(() => localStorage.removeItem("onbeat:learning-told"));
   await page.reload();
-  const notice = page.getByText("New: OnBeat can suggest notes from your conversations for you to review. Turn it off in Settings.");
+  const notice = page.getByRole("main").getByText("New: OnBeat can suggest notes from your conversations for you to review. Turn it off in Settings.");
   await expect(notice).toBeVisible();
   await page.reload();
   await expect(page.getByRole("button", { name: "Priya", exact: true })).toBeVisible();
