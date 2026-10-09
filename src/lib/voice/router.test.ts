@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkerLike } from "@/lib/worker-like";
 import type { VoiceWorkerMessage, VoiceWorkerRequest } from "./messages";
-import { SpeakError, VoiceRouter, type RouterDeps } from "./router";
+import { SpeakError, VoiceRouter, splitLine, type RouterDeps } from "./router";
 
 /** A 16-bit mono WAV with `n` samples. */
 function wav(n = 4): ArrayBuffer {
@@ -64,6 +64,9 @@ function setUp(over: Partial<RouterDeps> = {}) {
   const gen = (id: number, text: string, urgent = false) => router.postMessage({ type: "generate", id, text, voice: "m_gb_gentle", speed: 1, urgent });
   return { kokoro, warm, speak, router, got, gen, wake: (ok: boolean) => warmAnswer(ok) };
 }
+/** The line from the bug report: 495 characters, over the voice server's 300. */
+const LONG =
+  "I am a Computer Science student (graduating Dec 2026) specializing in Artificial Intelligence and Full-Stack Development. I focus on building real-world, LLM-powered applications using TypeScript, Next.js, and Python. Recently, I developed a RAG-powered conversation assistant for AAC users and a live AI flood-mapping platform that processes thousands of data points in real-time. I am actively seeking 2027 software engineering opportunities where I can contribute to scalable, impactful tech.";
 const types = (got: VoiceWorkerMessage[]) => got.map((m) => (m.type === "source" ? `source:${m.source}` : m.type));
 /** The ids answered with a clip or an error, in order. */
 const answered = (got: VoiceWorkerMessage[]) => got.flatMap((m) => ((m.type === "audio" || m.type === "error") && m.id !== undefined ? [m.id] : []));
@@ -168,7 +171,7 @@ describe("VoiceRouter", () => {
     expect(types(t.got.slice(before))).toEqual(["source:awake"]);
   });
 
-  it("a 4xx answer or a line over 300 characters goes to Kokoro without counting toward down", async () => {
+  it("a 4xx answer goes to Kokoro without counting toward down", async () => {
     const speak = vi.fn(async () => { throw new SpeakError(429); });
     const t = setUp({ speak });
     t.kokoro.auto = true;
@@ -176,10 +179,65 @@ describe("VoiceRouter", () => {
     t.wake(true);
     await vi.waitFor(() => expect(types(t.got)).toContain("source:awake"));
     for (let i = 1; i <= 3; i++) t.gen(i, `Line ${i}`, true);
-    t.gen(4, "x".repeat(301), true);
-    await vi.waitFor(() => expect(t.kokoro.gens()).toHaveLength(4));
+    await vi.waitFor(() => expect(t.kokoro.gens()).toHaveLength(3));
     expect(speak).toHaveBeenCalledTimes(3);
     expect(types(t.got)).not.toContain("source:down");
+  });
+
+  it("a line over 300 characters is made by Chatterbox in parts split at sentences, played as one clip", async () => {
+    const t = setUp();
+    await awake(t);
+    t.gen(1, LONG, true);
+    await vi.waitFor(() => expect(t.got.at(-1)).toMatchObject({ type: "audio", id: 1, sampleRate: 24000 }));
+    const parts = t.speak.mock.calls.map(([req]) => req.text);
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.every((p) => p.length <= 300)).toBe(true);
+    expect(parts.join(" ")).toBe(LONG);
+    // Each part's clip is 4 samples: one clip with all of them, in order.
+    const audio = t.got.at(-1) as Extract<VoiceWorkerMessage, { type: "audio" }>;
+    expect(audio.samples).toHaveLength(4 * parts.length);
+    expect(audio).not.toHaveProperty("backup");
+    expect(t.kokoro.gens()).toHaveLength(0);
+  });
+
+  it("makes the parts one after another, so a second cold server isn't started", async () => {
+    const held = heldSpeak();
+    const t = setUp({ speak: held.speak });
+    await awake(t);
+    t.gen(1, LONG, true);
+    await vi.waitFor(() => expect(held.calls).toHaveLength(1));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(held.calls).toHaveLength(1);
+    held.calls[0].resolve(wav());
+    await vi.waitFor(() => expect(held.calls).toHaveLength(2));
+  });
+
+  it("gives a long line the 6 s wait for each part", async () => {
+    const held = heldSpeak();
+    const t = setUp({ speak: held.speak });
+    t.kokoro.auto = true;
+    await awake(t);
+    t.gen(1, LONG, true);
+    const parts = splitLine(LONG, 300).length;
+    await vi.advanceTimersByTimeAsync(6000 * parts - 100);
+    expect(t.kokoro.gens()).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(t.kokoro.gens().map((g) => g.text)).toEqual([LONG]);
+  });
+
+  it("when a part of a long line fails, the whole line goes to Kokoro once", async () => {
+    const held = heldSpeak();
+    const t = setUp({ speak: held.speak });
+    t.kokoro.auto = true;
+    await awake(t);
+    t.gen(1, LONG, true);
+    await vi.waitFor(() => expect(held.calls).toHaveLength(1));
+    held.calls[0].resolve(wav());
+    await vi.waitFor(() => expect(held.calls).toHaveLength(2));
+    held.calls[1].reject(new SpeakError(503));
+    await vi.waitFor(() => expect(answered(t.got)).toEqual([1]));
+    expect(t.kokoro.gens().map((g) => g.text)).toEqual([LONG]);
+    expect(t.got.find((m) => m.type === "audio")).toMatchObject({ backup: true });
   });
 
   it("an empty clip from the server is a failed line, not silence", async () => {
@@ -350,13 +408,15 @@ describe("VoiceRouter", () => {
     expect(answered(t.got)).toEqual([1, 4, 2, 3]);
   });
 
-  it("a line waiting for Kokoro that becomes the line being said goes next", () => {
+  it("a line waiting for Kokoro that becomes the line being said goes next", async () => {
     const t = setUp();
     t.router.postMessage({ type: "load" });
     t.kokoro.emit({ type: "ready" });
-    t.router.postMessage({ type: "generate", id: 1, text: "x".repeat(301), voice: "m_gb_gentle", speed: 1, urgent: false });
-    t.router.postMessage({ type: "generate", id: 2, text: "y".repeat(301), voice: "m_gb_gentle", speed: 1, urgent: false });
-    t.router.postMessage({ type: "generate", id: 3, text: "z".repeat(301), voice: "m_gb_gentle", speed: 1, urgent: false });
+    t.wake(false);
+    await vi.waitFor(() => expect(types(t.got)).toContain("source:down"));
+    t.gen(1, "One");
+    t.gen(2, "Two");
+    t.gen(3, "Three");
     t.router.postMessage({ type: "urgent", id: 3 });
     t.kokoro.answer();
     expect(t.kokoro.gens().map((g) => [g.id, g.urgent])).toEqual([[1, false], [3, true]]);
@@ -434,5 +494,31 @@ describe("VoiceRouter", () => {
     t.router.postMessage({ type: "load" });
     t.wake(true);
     await vi.waitFor(() => expect(types(t.got)).toEqual(["source:waking", "ready", "source:awake"]));
+  });
+});
+
+describe("splitLine", () => {
+  it("keeps a line that fits whole", () => {
+    expect(splitLine("Hello there. How are you?", 300)).toEqual(["Hello there. How are you?"]);
+  });
+
+  it("packs whole sentences into parts that fit", () => {
+    expect(splitLine("One two. Three four. Five six.", 20)).toEqual(["One two. Three four.", "Five six."]);
+  });
+
+  it("splits a sentence too long for one part at a comma, then at a space", () => {
+    expect(splitLine("alpha beta gamma, delta epsilon zeta", 20)).toEqual(["alpha beta gamma,", "delta epsilon zeta"]);
+    expect(splitLine("alpha beta gamma delta epsilon", 12)).toEqual(["alpha beta", "gamma delta", "epsilon"]);
+  });
+
+  it("cuts a word longer than a part rather than going over", () => {
+    const parts = splitLine("x".repeat(25), 10);
+    expect(parts).toEqual(["x".repeat(10), "x".repeat(10), "x".repeat(5)]);
+  });
+
+  it("never makes a part over the limit or an empty one, and loses no words", () => {
+    const parts = splitLine(LONG, 300);
+    expect(parts.every((p) => p.length > 0 && p.length <= 300)).toBe(true);
+    expect(parts.join(" ")).toBe(LONG);
   });
 });

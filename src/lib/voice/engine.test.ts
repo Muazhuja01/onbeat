@@ -129,6 +129,28 @@ describe("VoiceEngine", () => {
     expect(fellBack).toEqual(["Broken"]);
   });
 
+  it("waits longer for a line long enough to be made in parts", async () => {
+    vi.useFakeTimers();
+    try {
+      const w = new FakeWorker();
+      const a = fakeAudio();
+      const { basic, spoken } = fakeBasic();
+      const v = new VoiceEngine({ ...deps(w, a.audio, basic), naturalWaitMs: 5000 });
+      v.load();
+      w.emit({ type: "ready" });
+      // 700 characters: three parts of at most 300, so three times the wait.
+      const long = Array.from({ length: 70 }, () => "Word word.").join(" ").slice(0, 700);
+      void v.speak(long);
+      await vi.advanceTimersByTimeAsync(14_900);
+      expect(spoken).toEqual([]);
+      w.emit({ type: "audio", id: w.lastGenerate().id, samples: new Float32Array(3), sampleRate: 24000 });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(a.played).toEqual([3]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("waits for the chosen voice instead of using the device voice, and says it is waiting", async () => {
     const w = new FakeWorker();
     const a = fakeAudio();

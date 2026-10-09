@@ -10,7 +10,39 @@ export class SpeakError extends Error {
   }
 }
 
+/** The most the voice server takes in one request. A longer line is made in parts and joined. */
 export const MAX_LINE = 300;
+
+/** Splits a line into parts of at most `max` characters: at sentence ends where it can, then after commas, then at spaces. */
+export function splitLine(text: string, max: number): string[] {
+  const pieces = (t: string, seps: RegExp[]): string[] => {
+    if (t.length <= max) return [t];
+    const [sep, ...rest] = seps;
+    // A single word longer than a part: cut it rather than go over.
+    if (!sep) return t.match(new RegExp(`[^]{1,${max}}`, "g")) ?? [];
+    return t.split(sep).flatMap((piece) => pieces(piece, rest));
+  };
+  const parts: string[] = [];
+  for (const piece of pieces(text.trim(), [/(?<=[.!?])\s+/, /(?<=[,;:])\s+/, /\s+/])) {
+    const last = parts.at(-1);
+    if (last !== undefined && last.length + 1 + piece.length <= max) parts[parts.length - 1] = `${last} ${piece}`;
+    else parts.push(piece);
+  }
+  return parts;
+}
+
+/** The parts' clips as one. */
+function joinClips(clips: { samples: Float32Array; sampleRate: number }[]): { samples: Float32Array; sampleRate: number } {
+  const { sampleRate } = clips[0];
+  if (clips.some((c) => c.sampleRate !== sampleRate)) throw new Error("parts at different sample rates");
+  const samples = new Float32Array(clips.reduce((n, c) => n + c.samples.length, 0));
+  let at = 0;
+  for (const c of clips) {
+    samples.set(c.samples, at);
+    at += c.samples.length;
+  }
+  return { samples, sampleRate };
+}
 
 export interface RouterDeps {
   kokoro: WorkerLike | null;
@@ -25,7 +57,8 @@ export interface RouterDeps {
 }
 
 type Generate = Extract<VoiceWorkerRequest, { type: "generate" }>;
-type InFlight = { job: Generate; ctrl: AbortController; deadline: number; timer: ReturnType<typeof setTimeout> };
+/** `parts`: how many requests the line takes; each gets the full wait. */
+type InFlight = { job: Generate; parts: number; ctrl: AbortController; deadline: number; timer: ReturnType<typeof setTimeout> };
 
 /**
  * Sits where the Kokoro worker used to: lines go to Chatterbox through /api/speak, and to the
@@ -115,7 +148,7 @@ export class VoiceRouter implements WorkerLike {
     const f = this.inFlight.get(id);
     if (!f || f.job.urgent) return;
     f.job = { ...f.job, urgent: true };
-    const deadline = Math.min(f.deadline, Date.now() + (this.deps.lineWaitMs ?? 6000));
+    const deadline = Math.min(f.deadline, Date.now() + (this.deps.lineWaitMs ?? 6000) * f.parts);
     if (deadline === f.deadline) return;
     clearTimeout(f.timer);
     f.deadline = deadline;
@@ -189,7 +222,6 @@ export class VoiceRouter implements WorkerLike {
   }
 
   private route(job: Generate): void {
-    if (job.text.length > MAX_LINE) return this.viaKokoro(job);
     if (this.source === "awake" && Date.now() - this.lastLineAt > (this.deps.idleMs ?? 300_000)) void this.wake();
     if (this.source === "awake") return this.toChatterbox(job);
     if (this.source === "down") return this.viaKokoro(job);
@@ -215,11 +247,15 @@ export class VoiceRouter implements WorkerLike {
 
   private async viaChatterbox(job: Generate): Promise<void> {
     const ctrl = new AbortController();
-    const wait = job.urgent ? (this.deps.lineWaitMs ?? 6000) : (this.deps.preparedWaitMs ?? 25_000);
-    const f: InFlight = { job, ctrl, deadline: Date.now() + wait, timer: setTimeout(() => ctrl.abort(), wait) };
+    const parts = splitLine(job.text, MAX_LINE);
+    const wait = (job.urgent ? (this.deps.lineWaitMs ?? 6000) : (this.deps.preparedWaitMs ?? 25_000)) * parts.length;
+    const f: InFlight = { job, parts: parts.length, ctrl, deadline: Date.now() + wait, timer: setTimeout(() => ctrl.abort(), wait) };
     this.inFlight.set(job.id, f);
     try {
-      const { samples, sampleRate } = decodeWav(await this.deps.speak({ text: job.text, voice: job.voice, speed: job.speed }, ctrl.signal));
+      // One part after another: asking for the next at once could start a second, cold, server.
+      const clips = [];
+      for (const text of parts) clips.push(decodeWav(await this.deps.speak({ text, voice: job.voice, speed: job.speed }, ctrl.signal)));
+      const { samples, sampleRate } = joinClips(clips);
       this.failures = 0;
       this.lastLineAt = Date.now();
       this.post({ type: "audio", id: job.id, samples, sampleRate });

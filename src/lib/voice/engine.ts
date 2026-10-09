@@ -1,5 +1,6 @@
 import type { WorkerLike } from "@/lib/worker-like";
 import type { VoiceSource, VoiceWorkerMessage } from "./messages";
+import { MAX_LINE, splitLine } from "./router";
 
 export type VoiceMode = "loading" | "natural" | "basic";
 
@@ -141,9 +142,10 @@ export class VoiceEngine {
     for (const t of texts) this.prepare(t);
   }
 
-  /** Speaks a reply in the current voice. */
+  /** Speaks a reply in the current voice. A long line is made in parts, so it waits the full time for each. */
   speak(text: string): Promise<void> {
-    return this.play(text, this.deps.naturalWaitMs ?? REPLY_WAIT_MS);
+    const parts = splitLine(text, MAX_LINE).length;
+    return this.play(text, (this.deps.naturalWaitMs ?? REPLY_WAIT_MS) * parts);
   }
 
   /**
