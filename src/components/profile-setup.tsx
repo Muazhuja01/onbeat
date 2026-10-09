@@ -10,7 +10,7 @@ import type { Note } from "@/lib/types";
 import { DocumentImport, draftLabel } from "./document-import";
 import { NoteForm } from "./note-form";
 import { VoicePicker } from "./voice-picker";
-import { fieldLabel, hint, linkButton, primaryButton, secondaryButton, textArea, textField } from "./ui";
+import { fieldLabel, hint, linkButton, primaryButton, screenCard, secondaryButton, textArea, textField } from "./ui";
 
 interface Props {
   onDone: (name: string, notes: Note[], voice: VoiceChoice) => void | Promise<void>;
@@ -87,7 +87,7 @@ export function ProfileSetup({ onDone, onDemo, onCancel, onImport, readDocument,
   };
 
   return (
-    <section aria-labelledby="setup-heading" className="flex max-w-2xl flex-col gap-6">
+    <section aria-labelledby="setup-heading" className={`${screenCard} flex max-w-2xl flex-col gap-6`}>
       <div className="flex flex-col gap-2">
         <p className={hint}>Step {step + 1} of 4</p>
         <h2 id="setup-heading" ref={headingRef} tabIndex={-1} className="text-caption font-bold text-balance">

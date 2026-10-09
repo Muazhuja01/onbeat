@@ -7,7 +7,7 @@ import type { Note, NoteKind, Phrase } from "@/lib/types";
 import { DocumentImport } from "./document-import";
 import { KIND_LABELS, NoteForm } from "./note-form";
 import { QuickPhrasesEditor, type PhraseTie } from "./quick-phrases-editor";
-import { hint, primaryButton, secondaryButton } from "./ui";
+import { hint, primaryButton, screenCard, secondaryButton } from "./ui";
 
 const ORDER: NoteKind[] = ["about-me", "person", "place", "routine", "preference"];
 
@@ -41,7 +41,7 @@ export function NotesEditor({ notes, onSave, onRemove, onDone, readDocument, phr
   const addId = (kind: NoteKind) => `notes-add-${kind}`;
 
   return (
-    <section aria-labelledby="notes-heading" className="flex max-w-3xl flex-col gap-6">
+    <section aria-labelledby="notes-heading" className={`${screenCard} flex max-w-3xl flex-col gap-6`}>
       <div className="flex flex-col gap-2">
         <h2 id="notes-heading" ref={headingRef} tabIndex={-1} className="text-caption font-bold text-balance">
           Your notes

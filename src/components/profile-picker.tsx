@@ -1,9 +1,10 @@
 import type { Persona } from "@/data/personas";
+import { screenCard } from "./ui";
 
 /** The example people, reached from "Try a demo". */
 export function ProfilePicker({ personas, onChoose, onBack }: { personas: Persona[]; onChoose: (p: Persona) => void; onBack: () => void }) {
   return (
-    <section aria-labelledby="profiles-heading" className="flex max-w-3xl flex-col gap-4">
+    <section aria-labelledby="profiles-heading" className={`${screenCard} flex max-w-3xl flex-col gap-4`}>
       <h2 id="profiles-heading" className="text-caption font-bold text-balance">
         Try a demo
       </h2>
