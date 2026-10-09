@@ -214,11 +214,12 @@ export function Thread({ turns, partnerName, partial = "", speaking = null, wait
                 </li>
               )}
             </ol>
+            {/* Bottom right: their lines run down the left, so it never covers what they said. */}
             {behind && (
               <button
                 type="button"
                 onClick={toNewest}
-                className="absolute bottom-3 left-1/2 flex min-h-12 -translate-x-1/2 items-center gap-2 rounded-full bg-ink px-5 text-label font-bold text-ground opacity-100 shadow-lift transition-opacity duration-150 starting:opacity-0"
+                className="absolute right-3 bottom-3 flex min-h-12 items-center gap-2 rounded-full bg-ink px-5 text-label font-bold text-ground opacity-100 shadow-lift transition-opacity duration-150 starting:opacity-0"
               >
                 <ArrowDown aria-hidden="true" size={16} weight="bold" />
                 Newest
