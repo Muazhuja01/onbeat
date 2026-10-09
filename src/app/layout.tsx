@@ -14,6 +14,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
+  // An open on-screen keyboard shrinks the page, so the reply tray stays above it.
+  interactiveWidget: "resizes-content",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#EEF1F4" },
     { media: "(prefers-color-scheme: dark)", color: "#101826" },

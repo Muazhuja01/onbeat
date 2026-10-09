@@ -231,3 +231,13 @@ body {
     opacity: 0;
   }
 }
+
+/*
+ * Phones and tablets: while you type, the keyboard takes much of the screen. The quick reactions and
+ * your phrases step aside, so their latest line and all three replies keep their room.
+ */
+@media (width < 64rem) {
+  body:has(#composer:focus) .tray-extras {
+    display: none;
+  }
+}

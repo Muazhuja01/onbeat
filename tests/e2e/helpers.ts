@@ -68,6 +68,9 @@ export async function startWithMaya(page: Page) {
 
 /** Types a line for the other person with "+ They said". */
 export async function theySaid(page: Page, text: string) {
+  // Like putting the phone keyboard away first: with "Type a reply" focused, the reactions step aside and
+  // come back on blur, which moves the "They said" pill between mouse down and up.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.getByRole("button", { name: "They said", exact: true }).click();
   await page.getByLabel("What they said").fill(text);
   await page.getByRole("button", { name: "Add", exact: true }).click();
