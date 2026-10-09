@@ -832,7 +832,7 @@ function Screen() {
               />
             </div>
             <div className="typing-hide">
-              <VoiceStatus mode={voiceMode} source={voiceSource} progress={voiceProgress} />
+              <VoiceStatus mode={voiceMode} source={voiceSource} progress={voiceProgress} reserve={conversationStarted} />
             </div>
             {showTimer && <ResponseGap gaps={gaps} />}
           </Tray>
