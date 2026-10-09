@@ -5,7 +5,6 @@ import { describe, expect, it, vi } from "vitest";
 import { Composer } from "./composer";
 import { CueLight } from "./cue-light";
 import { ReplyList } from "./reply-list";
-import { CaptionLog } from "./caption-log";
 import { AnnouncerProvider, useAnnounce } from "./announcer";
 import { ListenControl } from "./listen-control";
 import { ResponseGap } from "./response-gap";
@@ -88,59 +87,6 @@ describe("Composer", () => {
   it("gives the box an outline that meets 3:1", () => {
     render(<Composer value="" onChange={vi.fn()} onSpeak={vi.fn()} onFocusReplies={vi.fn()} />);
     expect(screen.getByLabelText("Type a reply")).toHaveClass("border-muted");
-  });
-});
-
-describe("CaptionLog", () => {
-  it("labels who said each line", () => {
-    render(
-      <CaptionLog
-        partnerName="Sam"
-        turns={[
-          { id: "1", speaker: "partner", text: "What size?", at: 1 },
-          { id: "2", speaker: "user", text: "Large, please.", at: 2 },
-        ]}
-      />,
-    );
-    expect(screen.getByText("Sam")).toBeInTheDocument();
-    expect(screen.getByText("You")).toBeInTheDocument();
-    expect(screen.getByText("What size?")).toBeInTheDocument();
-  });
-
-  it("shows a live line while the partner is talking", () => {
-    render(<CaptionLog turns={[]} partnerName="Sam" partial="What size" />);
-    expect(screen.getByText("What size…")).toBeInTheDocument();
-    expect(screen.getByText("(still talking)")).toBeInTheDocument();
-    expect(screen.queryByText(/will appear here/)).not.toBeInTheDocument();
-  });
-
-  it("keeps the newest line in view only while you haven't scrolled back, and never scrolls the page", () => {
-    const pageScroll = vi.fn();
-    Element.prototype.scrollIntoView = pageScroll;
-    const turns = [{ id: "1", speaker: "partner" as const, text: "Hi", at: 1 }];
-    const { rerender } = render(<CaptionLog turns={turns} partnerName="Sam" partial="What" />);
-    const list = screen.getByRole("list");
-    let top = 0;
-    Object.defineProperty(list, "scrollHeight", { configurable: true, get: () => 1000 });
-    Object.defineProperty(list, "clientHeight", { configurable: true, get: () => 200 });
-    Object.defineProperty(list, "scrollTop", { configurable: true, get: () => top, set: (v: number) => (top = v) });
-
-    rerender(<CaptionLog turns={turns} partnerName="Sam" partial="What size" />);
-    expect(top).toBe(1000);
-
-    // You scroll back to read an earlier line: new captions leave you there.
-    top = 300;
-    act(() => list.dispatchEvent(new Event("scroll")));
-    rerender(<CaptionLog turns={turns} partnerName="Sam" partial="What size would" />);
-    expect(top).toBe(300);
-
-    // Back near the bottom: it follows the captions again.
-    top = 790;
-    act(() => list.dispatchEvent(new Event("scroll")));
-    rerender(<CaptionLog turns={turns} partnerName="Sam" partial="What size would you" />);
-    expect(top).toBe(1000);
-    expect(pageScroll).not.toHaveBeenCalled();
-    Reflect.deleteProperty(Element.prototype, "scrollIntoView");
   });
 });
 

@@ -61,5 +61,5 @@ test("when the voice server fails a line, the device voice says it and the scree
   await page.getByLabel("Type a reply").fill("Hello there");
   await page.keyboard.press("Enter");
   await expect.poll(() => spoken(page)).toContain("Hello there");
-  await expect(page.getByText("Your voice wasn't ready in time, so your device's voice said that.")).toBeVisible();
+  await expect(page.getByText("Said in your device's voice: yours wasn't ready in time.")).toBeVisible();
 });

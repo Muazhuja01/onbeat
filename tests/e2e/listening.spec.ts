@@ -91,41 +91,35 @@ test("asks for replies while the other person is still talking", async ({ page }
   expect(calls).toBe(1);
 });
 
-test("live captions don't scroll the page away from the replies on a phone", async ({ page }) => {
+test("live captions don't move the page or the replies on a phone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await prepare(page);
   await installFakeHearing(page);
   await startWithMaya(page);
   await page.getByRole("button", { name: "Listen" }).click();
-  // Enough lines that the log is at its full height and scrolls inside itself,
-  // so a new caption line can't change the page's layout.
-  const lines = ["Good morning!", "How are you today?", "What size would you like?", "Anything to eat?", "Oat milk again?"];
-  for (const line of [...lines, "For here or to go?", "Is that everything?"]) {
+  for (const line of ["Good morning!", "How are you today?", "What size would you like?", "Anything to eat?", "Oat milk again?", "For here or to go?", "Is that everything?"]) {
     await hear(page, "turnEnd", line);
   }
-  const log = page.getByRole("region", { name: "Conversation" }).getByRole("list");
+  const log = page.getByRole("list", { name: "Conversation lines" });
   expect(await log.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
   const reply = page.getByRole("button", { name: "Large, please." });
-  await expect(reply).toBeVisible();
-  await reply.scrollIntoViewIfNeeded();
-  await expect(reply).toBeInViewport();
-  const before = await page.evaluate(() => window.scrollY);
+  await expect(reply).toBeInViewport({ ratio: 1 });
+  // The voice status line under the type box changes height while the voice loads; wait until it settles,
+  // so only captions change from here.
+  await expect(page.getByText("Using the basic voice.")).toBeVisible();
   const replyTop = (await reply.boundingBox())?.y;
-  expect(before).toBeGreaterThan(0);
 
-  // Only captions change from here: requests made while they talk never answer,
-  // so a reply list re-streaming can't move the page either.
+  // Only captions change from here: requests made while they talk never answer.
   await page.route("**/api/suggest", () => {});
-
   for (const words of ["Would", "Would you like", "Would you like a pastry", "Would you like a pastry with that"]) {
     await hear(page, "partial", words);
     await expect(page.getByText(`${words}…`)).toBeAttached();
   }
-  // Give any scroll effect time to run after the last caption.
   await page.waitForTimeout(300);
-  expect(await page.evaluate(() => window.scrollY)).toBe(before);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
   expect((await reply.boundingBox())?.y).toBe(replyTop);
-  await expect(reply).toBeInViewport();
+  await expect(reply).toBeInViewport({ ratio: 1 });
+  await expect(page.getByLabel("Type a reply")).toBeInViewport({ ratio: 1 });
 });
 
 for (const size of [
@@ -149,22 +143,19 @@ for (const size of [
       "My name is Alex. I'm a comp sci major, currently working on different projects, and I also like competing in hackathons with my friends on the weekends when I have the time.";
     await page.getByLabel("Type a reply").fill(said);
     await page.getByRole("button", { name: "Speak" }).click();
-    await expect(page.getByRole("region", { name: "What you said" })).toContainText(said);
+    // Your line is in the thread. The live line below it may scroll it out of view in a short window, so only its presence is checked.
+    await expect(page.getByRole("list", { name: "Conversation lines" })).toContainText(said);
 
     // Nothing moved the page, and everything you need is inside the window without scrolling.
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     for (const target of [
       page.getByLabel("Type a reply"),
       page.getByRole("button", { name: "Speak" }),
-      page.getByLabel("What they said"),
+      page.getByRole("button", { name: "They said", exact: true }),
       page.getByRole("button", { name: "Large, please." }),
       page.getByRole("button", { name: "What sizes do you have?" }),
     ])
       await expect(target).toBeInViewport({ ratio: 1 });
-    // The long line got smaller to fit, but not below the body text size.
-    const fontPx = await page.getByRole("region", { name: "What you said" }).getByText(said).evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
-    expect(fontPx).toBeGreaterThanOrEqual(20);
-    expect(fontPx).toBeLessThanOrEqual(32);
   });
 }
 

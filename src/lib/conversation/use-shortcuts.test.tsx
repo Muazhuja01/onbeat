@@ -22,6 +22,20 @@ describe("useReplyShortcuts", () => {
     expect(onReply).toHaveBeenCalledTimes(1);
   });
 
+  it("ignores numbers and Alt+numbers while a sheet or panel is open", () => {
+    const { onReply, onReaction } = setup();
+    const dialog = document.createElement("dialog");
+    dialog.setAttribute("open", "");
+    document.body.append(dialog);
+    fireEvent.keyDown(document.body, { key: "1" });
+    fireEvent.keyDown(document.body, { key: "1", code: "Digit1", altKey: true });
+    expect(onReply).not.toHaveBeenCalled();
+    expect(onReaction).not.toHaveBeenCalled();
+    dialog.remove();
+    fireEvent.keyDown(document.body, { key: "1" });
+    expect(onReply).toHaveBeenCalledWith(0);
+  });
+
   it("ignores digits typed into a text field", () => {
     const { onReply, getByLabelText } = setup();
     fireEvent.keyDown(getByLabelText("Type a reply"), { key: "1" });

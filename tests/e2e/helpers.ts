@@ -62,5 +62,13 @@ export async function startWithMaya(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Try a demo first" }).click();
   await page.getByRole("button", { name: /^Maya/ }).click();
-  await expect(page.getByLabel("Place")).toHaveValue("m-cafe");
+  // At every width: below 640 px the place and person sit in the "Where and who" sheet.
+  await expect(page.getByRole("heading", { name: "Replies" })).toBeAttached();
+}
+
+/** Types a line for the other person with "+ They said". */
+export async function theySaid(page: Page, text: string) {
+  await page.getByRole("button", { name: "They said", exact: true }).click();
+  await page.getByLabel("What they said").fill(text);
+  await page.getByRole("button", { name: "Add", exact: true }).click();
 }

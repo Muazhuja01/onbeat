@@ -102,5 +102,3 @@ export function ContextButton(props: Props) {
   );
 }
 
-/** Still used by the conversation screen until it is rebuilt from the new pieces. */
-export const ContextBar = ContextChips;

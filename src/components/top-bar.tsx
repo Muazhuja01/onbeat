@@ -10,7 +10,8 @@ export function TopBar({ start, end, below }: { start?: ReactNode; end?: ReactNo
           OnBeat
         </p>
         {start}
-        <div className="ml-auto flex items-center gap-2">{end}</div>
+        {/* Wraps too, so double-size text at 320 px doesn't push the page sideways. */}
+        <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">{end}</div>
       </div>
       {below}
     </header>
