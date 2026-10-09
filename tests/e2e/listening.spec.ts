@@ -143,12 +143,13 @@ for (const size of [
       "So at eight weeks, when you think you're feeling good, the graft is not ready, and it takes a while for that graft to become a ligament, so you gotta respect the tissue healing.";
     for (let i = 0; i < 4; i++) await hear(page, "turnEnd", long);
     await hear(page, "partial", long);
+    // Replies first: speaking what you typed cancels a reply request still on its way.
+    await expect(page.getByRole("button", { name: "Large, please." })).toBeVisible();
     const said =
       "My name is Alex. I'm a comp sci major, currently working on different projects, and I also like competing in hackathons with my friends on the weekends when I have the time.";
     await page.getByLabel("Type a reply").fill(said);
     await page.getByRole("button", { name: "Speak" }).click();
     await expect(page.getByRole("region", { name: "What you said" })).toContainText(said);
-    await expect(page.getByRole("button", { name: "Large, please." })).toBeVisible();
 
     // Nothing moved the page, and everything you need is inside the window without scrolling.
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
