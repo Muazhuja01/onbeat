@@ -7,6 +7,8 @@ import { primaryButton, quietButton, secondaryButton } from "./ui";
 
 /** How close to the end of the list still counts as following the newest line. */
 const NEAR_END_PX = 64;
+/** Room left above their latest line when following stops short of the end to keep it in view. */
+const FOLLOW_MARGIN_PX = 12;
 
 interface Props {
   turns: Turn[];
@@ -43,26 +45,41 @@ export function Thread({ turns, partnerName, partial = "", speaking = null, wait
 
   // False once you scroll back to read an earlier line; true again near the end.
   const following = useRef(true);
+  // Where following last scrolled to, so that scroll isn't mistaken for you scrolling back.
+  const followedTo = useRef<number | null>(null);
   const [behind, setBehind] = useState(false);
   const onScroll = () => {
     const el = list.current;
     if (!el) return;
-    following.current = el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_END_PX;
+    const nearEnd = el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_END_PX;
+    following.current = nearEnd || (followedTo.current !== null && Math.abs(el.scrollTop - followedTo.current) <= 2);
     setBehind(!following.current);
+  };
+  /**
+   * Scrolls to the newest line, but never so far that their latest line goes off the top: what they
+   * said matters more than the end of your own line, which the reply tray can stop too.
+   * Scrolls only the list, never the page, and instantly, so reduced motion is respected.
+   */
+  const follow = (el: HTMLOListElement) => {
+    const theirs = el.querySelectorAll<HTMLElement>("[data-theirs]");
+    const latest = theirs[theirs.length - 1];
+    const theirsIsLast = !latest || latest === el.lastElementChild;
+    const theirTop = latest ? latest.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - FOLLOW_MARGIN_PX : 0;
+    el.scrollTop = theirsIsLast ? el.scrollHeight : Math.min(el.scrollHeight, Math.max(0, theirTop));
+    followedTo.current = el.scrollTop;
   };
   // The last line can grow when they carry it on after a pause.
   const lastText = turns.at(-1)?.text;
   useEffect(() => {
-    // Scroll only the list, never the page. Instant, so reduced motion is respected.
     const el = list.current;
-    if (el && following.current) el.scrollTop = el.scrollHeight;
+    if (el && following.current) follow(el);
   }, [turns.length, lastText, partial]);
   // The list shrinks when a phone keyboard opens: keep the newest line in view.
   useEffect(() => {
     const el = list.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      if (following.current) el.scrollTop = el.scrollHeight;
+      if (following.current) follow(el);
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -71,6 +88,7 @@ export function Thread({ turns, partnerName, partial = "", speaking = null, wait
     const el = list.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
+    followedTo.current = el.scrollTop;
     following.current = true;
     setBehind(false);
   };
@@ -139,7 +157,7 @@ export function Thread({ turns, partnerName, partial = "", speaking = null, wait
           >
             {turns.map((t) =>
               t.speaker === "partner" ? (
-                <li key={t.id} className="max-w-[92%] self-start border-l-4 border-partner pl-4">
+                <li key={t.id} data-theirs className="max-w-[92%] self-start border-l-4 border-partner pl-4">
                   <span className="block text-label font-bold text-partner">{partnerName}</span>
                   <span className="block text-[1.625rem] leading-[2.0625rem] font-medium [overflow-wrap:anywhere] lg:text-caption">{t.text}</span>
                 </li>
@@ -175,7 +193,7 @@ export function Thread({ turns, partnerName, partial = "", speaking = null, wait
               ),
             )}
             {partial && (
-              <li className="max-w-[92%] self-start border-l-4 border-dashed border-partner pl-4">
+              <li data-theirs className="max-w-[92%] self-start border-l-4 border-dashed border-partner pl-4">
                 <span className="block text-label font-bold text-partner">
                   {partnerName} <span className="font-medium text-muted">(still talking)</span>
                 </span>

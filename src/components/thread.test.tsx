@@ -80,6 +80,28 @@ describe("Thread", () => {
     expect(screen.queryByRole("button", { name: "Newest" })).toBeNull();
   });
 
+  it("keeps their latest line in view when your reply after it would push it off the top", () => {
+    const { rerender } = render(<Thread turns={turns.slice(0, 1)} partnerName="Sam" />);
+    const list = screen.getByRole("list", { name: "Conversation lines" });
+    const top = fakeScroll(list);
+    // Their line starts 500 px down the thread; the thread shows 200 px at a time.
+    list.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
+    const theirs = () => screen.getAllByRole("listitem")[0];
+    theirs().getBoundingClientRect = () => ({ top: 100 + 500 - top.get() }) as DOMRect;
+
+    rerender(<Thread turns={turns} partnerName="Sam" />);
+    // Scrolled to the top of their line, not to the end where only your bubble would show.
+    expect(top.get()).toBeLessThanOrEqual(500);
+    expect(top.get()).toBeGreaterThan(450);
+    // That counts as following, so Newest isn't offered for it.
+    act(() => list.dispatchEvent(new Event("scroll")));
+    expect(screen.queryByRole("button", { name: "Newest" })).toBeNull();
+
+    // When they speak again, their new line is the newest: follow to the end.
+    rerender(<Thread turns={[...turns, { id: "3", speaker: "partner", text: "Hot or iced?", at: 3 }]} partnerName="Sam" />);
+    expect(top.get()).toBe(1000);
+  });
+
   it("asks before clearing the conversation", async () => {
     const onNew = vi.fn();
     render(<Thread turns={turns} partnerName="Sam" onNewConversation={onNew} />);
@@ -122,7 +144,8 @@ describe("Thread", () => {
 
     it("keeps the newest line in view while following", () => {
       const observer = installObserver();
-      render(<Thread turns={turns} partnerName="Sam" />);
+      // Their line is the newest, so following goes to the end.
+      render(<Thread turns={[...turns, { id: "3", speaker: "partner", text: "Hot or iced?", at: 3 }]} partnerName="Sam" />);
       const top = fakeScroll(screen.getByRole("list", { name: "Conversation lines" }));
       observer.fire();
       expect(top.get()).toBe(1000);
