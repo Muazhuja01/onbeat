@@ -14,6 +14,13 @@ interface Props {
   children: ReactNode;
 }
 
+// Safari doesn't focus a button when it's clicked, so a sheet opened by a click would have nothing to
+// give focus back to. The last button clicked stands in for it.
+let lastClicked: HTMLElement | null = null;
+if (typeof document !== "undefined") {
+  document.addEventListener("click", (e) => (lastClicked = e.target instanceof Element ? e.target.closest<HTMLElement>("button, a[href], [role='button']") : null), true);
+}
+
 /**
  * A modal panel on a native <dialog>: focus stays inside, the page behind is inert, and
  * Escape, the close button or the backdrop close it. Focus goes back to what opened it.
@@ -31,7 +38,8 @@ export function Sheet({ open, onClose, title, side = "bottom", closeLabel, child
     const dialog = ref.current;
     if (!dialog) return;
     if (open && !dialog.open) {
-      opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const active = document.activeElement;
+      opener.current = active instanceof HTMLElement && active !== document.body ? active : lastClicked;
       dialog.showModal();
     } else if (!open && dialog.open) dialog.close();
   }, [open]);

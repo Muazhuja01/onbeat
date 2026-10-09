@@ -33,6 +33,17 @@ describe("Sheet", () => {
     expect(opener).toHaveFocus();
   });
 
+  it("gives focus back to the button that opened it when clicking didn't focus it, as in Safari", async () => {
+    render(<Harness />);
+    const opener = screen.getByRole("button", { name: "Open" });
+    // A click without focus moving, as Safari does for buttons.
+    fireEvent.click(opener);
+    expect(opener).not.toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByText("Inside")).toBeNull();
+    expect(opener).toHaveFocus();
+  });
+
   it("closes on Escape without the page's own Escape running", async () => {
     const onWindowKey = vi.fn();
     window.addEventListener("keydown", onWindowKey);

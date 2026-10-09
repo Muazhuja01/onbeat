@@ -202,6 +202,17 @@ body {
   border-radius: 1.5rem 1.5rem 0 0;
   padding-bottom: env(safe-area-inset-bottom);
 }
+.sheet-bottom[open] {
+  animation: sheet-in-bottom 200ms ease-out;
+}
+@keyframes sheet-in-bottom {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
 .sheet-right {
   inset: 0 0 0 auto;
   width: min(28rem, 100%);
