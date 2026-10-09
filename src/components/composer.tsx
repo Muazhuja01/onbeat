@@ -21,7 +21,7 @@ export function Composer({ value, onChange, onSpeak, onFocusReplies, before }: P
         onSpeak(value);
       }}
     >
-      <label htmlFor="composer" className="text-label text-muted">
+      <label htmlFor="composer" className="typing-quiet text-label text-muted">
         Type a reply
       </label>
       <div className="flex flex-wrap gap-3">

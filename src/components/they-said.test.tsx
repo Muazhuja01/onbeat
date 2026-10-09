@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -78,6 +78,12 @@ describe("They said", () => {
     await close();
     expect(screen.queryByLabelText("What they said")).toBeNull();
     expect(screen.getByLabelText("Type a reply")).toHaveFocus();
+  });
+
+  it.each([false, true])("leaves focus where it is on mouse down (pill %s), so nothing moves before the click lands", (pill) => {
+    render(<TheySaidButton onOpen={vi.fn()} pill={pill} />);
+    // fireEvent returns false when the default (moving focus) was prevented.
+    expect(fireEvent.mouseDown(screen.getByRole("button", { name: "They said" }))).toBe(false);
   });
 
   it("gives the box an outline that meets 3:1, not the faint edge", async () => {

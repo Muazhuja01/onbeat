@@ -664,7 +664,7 @@ function Screen() {
         }
         below={
           inConversation && !wide ? (
-            <div className="px-4 pb-3">
+            <div className="typing-hide px-4 pb-3">
               <ContextButton {...contextProps} />
             </div>
           ) : undefined
@@ -824,7 +824,9 @@ function Screen() {
                 before={wide ? <TheySaidButton onOpen={openTheySaid} /> : undefined}
               />
             </div>
-            <VoiceStatus mode={voiceMode} source={voiceSource} progress={voiceProgress} />
+            <div className="typing-hide">
+              <VoiceStatus mode={voiceMode} source={voiceSource} progress={voiceProgress} />
+            </div>
             {showTimer && <ResponseGap gaps={gaps} />}
           </Tray>
         </div>

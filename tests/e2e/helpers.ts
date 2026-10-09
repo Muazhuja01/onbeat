@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 const MODEL_LINES = [
   '{"reply": "Large, please.", "notes": []}',
@@ -68,10 +68,25 @@ export async function startWithMaya(page: Page) {
 
 /** Types a line for the other person with "+ They said". */
 export async function theySaid(page: Page, text: string) {
-  // Like putting the phone keyboard away first: with "Type a reply" focused, the reactions step aside and
-  // come back on blur, which moves the "They said" pill between mouse down and up.
-  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.getByRole("button", { name: "They said", exact: true }).click();
   await page.getByLabel("What they said").fill(text);
   await page.getByRole("button", { name: "Add", exact: true }).click();
+}
+
+/** Fails unless a tap at the middle of `target` would reach it: nothing (such as the thread) is painted over it. */
+export async function expectTappable(target: Locator) {
+  await expect(target).toBeInViewport({ ratio: 1 });
+  const hit = await target.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return top !== null && (top === el || el.contains(top));
+  });
+  expect(hit, "something is painted over it").toBe(true);
+}
+
+/** Fails if the thread's list reaches into the reply tray. */
+export async function expectThreadAboveTray(page: Page) {
+  const list = await page.getByRole("list", { name: "Conversation lines" }).boundingBox();
+  const tray = await page.locator(".tray").boundingBox();
+  expect(list && tray && list.y + list.height <= tray.y + 1, `thread ${JSON.stringify(list)} overlaps tray ${JSON.stringify(tray)}`).toBe(true);
 }

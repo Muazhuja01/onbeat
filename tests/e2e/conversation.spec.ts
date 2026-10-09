@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { prepare, startWithMaya, theySaid } from "./helpers";
+import { expectTappable, expectThreadAboveTray, prepare, startWithMaya, theySaid } from "./helpers";
 
 test("a partner line produces checked replies that can be spoken", async ({ page }) => {
   await prepare(page);
@@ -202,8 +202,31 @@ test("the controls are reached with Tab in the order they appear", async ({ page
       }),
     );
   }
-  const expected = ["Place", "Talking with", "Listen", "Set up your own", "Demo: Maya", "Settings", "New conversation", "Conversation lines", "Mm-hmm", "Large, please.", "They said", "Speak"];
+  const expected = ["Place", "Talking with", "Listen", "Demo: Maya", "Settings", "New conversation", "Conversation lines", "Mm-hmm", "Large, please.", "They said", "Speak"];
   let at = 0;
   for (const name of names) if (at < expected.length && name.includes(expected[at])) at++;
   expect(at, `missing or out of order: ${expected[at]} in ${names.join(" | ")}`).toBe(expected.length);
 });
+
+for (const size of [
+  { width: 1280, height: 720 },
+  { width: 1440, height: 800 },
+]) {
+  test(`at ${size.width}×${size.height} in a demo the bar is one row and nothing covers the tray`, async ({ page }) => {
+    await page.setViewportSize(size);
+    await prepare(page);
+    await startWithMaya(page);
+    const bar = await page.locator("header").first().boundingBox();
+    expect(bar?.height).toBeLessThan(90);
+    for (const line of ["Good morning!", "So at eight weeks, when you think you're feeling good, the graft is not ready, and it takes a while.", "What size would you like?"]) {
+      await theySaid(page, line);
+    }
+    await expect(page.getByRole("button", { name: "Large, please." })).toBeVisible();
+    await page.getByLabel("Type a reply").blur();
+    await expectThreadAboveTray(page);
+    for (const name of ["Large, please.", "Hi Sam, my usual please.", "What sizes do you have?", "Mm-hmm", "Thank you"]) {
+      await expectTappable(page.getByRole("button", { name }));
+    }
+    await expectTappable(page.getByLabel("Type a reply"));
+  });
+}

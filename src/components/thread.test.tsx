@@ -93,13 +93,40 @@ describe("Thread", () => {
     // Scrolled to the top of their line, not to the end where only your bubble would show.
     expect(top.get()).toBeLessThanOrEqual(500);
     expect(top.get()).toBeGreaterThan(450);
-    // That counts as following, so Newest isn't offered for it.
+    // Your line is below, so Newest is offered to reach it.
     act(() => list.dispatchEvent(new Event("scroll")));
-    expect(screen.queryByRole("button", { name: "Newest" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Newest" })).toBeInTheDocument();
 
-    // When they speak again, their new line is the newest: follow to the end.
+    // It still counts as following: when they speak again, their new line is the newest, so follow to the end.
     rerender(<Thread turns={[...turns, { id: "3", speaker: "partner", text: "Hot or iced?", at: 3 }]} partnerName="Sam" />);
     expect(top.get()).toBe(1000);
+  });
+
+  it("follows to the end once you say more than one line after theirs", () => {
+    const { rerender } = render(<Thread turns={turns} partnerName="Sam" />);
+    const list = screen.getByRole("list", { name: "Conversation lines" });
+    const top = fakeScroll(list);
+    list.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
+    screen.getAllByRole("listitem")[0].getBoundingClientRect = () => ({ top: 100 + 500 - top.get() }) as DOMRect;
+
+    rerender(<Thread turns={[...turns, { id: "3", speaker: "user", text: "And a muffin.", at: 3 }]} partnerName="Sam" />);
+    expect(top.get()).toBe(1000);
+  });
+
+  it("follows again in the next conversation after clearing while scrolled back", () => {
+    const { rerender } = render(<Thread turns={turns} partnerName="Sam" />);
+    const list = screen.getByRole("list", { name: "Conversation lines" });
+    const top = fakeScroll(list);
+    top.set(300);
+    act(() => list.dispatchEvent(new Event("scroll")));
+    expect(screen.getByRole("button", { name: "Newest" })).toBeInTheDocument();
+
+    rerender(<Thread turns={[]} partnerName="Sam" />);
+    rerender(<Thread turns={turns.slice(0, 1)} partnerName="Sam" />);
+    expect(screen.queryByRole("button", { name: "Newest" })).toBeNull();
+    const next = fakeScroll(screen.getByRole("list", { name: "Conversation lines" }));
+    rerender(<Thread turns={[...turns.slice(0, 1), { id: "4", speaker: "partner", text: "Hot or iced?", at: 4 }]} partnerName="Sam" />);
+    expect(next.get()).toBe(1000);
   });
 
   it("asks before clearing the conversation", async () => {

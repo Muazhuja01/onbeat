@@ -9,6 +9,9 @@ export function TheySaidButton({ onOpen, pill = false }: { onOpen: () => void; p
     <button
       type="button"
       onClick={onOpen}
+      // Focus stays in "Type a reply" until the click lands: on phones, leaving it brings the reactions back
+      // and moves this button between mouse down and up.
+      onMouseDown={(e) => e.preventDefault()}
       className={
         pill
           ? "flex min-h-12 items-center gap-2 self-start rounded-full border-2 border-partner/40 bg-surface px-4 text-label font-bold text-partner"
@@ -56,7 +59,7 @@ export function TheySaidForm({ onSubmit, onClose }: { onSubmit: (text: string) =
           placeholder="Type what the other person said…"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          className="min-h-14 min-w-32 flex-1 rounded-control border-2 border-muted bg-raised px-4 text-body text-ink placeholder:text-muted"
+          className="min-h-14 min-w-0 flex-1 basis-0 rounded-control border-2 border-muted bg-raised px-4 text-body text-ink placeholder:text-muted"
         />
         <button type="submit" className="min-h-14 rounded-control border-2 border-partner bg-partner px-5 text-body font-bold text-ground">
           Add

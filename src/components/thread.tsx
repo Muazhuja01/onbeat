@@ -53,21 +53,33 @@ export function Thread({ turns, partnerName, partial = "", speaking = null, wait
     if (!el) return;
     const nearEnd = el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_END_PX;
     following.current = nearEnd || (followedTo.current !== null && Math.abs(el.scrollTop - followedTo.current) <= 2);
-    setBehind(!following.current);
+    // Newest is offered whenever there is more below, including when following stopped short.
+    setBehind(!nearEnd);
   };
   /**
-   * Scrolls to the newest line, but never so far that their latest line goes off the top: what they
-   * said matters more than the end of your own line, which the reply tray can stop too.
+   * Scrolls to the newest line. Your first line after theirs never pushes theirs off the top: what
+   * they said matters most, and Newest shows the rest. Once you say more, it follows to the end.
    * Scrolls only the list, never the page, and instantly, so reduced motion is respected.
    */
   const follow = (el: HTMLOListElement) => {
     const theirs = el.querySelectorAll<HTMLElement>("[data-theirs]");
     const latest = theirs[theirs.length - 1];
-    const theirsIsLast = !latest || latest === el.lastElementChild;
+    const yoursRightAfter = latest !== undefined && latest.nextElementSibling === el.lastElementChild && latest !== el.lastElementChild;
     const theirTop = latest ? latest.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - FOLLOW_MARGIN_PX : 0;
-    el.scrollTop = theirsIsLast ? el.scrollHeight : Math.min(el.scrollHeight, Math.max(0, theirTop));
+    el.scrollTop = yoursRightAfter ? Math.min(el.scrollHeight, Math.max(0, theirTop)) : el.scrollHeight;
     followedTo.current = el.scrollTop;
   };
+  // A cleared conversation starts again at the newest line, wherever you had scrolled to.
+  const [hadLines, setHadLines] = useState(hasLines);
+  if (hadLines !== hasLines) {
+    setHadLines(hasLines);
+    if (!hasLines) setBehind(false);
+  }
+  useEffect(() => {
+    if (hasLines) return;
+    following.current = true;
+    followedTo.current = null;
+  }, [hasLines]);
   // The last line can grow when they carry it on after a pause.
   const lastText = turns.at(-1)?.text;
   useEffect(() => {
@@ -97,8 +109,8 @@ export function Thread({ turns, partnerName, partial = "", speaking = null, wait
   const speakingId = speaking === null ? undefined : turns.findLast((t) => t.speaker === "user" && t.text === speaking)?.id;
 
   return (
-    <section aria-labelledby="conversation-heading" className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <section aria-labelledby="conversation-heading" className="-m-1.5 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-1.5">
+      <div className="typing-hide flex shrink-0 flex-wrap items-center justify-between gap-3">
         <h2 id="conversation-heading" className="text-label font-bold text-muted">
           Conversation
         </h2>
@@ -146,73 +158,75 @@ export function Thread({ turns, partnerName, partial = "", speaking = null, wait
           {footer}
         </div>
       ) : (
-        <div className="relative flex min-h-24 flex-1 flex-col">
-          <ol
-            ref={list}
-            onScroll={onScroll}
-            // A tab stop, so keyboard users can scroll back through earlier lines with the arrow keys.
-            tabIndex={0}
-            aria-label="Conversation lines"
-            className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-1 pb-3"
-          >
-            {turns.map((t) =>
-              t.speaker === "partner" ? (
-                <li key={t.id} data-theirs className="max-w-[92%] self-start border-l-4 border-partner pl-4">
-                  <span className="block text-label font-bold text-partner">{partnerName}</span>
-                  <span className="block text-[1.625rem] leading-[2.0625rem] font-medium [overflow-wrap:anywhere] lg:text-caption">{t.text}</span>
-                </li>
-              ) : (
-                <li key={t.id} className="flex max-w-[80%] flex-col items-end gap-1 self-end lg:max-w-[72%]">
-                  <div className="flex max-w-full min-w-0 flex-col gap-1 rounded-[1.25rem] rounded-br-md bg-bubble px-4 py-3 text-on-bubble shadow-lift">
-                    <span className="flex flex-wrap items-center gap-2 text-label font-bold">
-                      <span className="flex items-center gap-2 opacity-80">
-                        {t.id === speakingId && <SpeakerHigh aria-hidden="true" size={16} weight="bold" />}
-                        {t.id === speakingId ? (waiting ? "Getting your voice ready…" : "Speaking") : "You"}
-                      </span>
-                      {t.id === speakingId && onStop && (
-                        <button
-                          type="button"
-                          aria-label="Stop speaking"
-                          onClick={onStop}
-                          className="ml-auto flex min-h-12 items-center gap-1 rounded-full border-2 border-on-bubble bg-cue px-4 text-label font-bold text-on-cue"
-                        >
-                          <Stop aria-hidden="true" size={14} weight="fill" />
-                          Stop
-                        </button>
-                      )}
-                    </span>
-                    <span className="block text-body [overflow-wrap:anywhere]">{t.text}</span>
-                  </div>
-                  {lineNotes[t.id] && (
-                    <p className="flex items-center gap-1 text-label text-muted">
-                      <Info aria-hidden="true" size={16} />
-                      {lineNotes[t.id]}
-                    </p>
-                  )}
-                </li>
-              ),
-            )}
-            {partial && (
-              <li data-theirs className="max-w-[92%] self-start border-l-4 border-dashed border-partner pl-4">
-                <span className="block text-label font-bold text-partner">
-                  {partnerName} <span className="font-medium text-muted">(still talking)</span>
-                </span>
-                <span className="block text-[1.625rem] leading-[2.0625rem] font-medium [overflow-wrap:anywhere] lg:text-caption">{partial}…</span>
-              </li>
-            )}
-          </ol>
-          {behind && (
-            <button
-              type="button"
-              onClick={toNewest}
-              className="absolute bottom-3 left-1/2 flex min-h-12 -translate-x-1/2 items-center gap-2 rounded-full bg-ink px-5 text-label font-bold text-ground opacity-100 shadow-lift transition-opacity duration-150 starting:opacity-0"
+        <>
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <ol
+              ref={list}
+              onScroll={onScroll}
+              // A tab stop, so keyboard users can scroll back through earlier lines with the arrow keys.
+              tabIndex={0}
+              aria-label="Conversation lines"
+              className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-1 pb-3"
             >
-              <ArrowDown aria-hidden="true" size={16} weight="bold" />
-              Newest
-            </button>
-          )}
+              {turns.map((t) =>
+                t.speaker === "partner" ? (
+                  <li key={t.id} data-theirs className="max-w-[92%] self-start border-l-4 border-partner pl-4">
+                    <span className="block text-label font-bold text-partner">{partnerName}</span>
+                    <span className="block text-[1.625rem] leading-[2.0625rem] font-medium [overflow-wrap:anywhere] lg:text-caption">{t.text}</span>
+                  </li>
+                ) : (
+                  <li key={t.id} className="flex max-w-[80%] flex-col items-end gap-1 self-end lg:max-w-[72%]">
+                    <div className="flex max-w-full min-w-0 flex-col gap-1 rounded-[1.25rem] rounded-br-md bg-bubble px-4 py-3 text-on-bubble shadow-lift">
+                      <span className="flex flex-wrap items-center gap-2 text-label font-bold">
+                        <span className="flex items-center gap-2 opacity-80">
+                          {t.id === speakingId && <SpeakerHigh aria-hidden="true" size={16} weight="bold" />}
+                          {t.id === speakingId ? (waiting ? "Getting your voice ready…" : "Speaking") : "You"}
+                        </span>
+                        {t.id === speakingId && onStop && (
+                          <button
+                            type="button"
+                            aria-label="Stop speaking"
+                            onClick={onStop}
+                            className="ml-auto flex min-h-12 items-center gap-1 rounded-full border-2 border-on-bubble bg-cue px-4 text-label font-bold text-on-cue"
+                          >
+                            <Stop aria-hidden="true" size={14} weight="fill" />
+                            Stop
+                          </button>
+                        )}
+                      </span>
+                      <span className="block text-body [overflow-wrap:anywhere]">{t.text}</span>
+                    </div>
+                    {lineNotes[t.id] && (
+                      <p className="flex items-center gap-1 text-label text-muted">
+                        <Info aria-hidden="true" size={16} />
+                        {lineNotes[t.id]}
+                      </p>
+                    )}
+                  </li>
+                ),
+              )}
+              {partial && (
+                <li data-theirs className="max-w-[92%] self-start border-l-4 border-dashed border-partner pl-4">
+                  <span className="block text-label font-bold text-partner">
+                    {partnerName} <span className="font-medium text-muted">(still talking)</span>
+                  </span>
+                  <span className="block text-[1.625rem] leading-[2.0625rem] font-medium [overflow-wrap:anywhere] lg:text-caption">{partial}…</span>
+                </li>
+              )}
+            </ol>
+            {behind && (
+              <button
+                type="button"
+                onClick={toNewest}
+                className="absolute bottom-3 left-1/2 flex min-h-12 -translate-x-1/2 items-center gap-2 rounded-full bg-ink px-5 text-label font-bold text-ground opacity-100 shadow-lift transition-opacity duration-150 starting:opacity-0"
+              >
+                <ArrowDown aria-hidden="true" size={16} weight="bold" />
+                Newest
+              </button>
+            )}
+          </div>
           {footer}
-        </div>
+        </>
       )}
     </section>
   );

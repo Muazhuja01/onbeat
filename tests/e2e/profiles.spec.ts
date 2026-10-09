@@ -48,8 +48,8 @@ test("a demo leaves no profile behind", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Try a demo first" }).click();
   await page.getByRole("button", { name: /^Maya/ }).click();
-  // The demo chip: the menu toggle also says "Demo: Maya", so look for the chip's own button.
-  await expect(page.getByRole("button", { name: "Set up your own" })).toBeVisible();
+  // The demo badge in the top bar.
+  await expect(page.getByText("Demo", { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByLabel("What's your name?")).toBeVisible();
 });

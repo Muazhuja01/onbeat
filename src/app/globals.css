@@ -233,11 +233,20 @@ body {
 }
 
 /*
- * Phones and tablets: while you type, the keyboard takes much of the screen. The quick reactions and
- * your phrases step aside, so their latest line and all three replies keep their room.
+ * Phones and tablets: while you type, the keyboard takes much of the screen. Rows you don't need for
+ * typing step aside so their latest line and all three replies keep their room. The type box's
+ * label is only hidden from sight; screen readers still hear it.
  */
 @media (width < 64rem) {
-  body:has(#composer:focus) .tray-extras {
+  body:has(#composer:focus) :is(.tray-extras, .typing-hide) {
     display: none;
+  }
+  body:has(#composer:focus) .typing-quiet {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }
