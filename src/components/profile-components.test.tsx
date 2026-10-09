@@ -322,6 +322,25 @@ describe("ProfileMenu", () => {
     expect(h.onDelete).toHaveBeenCalled();
   });
 
+  it.each([
+    ["on phones", true],
+    ["on laptops", false],
+  ])("goes back to the list on Escape while renaming or deleting, %s", async (_, compact) => {
+    render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} {...handlers()} compact={compact} onSettings={vi.fn()} />);
+    const toggle = screen.getByRole("button", { name: "Maya" });
+    await userEvent.click(toggle);
+    for (const step of ["Rename", "Delete this profile"]) {
+      await userEvent.click(screen.getByRole("button", { name: step }));
+      expect(screen.queryByRole("button", { name: "Your notes" })).toBeNull();
+      await userEvent.keyboard("{Escape}");
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByRole("button", { name: step })).toHaveFocus();
+    }
+    await userEvent.keyboard("{Escape}");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveFocus();
+  });
+
   it("closes on Escape and returns focus", async () => {
     render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} {...handlers()} />);
     const toggle = screen.getByRole("button", { name: "Maya" });

@@ -49,6 +49,21 @@ export function ProfileMenu(props: Props) {
   // Named in full here: a visually hidden span next to the name gets a stray space before its comma in Chromium.
   const toggleName = count > 0 ? `${label}, ${count} suggested ${count === 1 ? "note" : "notes"}` : undefined;
 
+  // Going back from rename or delete puts focus on the button that opened that step.
+  const renameButton = useRef<HTMLButtonElement>(null);
+  const deleteButton = useRef<HTMLButtonElement>(null);
+  const backFrom = useRef<"rename" | "delete" | null>(null);
+  useEffect(() => {
+    if (mode !== "list" || backFrom.current === null) return;
+    (backFrom.current === "rename" ? renameButton : deleteButton).current?.focus();
+    backFrom.current = null;
+  }, [mode]);
+  const back = () => {
+    if (mode === "list") return;
+    backFrom.current = mode;
+    setMode("list");
+  };
+
   const close = (refocus = true) => {
     setOpen(false);
     setMode("list");
@@ -78,7 +93,8 @@ export function ProfileMenu(props: Props) {
       onKeyDown={(e) => {
         if (e.key === "Escape" && open) {
           e.stopPropagation();
-          close();
+          if (mode === "list") close();
+          else back();
         }
       }}
     >
@@ -110,7 +126,17 @@ export function ProfileMenu(props: Props) {
           title={label}
           closeLabel="Close menu"
         >
-          <div id={`${id}-panel`} className="flex flex-col gap-3">
+          <div
+            id={`${id}-panel`}
+            className="flex flex-col gap-3"
+            onKeyDown={(e) => {
+              // Escape in a step goes back to the list, before the sheet sees it and closes.
+              if (e.key !== "Escape" || mode === "list") return;
+              e.preventDefault();
+              e.stopPropagation();
+              back();
+            }}
+          >
             {panel()}
           </div>
         </Sheet>
@@ -157,7 +183,7 @@ export function ProfileMenu(props: Props) {
               <button type="submit" disabled={!draftName.trim()} className={primaryButton}>
                 Save
               </button>
-              <button type="button" onClick={() => setMode("list")} className={secondaryButton}>
+              <button type="button" onClick={back} className={secondaryButton}>
                 Cancel
               </button>
             </div>
@@ -171,7 +197,7 @@ export function ProfileMenu(props: Props) {
               <button type="button" onClick={() => act(props.onDelete)} className={primaryButton}>
                 Delete {active.name}
               </button>
-              <button type="button" onClick={() => setMode("list")} autoFocus className={secondaryButton}>
+              <button type="button" onClick={back} autoFocus className={secondaryButton}>
                 Keep
               </button>
             </div>
@@ -247,6 +273,7 @@ export function ProfileMenu(props: Props) {
                   />
                 </div>
                 <button
+                  ref={renameButton}
                   type="button"
                   onClick={() => {
                     setDraftName(active.name);
@@ -256,7 +283,7 @@ export function ProfileMenu(props: Props) {
                 >
                   Rename
                 </button>
-                <button type="button" onClick={() => setMode("delete")} className={item}>
+                <button ref={deleteButton} type="button" onClick={() => setMode("delete")} className={item}>
                   Delete this profile
                 </button>
                 <button type="button" onClick={() => act(props.onDemo)} className={item}>
