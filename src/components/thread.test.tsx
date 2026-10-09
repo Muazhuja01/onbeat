@@ -113,6 +113,19 @@ describe("Thread", () => {
     expect(top.get()).toBe(1000);
   });
 
+  it("follows when a note or the Stop row makes your last line taller", () => {
+    const said: Turn[] = [...turns, { id: "3", speaker: "user", text: "Thanks.", at: 3 }];
+    const { rerender } = render(<Thread turns={said} partnerName="Sam" onStop={() => {}} />);
+    const top = fakeScroll(screen.getByRole("list", { name: "Conversation lines" }));
+
+    rerender(<Thread turns={said} partnerName="Sam" onStop={() => {}} speaking="Thanks." />);
+    expect(top.get()).toBe(1000);
+
+    top.set(0);
+    rerender(<Thread turns={said} partnerName="Sam" onStop={() => {}} lineNotes={{ "3": "Said in the backup voice." }} />);
+    expect(top.get()).toBe(1000);
+  });
+
   it("follows again in the next conversation after clearing while scrolled back", () => {
     const { rerender } = render(<Thread turns={turns} partnerName="Sam" />);
     const list = screen.getByRole("list", { name: "Conversation lines" });

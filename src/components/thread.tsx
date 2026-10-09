@@ -80,12 +80,17 @@ export function Thread({ turns, partnerName, partial = "", speaking = null, wait
     following.current = true;
     followedTo.current = null;
   }, [hasLines]);
-  // The last line can grow when they carry it on after a pause.
-  const lastText = turns.at(-1)?.text;
+  // The newest of your lines with the text being spoken.
+  const speakingId = speaking === null ? undefined : turns.findLast((t) => t.speaker === "user" && t.text === speaking)?.id;
+  // The last line can grow when they carry it on after a pause, or when yours gains the Stop row or a note.
+  const last = turns.at(-1);
+  const lastText = last?.text;
+  const lastSpeaking = last !== undefined && last.id === speakingId;
+  const lastNote = last && lineNotes[last.id];
   useEffect(() => {
     const el = list.current;
     if (el && following.current) follow(el);
-  }, [turns.length, lastText, partial]);
+  }, [turns.length, lastText, partial, lastSpeaking, waiting, lastNote]);
   // The list shrinks when a phone keyboard opens: keep the newest line in view.
   useEffect(() => {
     const el = list.current;
@@ -104,9 +109,6 @@ export function Thread({ turns, partnerName, partial = "", speaking = null, wait
     following.current = true;
     setBehind(false);
   };
-
-  // The newest of your lines with the text being spoken.
-  const speakingId = speaking === null ? undefined : turns.findLast((t) => t.speaker === "user" && t.text === speaking)?.id;
 
   return (
     <section aria-labelledby="conversation-heading" className="-m-1.5 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-1.5">
