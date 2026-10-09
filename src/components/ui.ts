@@ -8,3 +8,7 @@ export const fieldLabel = "text-label font-bold";
 export const textField = "min-h-12 w-full rounded-control border-2 border-ink/30 bg-surface px-4 text-body text-ink placeholder:text-muted";
 export const textArea = "min-h-28 w-full rounded-control border-2 border-ink/30 bg-surface px-4 py-3 text-body text-ink placeholder:text-muted";
 export const hint = "text-label text-muted";
+
+/** A low-key action that shouldn't compete with the replies, such as New conversation. */
+export const quietButton =
+  "min-h-12 rounded-control border-2 border-edge bg-raised px-4 text-label font-bold transition-[border-color] duration-150 hover:border-ink disabled:cursor-not-allowed disabled:opacity-60";
