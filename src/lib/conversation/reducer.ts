@@ -24,6 +24,8 @@ export interface ConversationState {
   speaking: string | null;
   lastSpoken: string | null;
   notice: string | null;
+  /** Notes under your lines, by turn id: which voice said it when it wasn't yours. */
+  lineNotes: Record<string, string>;
 }
 
 export type ConversationAction =
@@ -44,6 +46,7 @@ export type ConversationAction =
   | { type: "speakStart"; id: string; text: string; at: number }
   | { type: "speakEnd"; text: string }
   | { type: "notice"; text: string | null }
+  | { type: "lineNote"; text: string; note: string }
   | { type: "reset" }
   | { type: "cancelled" };
 
@@ -67,6 +70,7 @@ export const initialConversation: ConversationState = {
   speaking: null,
   lastSpoken: null,
   notice: null,
+  lineNotes: {},
 };
 
 function addTurn(turns: Turn[], turn: Turn): Turn[] {
@@ -167,6 +171,11 @@ export function conversationReducer(state: ConversationState, action: Conversati
       return state.speaking === action.text ? { ...state, speaking: null } : state;
     case "notice":
       return { ...state, notice: action.text };
+    case "lineNote": {
+      const text = action.text.trim();
+      const turn = state.turns.findLast((t) => t.speaker === "user" && t.text === text);
+      return turn ? { ...state, lineNotes: { ...state.lineNotes, [turn.id]: action.note } } : state;
+    }
     case "cancelled":
       // A request was cancelled (e.g. the typed text was cleared) before it
       // finished. Only a "thinking" status is stuck waiting on it; leave any
