@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { expectTappable, expectThreadAboveTray, prepare, startWithMaya, theySaid } from "./helpers";
+import { expectTappable, expectThreadAboveTray, prepare, startWithMaya, theySaid, settle } from "./helpers";
 
 test.use({ viewport: { width: 390, height: 844 } });
 
@@ -178,14 +178,17 @@ for (const theme of [undefined, "dark", "contrast"]) {
     await startWithMaya(page);
     await theySaid(page, "What size would you like?");
     await expect(page.getByRole("button", { name: "Large, please." })).toBeVisible();
+    await settle(page);
     expect((await new AxeBuilder({ page }).withTags(WCAG).analyze()).violations).toEqual([]);
     // Adding their line left you in the reply box, where the place and person row steps aside.
     await page.getByLabel("Type a reply").blur();
     await page.getByRole("button", { name: /^Where and who/ }).click();
+    await settle(page);
     expect((await new AxeBuilder({ page }).withTags(WCAG).analyze()).violations).toEqual([]);
     await page.getByRole("button", { name: "Close where and who" }).click();
     await page.getByRole("button", { name: "Demo: Maya" }).click();
     await expect(page.getByRole("dialog", { name: "Demo: Maya" })).toBeVisible();
+    await settle(page);
     expect((await new AxeBuilder({ page }).withTags(WCAG).analyze()).violations).toEqual([]);
   });
 }

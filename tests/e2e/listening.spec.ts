@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { prepare, startWithMaya } from "./helpers";
+import { prepare, startWithMaya, settle } from "./helpers";
 
 /** Replaces the real hearing engine (see src/lib/hearing/browser.ts); tests drive it with hear(). */
 async function installFakeHearing(page: Page, startsAs: "listening" | "denied" = "listening") {
@@ -178,6 +178,7 @@ test("no accessibility violations while listening", async ({ page }) => {
   await page.getByRole("button", { name: "Listen" }).click();
   await hear(page, "partial", "What size would");
   await expect(page.getByText("(still talking)")).toBeVisible();
+  await settle(page);
   const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
   expect(result.violations).toEqual([]);
 });

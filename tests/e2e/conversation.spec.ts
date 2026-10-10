@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { expectTappable, expectThreadAboveTray, prepare, startWithMaya, theySaid } from "./helpers";
+import { expectTappable, expectThreadAboveTray, prepare, startWithMaya, theySaid, settle } from "./helpers";
 
 test("a partner line produces checked replies that can be spoken", async ({ page }) => {
   await prepare(page);
@@ -28,6 +28,7 @@ test("New conversation clears the screen after asking", async ({ page }) => {
 
   await page.getByRole("button", { name: "New conversation" }).click();
   await expect(page.getByText("Clear this conversation? It isn't saved anywhere.")).toBeVisible();
+  await settle(page);
   const asking = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
   expect(asking.violations).toEqual([]);
 
@@ -65,12 +66,14 @@ for (const theme of [undefined, "dark", "contrast"]) {
     await prepare(page, theme);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a demo first" }).click();
+    await settle(page);
     const picker = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
     expect(picker.violations).toEqual([]);
 
     await page.getByRole("button", { name: /^Maya/ }).click();
     await theySaid(page, "What size would you like?");
     await expect(page.locator("#replies").getByText("Replies ready")).toBeVisible();
+    await settle(page);
     const conversation = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
     expect(conversation.violations).toEqual([]);
   });
@@ -100,6 +103,7 @@ test("the settings panel passes axe in every theme", async ({ page }) => {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   for (const name of ["Light", "Dark", "High contrast"]) {
     await page.getByRole("radio", { name }).check();
+    await settle(page);
     const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
     expect(result.violations, name).toEqual([]);
   }
@@ -228,5 +232,45 @@ for (const size of [
       await expectTappable(page.getByRole("button", { name }));
     }
     await expectTappable(page.getByLabel("Type a reply"));
+  });
+}
+
+for (const size of [
+  { width: 1280, height: 720 },
+  { width: 1440, height: 800 },
+  { width: 390, height: 844 },
+]) {
+  test(`at ${size.width}×${size.height} Newest never covers their words`, async ({ page }) => {
+    await page.setViewportSize(size);
+    await prepare(page);
+    await startWithMaya(page);
+    const long = "Would you like that hot or iced, in a mug or a paper cup, and is it for here or to go today?";
+    for (let i = 0; i < 6; i++) await theySaid(page, `${i + 1}. ${long}`);
+    const list = page.getByRole("list", { name: "Conversation lines" });
+    // Scroll back a little at a time; at every stop Newest must sit clear of every line of their text.
+    const newest = page.getByRole("button", { name: "Newest" });
+    const max = await list.evaluate((el) => el.scrollHeight - el.clientHeight);
+    for (let top = 0; top < max - 64; top += 40) {
+      await list.evaluate((el, t) => {
+        el.scrollTop = t;
+        el.dispatchEvent(new Event("scroll"));
+      }, top);
+      await expect(newest).toBeVisible();
+      const button = (await newest.boundingBox())!;
+      const hits = await list.evaluate((el, b) => {
+        const found: string[] = [];
+        for (const li of Array.from(el.querySelectorAll("[data-theirs]"))) {
+          const range = document.createRange();
+          range.selectNodeContents(li);
+          for (const r of Array.from(range.getClientRects())) {
+            const overlaps = r.width > 0 && r.left < b.x + b.width && r.right > b.x && r.top < b.y + b.height && r.bottom > b.y;
+            if (overlaps) found.push(li.textContent?.slice(0, 20) ?? "");
+          }
+        }
+        return found;
+      }, button);
+      expect(hits, `Newest covers their words at scrollTop ${top}`).toEqual([]);
+    }
+    await expectTappable(newest);
   });
 }

@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { prepare, theySaid } from "./helpers";
+import { prepare, theySaid, settle } from "./helpers";
 
 const WCAG = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 
@@ -51,6 +51,7 @@ test("a suggested note is reviewed, kept, and used by the next reply", async ({ 
   await menu.click();
   await page.getByRole("button", { name: "Suggested notes (1)" }).click();
   await expect(page.getByRole("heading", { name: "New note: People" })).toBeVisible();
+  await settle(page);
   expect((await new AxeBuilder({ page }).withTags(WCAG).analyze()).violations).toEqual([]);
   await page.getByRole("button", { name: "Keep: Ana is my new carer. She comes on weekday mornings." }).click();
   await page.getByRole("button", { name: "Done" }).click();
