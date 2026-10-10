@@ -170,7 +170,7 @@ export function Thread({ turns, partnerName, partial = "", speaking = null, wait
             >
               {turns.map((t) =>
                 t.speaker === "partner" ? (
-                  <li key={t.id} data-theirs className="max-w-[92%] self-start border-l-4 border-partner pl-4">
+                  <li key={t.id} data-theirs className="max-w-[min(92%,calc(100%-3.75rem))] self-start border-l-4 border-partner pl-4">
                     <span className="block text-label font-bold text-partner">{partnerName}</span>
                     <span className="block text-[1.625rem] leading-[2.0625rem] font-medium [overflow-wrap:anywhere] lg:text-caption">{t.text}</span>
                   </li>
@@ -206,7 +206,7 @@ export function Thread({ turns, partnerName, partial = "", speaking = null, wait
                 ),
               )}
               {partial && (
-                <li data-theirs className="max-w-[92%] self-start border-l-4 border-dashed border-partner pl-4">
+                <li data-theirs className="max-w-[min(92%,calc(100%-3.75rem))] self-start border-l-4 border-dashed border-partner pl-4">
                   <span className="block text-label font-bold text-partner">
                     {partnerName} <span className="font-medium text-muted">(still talking)</span>
                   </span>
@@ -214,15 +214,16 @@ export function Thread({ turns, partnerName, partial = "", speaking = null, wait
                 </li>
               )}
             </ol>
-            {/* Bottom right: their lines run down the left, so it never covers what they said. */}
+            {/* A round button in the strip on the right that their lines never reach, so it never covers what they said. */}
             {behind && (
               <button
                 type="button"
                 onClick={toNewest}
-                className="absolute right-3 bottom-3 flex min-h-12 items-center gap-2 rounded-full bg-ink px-5 text-label font-bold text-ground opacity-100 shadow-lift transition-opacity duration-150 starting:opacity-0"
+                aria-label="Newest"
+                title="Newest"
+                className="absolute right-3 bottom-3 grid size-12 place-items-center rounded-full bg-ink text-ground opacity-100 shadow-lift transition-opacity duration-150 starting:opacity-0"
               >
-                <ArrowDown aria-hidden="true" size={16} weight="bold" />
-                Newest
+                <ArrowDown aria-hidden="true" size={22} weight="bold" />
               </button>
             )}
           </div>
