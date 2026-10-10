@@ -6,6 +6,12 @@ Run it with `npm run eval` (needs the keys in `.env.local`). The raw output of t
 
 To tune on part of the dev set without replacing the runs of record, pick scenarios with `--ids maya-06,tom-19` and write elsewhere with `--out slice-name`. `--judges groq` keeps the judge off Cloudflare, whose free allowance the live site shares for captions and backup replies. On a free Groq key the judge model allows about 200k tokens a day, roughly 50 judge calls at high effort, so a 20-scenario slice needs `--votes 1` to fit two runs in a day.
 
+## Prompt change shipped without a run (2026-10-09)
+
+Reply 2 used to be told to add "one detail from the notes or the conversation". It now adds a note's detail only when a note answers what the other person said, and is otherwise another plain answer. On a 20-scenario dev slice of questions the notes don't fully answer, 17 scenarios were judged before the free Groq judge ran out of its daily quota. 8 had an invented detail, and in all 8 it was in reply 2.
+
+The change was deployed without an eval run (owner decision), so the numbers below are for the earlier prompt. Its effect on hit rate and invented details is not measured. The next run should start with the dev set: the `--ids`, `--out` and `--judges groq` options above.
+
 ## Quality pass (2026-09-29)
 
 What changed:
