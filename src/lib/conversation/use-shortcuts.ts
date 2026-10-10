@@ -31,6 +31,8 @@ export function useReplyShortcuts(args: Args): void {
         return;
       }
       if (a.enabled === false) return;
+      // A sheet or panel covers the screen: its keys are its own (Settings, the menu, Where and who).
+      if (document.querySelector("dialog[open]")) return;
       // A held key auto-repeats (e.g. speaking "1" over and over) and Shift
       // changes the character on many layouts; ignore both.
       if (e.repeat || e.shiftKey || e.ctrlKey || e.metaKey) return;

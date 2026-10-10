@@ -1,14 +1,15 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Composer } from "./composer";
 import { CueLight } from "./cue-light";
 import { ReplyList } from "./reply-list";
-import { CaptionLog } from "./caption-log";
 import { AnnouncerProvider, useAnnounce } from "./announcer";
 import { ListenControl } from "./listen-control";
 import { ResponseGap } from "./response-gap";
 import { SettingsPanel } from "./settings-panel";
+import { SettingsButton, SettingsDrawer } from "./settings-drawer";
 import type { Reply } from "@/lib/types";
 
 const replies: Reply[] = [
@@ -34,7 +35,20 @@ describe("ReplyList", () => {
 
   it("explains the empty state", () => {
     render(<ReplyList replies={[]} speaking={null} status="idle" onSpeak={vi.fn()} onStop={vi.fn()} />);
-    expect(screen.getByText("Replies will appear here when someone talks to you or you start typing.")).toBeInTheDocument();
+    expect(screen.getByText("Replies show up here when someone talks to you, or as you type.")).toBeInTheDocument();
+  });
+
+  it("puts the cue light first, with anything else beside and under it", () => {
+    render(<ReplyList replies={replies} speaking={null} status="ready" onSpeak={vi.fn()} onStop={vi.fn()} aside={<button type="button">Mm-hmm</button>} below={<p>Your phrases</p>} />);
+    expect(screen.getByRole("heading", { name: "Replies" })).toHaveClass("sr-only");
+    expect(screen.getByText("Replies ready")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mm-hmm" })).toBeInTheDocument();
+    expect(screen.getByText("Your phrases")).toBeInTheDocument();
+  });
+
+  it("fades new replies in", () => {
+    render(<ReplyList replies={replies} speaking={null} status="ready" onSpeak={vi.fn()} onStop={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Large, please." })).toHaveClass("reply-in");
   });
 });
 
@@ -64,58 +78,15 @@ describe("Composer", () => {
     await userEvent.type(screen.getByLabelText("Type a reply"), "{ArrowUp}");
     expect(onFocusReplies).toHaveBeenCalled();
   });
-});
 
-describe("CaptionLog", () => {
-  it("labels who said each line", () => {
-    render(
-      <CaptionLog
-        partnerName="Sam"
-        turns={[
-          { id: "1", speaker: "partner", text: "What size?", at: 1 },
-          { id: "2", speaker: "user", text: "Large, please.", at: 2 },
-        ]}
-      />,
-    );
-    expect(screen.getByText("Sam")).toBeInTheDocument();
-    expect(screen.getByText("You")).toBeInTheDocument();
-    expect(screen.getByText("What size?")).toBeInTheDocument();
+  it("shows what comes before the box", () => {
+    render(<Composer value="" onChange={vi.fn()} onSpeak={vi.fn()} onFocusReplies={vi.fn()} before={<button type="button">They said</button>} />);
+    expect(screen.getByRole("button", { name: "They said" })).toBeInTheDocument();
   });
 
-  it("shows a live line while the partner is talking", () => {
-    render(<CaptionLog turns={[]} partnerName="Sam" partial="What size" />);
-    expect(screen.getByText("What size…")).toBeInTheDocument();
-    expect(screen.getByText("(still talking)")).toBeInTheDocument();
-    expect(screen.queryByText(/will appear here/)).not.toBeInTheDocument();
-  });
-
-  it("keeps the newest line in view only while you haven't scrolled back, and never scrolls the page", () => {
-    const pageScroll = vi.fn();
-    Element.prototype.scrollIntoView = pageScroll;
-    const turns = [{ id: "1", speaker: "partner" as const, text: "Hi", at: 1 }];
-    const { rerender } = render(<CaptionLog turns={turns} partnerName="Sam" partial="What" />);
-    const list = screen.getByRole("list");
-    let top = 0;
-    Object.defineProperty(list, "scrollHeight", { configurable: true, get: () => 1000 });
-    Object.defineProperty(list, "clientHeight", { configurable: true, get: () => 200 });
-    Object.defineProperty(list, "scrollTop", { configurable: true, get: () => top, set: (v: number) => (top = v) });
-
-    rerender(<CaptionLog turns={turns} partnerName="Sam" partial="What size" />);
-    expect(top).toBe(1000);
-
-    // You scroll back to read an earlier line: new captions leave you there.
-    top = 300;
-    act(() => list.dispatchEvent(new Event("scroll")));
-    rerender(<CaptionLog turns={turns} partnerName="Sam" partial="What size would" />);
-    expect(top).toBe(300);
-
-    // Back near the bottom: it follows the captions again.
-    top = 790;
-    act(() => list.dispatchEvent(new Event("scroll")));
-    rerender(<CaptionLog turns={turns} partnerName="Sam" partial="What size would you" />);
-    expect(top).toBe(1000);
-    expect(pageScroll).not.toHaveBeenCalled();
-    Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+  it("gives the box an outline that meets 3:1", () => {
+    render(<Composer value="" onChange={vi.fn()} onSpeak={vi.fn()} onFocusReplies={vi.fn()} />);
+    expect(screen.getByLabelText("Type a reply")).toHaveClass("border-muted");
   });
 });
 
@@ -215,6 +186,20 @@ describe("ListenControl", () => {
       "Speech recognition couldn't load or stopped working. Check your connection, then press Listen to try again.",
     );
   });
+
+  it("keeps the status sentence for screen readers, and shows it on screen only when something is wrong", () => {
+    const { rerender } = render(<ListenControl hearing={null} status="listening" progress={100} onToggle={() => {}} />);
+    expect(screen.getByText("Listening. Their words appear in the conversation.").closest("p")).toHaveClass("sr-only");
+    rerender(<ListenControl hearing={null} status="denied" progress={0} onToggle={() => {}} />);
+    expect(screen.getByText(/Microphone is off/).closest("p")).not.toHaveClass("sr-only");
+  });
+
+  it("shows the download progress on the button without changing its name", () => {
+    render(<ListenControl hearing={null} status="loading" progress={42} onToggle={() => {}} />);
+    const button = screen.getByRole("button", { name: "Listen" });
+    expect(button).toHaveAttribute("aria-pressed", "true");
+    expect(button).toHaveTextContent("Listen42%");
+  });
 });
 
 describe("ResponseGap", () => {
@@ -229,7 +214,6 @@ describe("SettingsPanel", () => {
     const onTheme = vi.fn();
     const onDigitKeys = vi.fn();
     render(<SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} learning={true} joinLines={true} onJoinLines={() => {}} onLearning={() => {}} onTheme={onTheme} onDigitKeys={onDigitKeys} onCloudCaptions={() => {}} />);
-    await userEvent.click(screen.getByText("Settings"));
     expect(screen.getByRole("radio", { name: "Match this device" })).toBeChecked();
     await userEvent.click(screen.getByRole("radio", { name: "High contrast" }));
     expect(onTheme).toHaveBeenCalledWith("contrast");
@@ -240,7 +224,6 @@ describe("SettingsPanel", () => {
   it("turns clearer captions on, saying where the audio goes", async () => {
     const onCloudCaptions = vi.fn();
     render(<SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} learning={true} joinLines={true} onJoinLines={() => {}} onLearning={() => {}} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={onCloudCaptions} />);
-    await userEvent.click(screen.getByText("Settings"));
     const box = screen.getByRole("checkbox", { name: "Clearer captions" });
     expect(box).not.toBeChecked();
     expect(box).toHaveAccessibleDescription(/sent to Deepgram, through Cloudflare/);
@@ -253,7 +236,6 @@ describe("SettingsPanel", () => {
     render(
       <SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} learning={true} joinLines={true} onJoinLines={() => {}} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={() => {}} onLearning={onLearning} />,
     );
-    await userEvent.click(screen.getByText("Settings"));
     const box = screen.getByRole("checkbox", { name: "Suggest notes from my conversations" });
     expect(box).toBeChecked();
     expect(box).toHaveAccessibleDescription(/sends recent lines from your conversations, and the notes they relate to/);
@@ -266,7 +248,6 @@ describe("SettingsPanel", () => {
     render(
       <SettingsPanel theme="system" digitKeys={true} cloudCaptions={false} learning={true} joinLines={true} onJoinLines={onJoinLines} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={() => {}} onLearning={() => {}} />,
     );
-    await userEvent.click(screen.getByText("Settings"));
     const box = screen.getByRole("checkbox", { name: "Keep the other person's pauses in one line" });
     expect(box).toBeChecked();
     expect(box).toHaveAccessibleDescription(/When they pause for a moment and carry on, their words stay in one line/);
@@ -277,9 +258,44 @@ describe("SettingsPanel", () => {
 
   it("lists the keyboard shortcuts", async () => {
     render(<SettingsPanel theme="dark" digitKeys={false} cloudCaptions={false} learning={true} joinLines={true} onJoinLines={() => {}} onLearning={() => {}} onTheme={() => {}} onDigitKeys={() => {}} onCloudCaptions={() => {}} />);
-    await userEvent.click(screen.getByText("Settings"));
     expect(screen.getByRole("radio", { name: "Dark" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /Number keys speak replies/ })).not.toBeChecked();
     for (const key of ["1, 2, 3", "Alt+1, Alt+2", "Enter", "Up arrow", "Esc"]) expect(screen.getByText(key)).toBeInTheDocument();
+  });
+});
+
+describe("SettingsDrawer", () => {
+  function Harness() {
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <SettingsButton onOpen={() => setOpen(true)} />
+        <SettingsDrawer
+          open={open}
+          onClose={() => setOpen(false)}
+          theme="system"
+          digitKeys
+          cloudCaptions={false}
+          learning
+          joinLines
+          onTheme={() => {}}
+          onDigitKeys={() => {}}
+          onCloudCaptions={() => {}}
+          onLearning={() => {}}
+          onJoinLines={() => {}}
+        />
+      </>
+    );
+  }
+
+  it("opens from the gear and closes with its close button, giving focus back to the gear", async () => {
+    render(<Harness />);
+    const gear = screen.getByRole("button", { name: "Settings" });
+    await userEvent.click(gear);
+    const drawer = screen.getByRole("dialog", { name: "Settings" });
+    expect(within(drawer).getByRole("radio", { name: "Match this device" })).toBeChecked();
+    await userEvent.click(within(drawer).getByRole("button", { name: "Close settings" }));
+    expect(drawer).not.toHaveAttribute("open");
+    expect(gear).toHaveFocus();
   });
 });

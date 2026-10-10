@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { prepare } from "./helpers";
+import { prepare, theySaid } from "./helpers";
 
 const WCAG = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 
@@ -15,8 +15,7 @@ async function setUp(page: Page) {
 }
 
 async function say(page: Page, text: string) {
-  await page.getByLabel("What they said").fill(text);
-  await page.getByRole("button", { name: "Add" }).click();
+  await theySaid(page, text);
 }
 
 async function hidePage(page: Page) {
@@ -70,7 +69,7 @@ test("an existing profile is told about suggested notes once", async ({ page }) 
   await expect(page.getByRole("heading", { name: "Replies" })).toBeVisible();
   await page.evaluate(() => localStorage.removeItem("onbeat:learning-told"));
   await page.reload();
-  const notice = page.getByText("New: OnBeat can suggest notes from your conversations for you to review. Turn it off in Settings.");
+  const notice = page.getByRole("main").getByText("New: OnBeat can suggest notes from your conversations for you to review. Turn it off in Settings.");
   await expect(notice).toBeVisible();
   await page.reload();
   await expect(page.getByRole("button", { name: "Priya", exact: true })).toBeVisible();

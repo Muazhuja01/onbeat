@@ -5,7 +5,7 @@ import type { PendingSuggestion, SourceLine } from "@/lib/learning/types";
 import { composeNoteText, type DraftNote } from "@/lib/profiles/notes";
 import type { Note } from "@/lib/types";
 import { KIND_LABELS, NoteForm } from "./note-form";
-import { primaryButton, secondaryButton } from "./ui";
+import { primaryButton, screenCard, secondaryButton } from "./ui";
 import { SuggestionCard } from "./suggestion-card";
 
 interface Props {
@@ -63,7 +63,7 @@ export function SuggestedNotes({ suggestions: all, notes, onKeep, onSkip, onSkip
   const settle = () => headingRef.current?.focus();
 
   return (
-    <section aria-labelledby="suggestions-heading" className="flex max-w-3xl flex-col gap-6">
+    <section aria-labelledby="suggestions-heading" className={`${screenCard} flex max-w-3xl flex-col gap-6`}>
       <div className="flex flex-col gap-2">
         <h2 id="suggestions-heading" ref={headingRef} tabIndex={-1} className="text-caption font-bold text-balance">
           Suggested notes

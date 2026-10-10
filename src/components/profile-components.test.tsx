@@ -262,6 +262,27 @@ describe("ProfileMenu", () => {
     expect(onSuggestions).toHaveBeenCalled();
   });
 
+  it("offers Settings when asked, as on phones", async () => {
+    const onSettings = vi.fn();
+    render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} {...handlers()} compact onSettings={onSettings} />);
+    await userEvent.click(screen.getByRole("button", { name: "Maya" }));
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(onSettings).toHaveBeenCalled();
+  });
+
+  it("opens as a sheet from the bottom on phones, and closes on Escape", async () => {
+    render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} {...handlers()} compact onSettings={vi.fn()} />);
+    const toggle = screen.getByRole("button", { name: "Maya" });
+    await userEvent.click(toggle);
+    const sheet = screen.getByRole("dialog", { name: "Maya" });
+    expect(sheet).toHaveClass("sheet-bottom");
+    expect(within(sheet).getByRole("button", { name: "Your notes" })).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: "Your notes" })).toBeNull();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveFocus();
+  });
+
   it("names the button plainly with nothing to review", async () => {
     render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} suggestionCount={0} onSuggestions={vi.fn()} {...handlers()} />);
     await userEvent.click(screen.getByRole("button", { name: "Maya" }));
@@ -299,6 +320,25 @@ describe("ProfileMenu", () => {
     expect(h.onDelete).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Delete Maya" }));
     expect(h.onDelete).toHaveBeenCalled();
+  });
+
+  it.each([
+    ["on phones", true],
+    ["on laptops", false],
+  ])("goes back to the list on Escape while renaming or deleting, %s", async (_, compact) => {
+    render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} {...handlers()} compact={compact} onSettings={vi.fn()} />);
+    const toggle = screen.getByRole("button", { name: "Maya" });
+    await userEvent.click(toggle);
+    for (const step of ["Rename", "Delete this profile"]) {
+      await userEvent.click(screen.getByRole("button", { name: step }));
+      expect(screen.queryByRole("button", { name: "Your notes" })).toBeNull();
+      await userEvent.keyboard("{Escape}");
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByRole("button", { name: step })).toHaveFocus();
+    }
+    await userEvent.keyboard("{Escape}");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveFocus();
   });
 
   it("closes on Escape and returns focus", async () => {

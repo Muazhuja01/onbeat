@@ -1,15 +1,18 @@
 "use client";
 
 import { SpeakerHigh } from "@phosphor-icons/react";
+import type { ReactNode } from "react";
 
 interface Props {
   value: string;
   onChange: (value: string) => void;
   onSpeak: (text: string) => void;
   onFocusReplies: () => void;
+  /** Shown before the box, such as "+ They said". */
+  before?: ReactNode;
 }
 
-export function Composer({ value, onChange, onSpeak, onFocusReplies }: Props) {
+export function Composer({ value, onChange, onSpeak, onFocusReplies, before }: Props) {
   return (
     <form
       className="flex flex-col gap-2"
@@ -18,10 +21,11 @@ export function Composer({ value, onChange, onSpeak, onFocusReplies }: Props) {
         onSpeak(value);
       }}
     >
-      <label htmlFor="composer" className="text-label text-muted">
+      <label htmlFor="composer" className="typing-quiet text-label text-muted">
         Type a reply
       </label>
       <div className="flex flex-wrap gap-3">
+        {before}
         <input
           id="composer"
           name="reply"
@@ -38,7 +42,7 @@ export function Composer({ value, onChange, onSpeak, onFocusReplies }: Props) {
               onFocusReplies();
             }
           }}
-          className="min-h-14 min-w-32 flex-1 rounded-control border-2 border-ink/30 bg-surface px-4 text-body text-ink placeholder:text-muted"
+          className="min-h-14 min-w-32 flex-1 rounded-control border-2 border-muted bg-raised px-4 text-body text-ink placeholder:text-muted"
         />
         <button
           type="submit"

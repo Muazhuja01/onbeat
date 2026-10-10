@@ -50,7 +50,7 @@ test("choose a voice in setup, hear a sample, change it later", async ({ page })
   await expect.poll(async () => (await rates(page)).at(-1)).toBeCloseTo(0.85, 2);
 
   // And from Settings.
-  await page.getByText("Settings", { exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Change voice" }).click();
   await expect(page.getByRole("heading", { name: "Your voice" })).toBeFocused();
   await page.getByRole("button", { name: "Cancel" }).click();

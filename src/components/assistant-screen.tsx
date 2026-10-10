@@ -7,7 +7,7 @@ import type { MemoryStore } from "@/lib/memory/store";
 import { composeNoteText, noteFields, type DraftNote } from "@/lib/profiles/notes";
 import { KIND_LABELS, NoteForm } from "./note-form";
 import { SuggestionCard } from "./suggestion-card";
-import { fieldLabel, hint, primaryButton, secondaryButton, textArea, textField } from "./ui";
+import { fieldLabel, hint, primaryButton, screenCard, secondaryButton, textArea, textField } from "./ui";
 
 /** Lets the page leave the assistant for another screen through the same question as Close. */
 export interface AssistantHandle {
@@ -230,7 +230,7 @@ export function AssistantScreen({ memory, onChanged, onClose, announce, session:
   useImperativeHandle(ref, () => ({ requestLeave }));
 
   return (
-    <section aria-labelledby="assistant-heading" className="flex max-w-3xl flex-col gap-6">
+    <section aria-labelledby="assistant-heading" className={`${screenCard} flex max-w-3xl flex-col gap-6`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="assistant-heading" ref={headingRef} tabIndex={-1} className="text-caption font-bold text-balance">
           Assistant

@@ -132,6 +132,19 @@ describe("conversationReducer", () => {
     s = r({ ...s, partnerPartial: "Hello" }, { type: "reset" });
     expect(s.partnerPartial).toBe("");
   });
+
+  it("attaches a note to the newest line you said with that text", () => {
+    let s = r(s0, { type: "speakStart", id: "a", text: "Hello", at: 1 });
+    s = r(s, { type: "speakStart", id: "b", text: "Hello", at: 2 });
+    s = r(s, { type: "lineNote", text: " Hello ", note: "Said in the backup voice: yours wasn't ready in time." });
+    expect(s.lineNotes).toEqual({ b: "Said in the backup voice: yours wasn't ready in time." });
+  });
+
+  it("ignores a note for a line that isn't there, and a reset clears the notes", () => {
+    expect(r(s0, { type: "lineNote", text: "Nope", note: "x" })).toBe(s0);
+    const s = r(r(s0, { type: "speakStart", id: "a", text: "Hi", at: 1 }), { type: "lineNote", text: "Hi", note: "x" });
+    expect(r(s, { type: "reset" }).lineNotes).toEqual({});
+  });
 });
 
 describe("joining the partner's pauses into one line", () => {

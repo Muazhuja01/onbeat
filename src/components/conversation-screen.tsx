@@ -6,6 +6,7 @@ import { ASSISTANT_ENABLED } from "@/lib/assist/enabled";
 import { conversationReducer, initialConversation } from "@/lib/conversation/reducer";
 import { GapTimer, loadGaps, saveGap } from "@/lib/conversation/response-gap";
 import { useReplyShortcuts } from "@/lib/conversation/use-shortcuts";
+import { useMedia, WIDE } from "@/lib/use-media";
 import { useStableTargets } from "@/lib/conversation/use-stable-targets";
 import { useSuggestions } from "@/lib/conversation/use-suggestions";
 import { getBrowserHearing } from "@/lib/hearing/browser";
@@ -29,25 +30,27 @@ import { describeVoice, speedValue, voiceId, type VoiceChoice } from "@/lib/voic
 import type { VoiceEngine, VoiceMode } from "@/lib/voice/engine";
 import type { VoiceSource } from "@/lib/voice/messages";
 import { AnnouncerProvider, useAnnounce } from "./announcer";
-import { CaptionLog } from "./caption-log";
 import { Composer } from "./composer";
-import { ContextBar } from "./context-bar";
-import { DemoBar } from "./demo-bar";
+import { ContextButton, ContextChips } from "./context-bar";
+import { DemoChip } from "./demo-chip";
+import { Notice } from "./notice-banner";
 import { ListenControl } from "./listen-control";
 import { AssistantScreen, type AssistantHandle } from "./assistant-screen";
 import { NotesEditor } from "./notes-editor";
-import { PartnerInput } from "./partner-input";
 import { ProfileMenu } from "./profile-menu";
 import { ProfilePicker } from "./profile-picker";
 import { ProfileSetup } from "./profile-setup";
 import { PhraseRow } from "./phrase-row";
 import { ReactionBar } from "./reaction-bar";
 import { ReplyList } from "./reply-list";
-import { SettingsPanel } from "./settings-panel";
+import { SettingsButton, SettingsDrawer } from "./settings-drawer";
 import { ResponseGap } from "./response-gap";
-import { SpokenCaption } from "./spoken-caption";
 import { SuggestedNotes } from "./suggested-notes";
 import { VoiceScreen } from "./voice-picker";
+import { TheySaidButton, TheySaidForm } from "./they-said";
+import { Thread } from "./thread";
+import { TopBar } from "./top-bar";
+import { Tray } from "./tray";
 import { VoiceStatus } from "./voice-status";
 
 const subscribeNever = () => () => {};
@@ -72,9 +75,10 @@ export function ConversationScreen() {
 type View = "loading" | "setup" | "demo-picker" | "notes" | "suggestions" | "voice" | "assistant" | "conversation";
 
 const SAVE_FAILED = "Couldn't save. Your browser's storage may be full.";
+const UNSAVED_NOTICE = "Profiles and notes won't be saved in this window.";
 const LEARNING_NOTICE = "New: OnBeat can suggest notes from your conversations for you to review. Turn it off in Settings.";
-const VOICE_BACKUP = "Your voice wasn't ready in time, so the backup voice said that.";
-const VOICE_FALLBACK = "Your voice wasn't ready in time, so your device's voice said that.";
+const VOICE_BACKUP = "Said in the backup voice: yours wasn't ready in time.";
+const VOICE_FALLBACK = "Said in your device's voice: yours wasn't ready in time.";
 
 function Screen() {
   const announce = useAnnounce();
@@ -85,12 +89,25 @@ function Screen() {
   const [demo, setDemo] = useState<Persona | null>(null);
   const [memory, setMemory] = useState<MemoryStore | null>(null);
   const [notesVersion, setNotesVersion] = useState(0);
-  /** Bumped by New conversation, so the "What they said" box starts empty too. */
-  const [conversationKey, setConversationKey] = useState(0);
   const [voiceProgress, setVoiceProgress] = useState(0);
   /** On while a line waits for its clip in the chosen voice. */
   const [voiceWaiting, setVoiceWaiting] = useState(false);
   const [state, dispatch] = useReducer(conversationReducer, initialConversation);
+  const wide = useMedia(WIDE);
+  const [theySaidOpen, setTheySaidOpen] = useState(false);
+  /** Set when "+ They said" closes, so focus goes back to the reply box once it is shown again. */
+  const refocusComposer = useRef(false);
+  useEffect(() => {
+    if (theySaidOpen || !refocusComposer.current) return;
+    refocusComposer.current = false;
+    document.getElementById("composer")?.focus();
+  }, [theySaidOpen]);
+  const closeTheySaid = () => {
+    refocusComposer.current = true;
+    setTheySaidOpen(false);
+  };
+  /** The "won't be saved in this window" notice, once read and dismissed. */
+  const [unsavedDismissed, setUnsavedDismissed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -144,8 +161,8 @@ function Screen() {
       }),
       voice.on("end", (text) => dispatch({ type: "speakEnd", text })),
       voice.on("waiting", setVoiceWaiting),
-      voice.on("fallback", () => dispatch({ type: "notice", text: VOICE_FALLBACK })),
-      voice.on("backup", () => dispatch({ type: "notice", text: VOICE_BACKUP })),
+      voice.on("fallback", (text) => dispatch({ type: "lineNote", text, note: VOICE_FALLBACK })),
+      voice.on("backup", (text) => dispatch({ type: "lineNote", text, note: VOICE_BACKUP })),
     ];
     voice.load();
     return () => offs.forEach((off) => off());
@@ -220,6 +237,15 @@ function Screen() {
     [memory, state.partnerId, state.placeId],
   );
 
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  /** Runs once the settings drawer has closed, so a screen it opens gets focus after the drawer gives it back. */
+  const afterSettings = useRef<(() => void) | null>(null);
+  const closeSettings = () => {
+    setSettingsOpen(false);
+    const next = afterSettings.current;
+    afterSettings.current = null;
+    next?.();
+  };
   const replyListRef = useRef<HTMLElement>(null);
   const releaseHeld = useCallback(() => dispatch({ type: "releaseHeld" }), []);
   const isHolding = useStableTargets(replyListRef, releaseHeld);
@@ -249,6 +275,15 @@ function Screen() {
     if (n) announce(n === 1 ? "1 reply ready" : `${n} replies ready`, "replies");
   }, [state.replies, announce]);
 
+  // Notices are read out here, so their Dismiss buttons aren't read with them.
+  const unsavedNotice = registry && !registry.durable && !unsavedDismissed ? UNSAVED_NOTICE : null;
+  useEffect(() => {
+    if (unsavedNotice) announce(unsavedNotice);
+  }, [unsavedNotice, announce]);
+  useEffect(() => {
+    if (state.notice) announce(state.notice);
+  }, [state.notice, announce]);
+
   const speak = useCallback(
     (text: string, opts?: { isReaction?: boolean; quick?: boolean }) => {
       const t = text.trim();
@@ -271,7 +306,8 @@ function Screen() {
   const stop = useCallback(() => voice?.stop(), [voice]);
 
   const focusReplies = useCallback(() => {
-    replyListRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    // The first reply, not a quick reaction or phrase above it.
+    replyListRef.current?.querySelector<HTMLButtonElement>("ol button")?.focus();
   }, []);
 
   const notes = useMemo(() => (memory ? memory.notes() : []), [memory, notesVersion]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -328,7 +364,7 @@ function Screen() {
   }, [memory, demo, view, settings.learning]);
 
   useReplyShortcuts({
-    enabled: !conversationHidden,
+    enabled: !conversationHidden && !settingsOpen,
     digitKeys: settings.digitKeys,
     replyCount: state.replies.length,
     reactionCount: state.reactions.length,
@@ -386,10 +422,10 @@ function Screen() {
     if (state.speaking) stop();
     dispatch({ type: "reset" });
     gapTimer.reset();
-    setConversationKey((k) => k + 1);
     learning.session?.conversationEnded();
     announce("Conversation cleared.");
-    document.getElementById("composer")?.focus();
+    if (theySaidOpen) closeTheySaid();
+    else document.getElementById("composer")?.focus();
   };
 
   /** Shows a profile's or demo's notes with a fresh conversation. */
@@ -585,202 +621,247 @@ function Screen() {
   // Setup and the demo picker can go back only to something that is open.
   const back = memory ? () => setView("conversation") : undefined;
 
+  const inConversation = !conversationHidden;
+  const contextProps = {
+    places,
+    people,
+    placeId: state.placeId,
+    partnerId: state.partnerId,
+    onChange: (placeId?: string, partnerId?: string) => dispatch({ type: "setContext", placeId, partnerId }),
+  };
+  const listen = <ListenControl hearing={hearing} status={hearingStatus} progress={hearingProgress} onToggle={toggleListening} />;
+  const openTheySaid = () => setTheySaidOpen(true);
+
   return (
-    <>
-      <header className="mx-auto flex w-full max-w-[90rem] flex-wrap items-center justify-between gap-4 px-4 py-4 lg:h-(--header-h) lg:px-8">
-        <p className="text-2xl font-extrabold tracking-tight" translate="no">
-          OnBeat
-        </p>
-        {showMenu && (
-          <ProfileMenu
-            profiles={profiles}
-            activeId={registry?.active()?.id ?? null}
-            demoName={demo?.name ?? null}
-            onSwitch={(id) => void switchTo(id)}
-            onNotes={() => goTo("notes")}
-            voiceLabel={activeVoice ? describeVoice(activeVoice) : undefined}
-            onVoice={activeVoice ? () => goTo("voice") : undefined}
-            onNew={() => goTo("setup")}
-            onExport={exportActive}
+    <div className={inConversation ? "flex h-dvh flex-col" : undefined}>
+      <TopBar
+        start={
+          inConversation && wide ? (
+            <>
+              <ContextChips {...contextProps} />
+              {listen}
+            </>
+          ) : undefined
+        }
+        end={
+          <>
+            {inConversation && !wide && listen}
+            {demo && inConversation && wide && <DemoChip onSetup={() => leaveConversation("setup")} />}
+            {showMenu && (
+              <ProfileMenu
+                profiles={profiles}
+                activeId={registry?.active()?.id ?? null}
+                demoName={demo?.name ?? null}
+                onSwitch={(id) => void switchTo(id)}
+                onNotes={() => goTo("notes")}
+                voiceLabel={activeVoice ? describeVoice(activeVoice) : undefined}
+                onVoice={activeVoice ? () => goTo("voice") : undefined}
+                onNew={() => goTo("setup")}
+                onExport={exportActive}
+                onImport={(file) => void importFile(file)}
+                onRename={(name) => void renameActive(name)}
+                onDelete={() => void deleteActive()}
+                onDemo={() => goTo("demo-picker")}
+                suggestionCount={learning.suggestions.length}
+                onSuggestions={() => goTo("suggestions")}
+                onAssistant={demo || !ASSISTANT_ENABLED ? undefined : openAssistant}
+                compact={!wide}
+                onSettings={wide ? undefined : () => setSettingsOpen(true)}
+              />
+            )}
+            {(wide || !showMenu) && <SettingsButton onOpen={() => setSettingsOpen(true)} />}
+          </>
+        }
+        below={
+          inConversation && !wide ? (
+            <div className="typing-hide px-4 pb-3">
+              <ContextButton {...contextProps} />
+            </div>
+          ) : undefined
+        }
+      />
+      <main
+        id="main"
+        className={
+          inConversation
+            ? "flex min-h-0 flex-1 flex-col overflow-y-auto"
+            : "mx-auto w-full max-w-[90rem] px-4 py-6 pb-[calc(env(safe-area-inset-bottom)+2rem)] lg:px-8"
+        }
+      >
+        <h1 className="sr-only">{view === "conversation" ? "Conversation" : "OnBeat"}</h1>
+        <div className={`mx-auto flex w-full max-w-[54rem] flex-col gap-2 empty:hidden ${inConversation ? "px-4 pt-3" : "pb-4"}`}>
+          {unsavedNotice && <Notice text={unsavedNotice} onDismiss={() => setUnsavedDismissed(true)} />}
+          {state.notice && <Notice text={state.notice} onDismiss={() => dispatch({ type: "notice", text: null })} />}
+        </div>
+        {view === "setup" && (
+          <ProfileSetup
+            onDone={finishSetup}
+            onDemo={() => setView("demo-picker")}
+            onCancel={back}
             onImport={(file) => void importFile(file)}
-            onRename={(name) => void renameActive(name)}
-            onDelete={() => void deleteActive()}
-            onDemo={() => goTo("demo-picker")}
-            suggestionCount={learning.suggestions.length}
-            onSuggestions={() => goTo("suggestions")}
-            onAssistant={demo || !ASSISTANT_ENABLED ? undefined : openAssistant}
+            voice={voice}
+            voiceMode={voiceMode}
+            voiceProgress={voiceProgress}
           />
         )}
-      </header>
-      <main id="main" className="mx-auto w-full max-w-[90rem] px-4 pb-[calc(env(safe-area-inset-bottom)+2rem)] lg:px-8">
-        <h1 className="sr-only">{view === "conversation" ? "Conversation" : "OnBeat"}</h1>
-        <div className={conversationHidden ? undefined : "conv-fit"}>
-          {/* Always mounted, so screen readers hear the notice when its text changes. */}
-          <div role="status">
-            {registry && !registry.durable && (
-              <p className="mb-4 rounded-control border-2 border-ink/30 px-4 py-3 text-body">Profiles and notes won&apos;t be saved in this window.</p>
-            )}
-            {state.notice && <p className="mb-4 rounded-control border-2 border-ink/30 px-4 py-3 text-body">{state.notice}</p>}
-          </div>
-          {demo && view === "conversation" && <DemoBar name={demo.name} onSetup={() => leaveConversation("setup")} />}
-          {view === "setup" && (
-            <ProfileSetup
-              onDone={finishSetup}
-              onDemo={() => setView("demo-picker")}
-              onCancel={back}
-              onImport={(file) => void importFile(file)}
-              voice={voice}
-              voiceMode={voiceMode}
-              voiceProgress={voiceProgress}
-            />
-          )}
-          {view === "demo-picker" && (
-            <ProfilePicker personas={personas} onChoose={(p) => void startDemo(p)} onBack={back ?? (() => setView("setup"))} />
-          )}
-          {view === "assistant" && memory && !demo && (
-            <AssistantScreen
-              ref={assistantRef}
-              key={activeProfileId ?? "none"}
-              memory={memory}
-              announce={announce}
-              onChanged={() => {
-                // Notes or phrases changed: cached replies are stale (R13), and a removed note may be the current Talking with or Place.
-                client?.clearCache();
-                setNotesVersion((v) => v + 1);
-                setPhrasesVersion((v) => v + 1);
-                if ((state.partnerId && !memory.getNote(state.partnerId)) || (state.placeId && !memory.getNote(state.placeId))) {
-                  dispatch({
-                    type: "setContext",
-                    partnerId: state.partnerId && memory.getNote(state.partnerId) ? state.partnerId : undefined,
-                    placeId: state.placeId && memory.getNote(state.placeId) ? state.placeId : undefined,
-                  });
-                }
-              }}
-              onClose={() => {
-                setView("conversation");
-                resetFocusToTop();
-              }}
-            />
-          )}
-          {view === "notes" && memory && (
-            <NotesEditor
-              notes={notes}
-              onSave={(note) => void saveNote(note)}
-              onRemove={(id) => void removeNote(id)}
-              phrases={memory.allQuickPhrases()}
-              onAddPhrase={async (text, tie) => {
-                const made = await memory.addQuickPhrase(text, tie);
-                setPhrasesVersion((v) => v + 1);
-                if (made) announce("Phrase saved");
-                return made !== null;
-              }}
-              onUpdatePhrase={async (id, text, tie) => {
-                const ok = await memory.updateQuickPhrase(id, text, tie);
-                setPhrasesVersion((v) => v + 1);
-                if (ok) announce("Phrase saved");
-                return ok;
-              }}
-              onRemovePhrase={(id) =>
-                void memory.removePhrase(id).then(() => {
-                  setPhrasesVersion((v) => v + 1);
-                  announce("Phrase deleted");
-                })
+        {view === "demo-picker" && (
+          <ProfilePicker personas={personas} onChoose={(p) => void startDemo(p)} onBack={back ?? (() => setView("setup"))} />
+        )}
+        {view === "assistant" && memory && !demo && (
+          <AssistantScreen
+            ref={assistantRef}
+            key={activeProfileId ?? "none"}
+            memory={memory}
+            announce={announce}
+            onChanged={() => {
+              // Notes or phrases changed: cached replies are stale (R13), and a removed note may be the current Talking with or Place.
+              client?.clearCache();
+              setNotesVersion((v) => v + 1);
+              setPhrasesVersion((v) => v + 1);
+              if ((state.partnerId && !memory.getNote(state.partnerId)) || (state.placeId && !memory.getNote(state.placeId))) {
+                dispatch({
+                  type: "setContext",
+                  partnerId: state.partnerId && memory.getNote(state.partnerId) ? state.partnerId : undefined,
+                  placeId: state.placeId && memory.getNote(state.placeId) ? state.placeId : undefined,
+                });
               }
-              onDone={() => {
-                setView("conversation");
-                resetFocusToTop();
-              }}
+            }}
+            onClose={() => {
+              setView("conversation");
+              resetFocusToTop();
+            }}
+          />
+        )}
+        {view === "notes" && memory && (
+          <NotesEditor
+            notes={notes}
+            onSave={(note) => void saveNote(note)}
+            onRemove={(id) => void removeNote(id)}
+            phrases={memory.allQuickPhrases()}
+            onAddPhrase={async (text, tie) => {
+              const made = await memory.addQuickPhrase(text, tie);
+              setPhrasesVersion((v) => v + 1);
+              if (made) announce("Phrase saved");
+              return made !== null;
+            }}
+            onUpdatePhrase={async (id, text, tie) => {
+              const ok = await memory.updateQuickPhrase(id, text, tie);
+              setPhrasesVersion((v) => v + 1);
+              if (ok) announce("Phrase saved");
+              return ok;
+            }}
+            onRemovePhrase={(id) =>
+              void memory.removePhrase(id).then(() => {
+                setPhrasesVersion((v) => v + 1);
+                announce("Phrase deleted");
+              })
+            }
+            onDone={() => {
+              setView("conversation");
+              resetFocusToTop();
+            }}
+          />
+        )}
+        {view === "suggestions" && memory && (
+          <SuggestedNotes
+            suggestions={learning.suggestions}
+            notes={notes}
+            onKeep={(s, draft) => void keepSuggestion(s, draft)}
+            onSkip={(id) => {
+              void learning.session?.pending.skip(id);
+              announce("Skipped");
+            }}
+            onSkipAll={() => {
+              void learning.session?.pending.skipAll();
+              announce("Skipped all");
+            }}
+            onDone={() => {
+              setView("conversation");
+              resetFocusToTop();
+            }}
+          />
+        )}
+        {view === "voice" && activeProfile && activeVoice && (
+          <VoiceScreen
+            initial={activeVoice}
+            name={activeProfile.name}
+            voice={voice}
+            mode={voiceMode}
+            progress={voiceProgress}
+            onSave={(v) => void saveVoice(v)}
+            onCancel={() => {
+              setView("conversation");
+              resetFocusToTop();
+            }}
+          />
+        )}
+        <div className="mx-auto flex min-h-0 w-full max-w-[54rem] flex-1 flex-col gap-3 px-4 pt-3 lg:pb-4" hidden={conversationHidden}>
+          <Thread
+            turns={state.turns}
+            partnerName={partnerName}
+            partial={state.partnerPartial}
+            speaking={state.speaking}
+            waiting={voiceWaiting}
+            lineNotes={state.lineNotes}
+            onStop={stop}
+            onNewConversation={newConversation}
+            footer={!wide && !theySaidOpen ? <TheySaidButton pill onOpen={openTheySaid} /> : undefined}
+          />
+          <Tray>
+            <ReplyList
+              ref={replyListRef}
+              replies={state.replies}
+              reserve={conversationStarted}
+              speaking={state.speaking}
+              status={state.status}
+              onSpeak={speak}
+              onStop={stop}
+              aside={<ReactionBar reactions={state.reactions} reserve={conversationStarted} onReact={(text) => speak(text, { isReaction: true })} />}
+              below={<PhraseRow phrases={quickPhrases} onSpeak={(text) => speak(text, { quick: true })} />}
             />
-          )}
-          {view === "suggestions" && memory && (
-            <SuggestedNotes
-              suggestions={learning.suggestions}
-              notes={notes}
-              onKeep={(s, draft) => void keepSuggestion(s, draft)}
-              onSkip={(id) => {
-                void learning.session?.pending.skip(id);
-                announce("Skipped");
-              }}
-              onSkipAll={() => {
-                void learning.session?.pending.skipAll();
-                announce("Skipped all");
-              }}
-              onDone={() => {
-                setView("conversation");
-                resetFocusToTop();
-              }}
-            />
-          )}
-          {view === "voice" && activeProfile && activeVoice && (
-            <VoiceScreen
-              initial={activeVoice}
-              name={activeProfile.name}
-              voice={voice}
-              mode={voiceMode}
-              progress={voiceProgress}
-              onSave={(v) => void saveVoice(v)}
-              onCancel={() => {
-                setView("conversation");
-                resetFocusToTop();
-              }}
-            />
-          )}
-          <div className="conv-grid" hidden={conversationHidden}>
-            <div className="flex flex-col gap-4 [grid-area:context]">
-              <ContextBar
-                places={places}
-                people={people}
-                placeId={state.placeId}
-                partnerId={state.partnerId}
-                onChange={(placeId, partnerId) => dispatch({ type: "setContext", placeId, partnerId })}
-              />
-              <ListenControl hearing={hearing} status={hearingStatus} progress={hearingProgress} onToggle={toggleListening} />
-            </div>
-            <div className="flex min-w-0 flex-col gap-6 [grid-area:log] lg:min-h-0 lg:gap-4">
-              <CaptionLog turns={state.turns} partnerName={partnerName} partial={state.partnerPartial} onNewConversation={newConversation} />
-              <PartnerInput key={conversationKey} onSubmit={(text) => dispatch({ type: "partnerSaid", id: crypto.randomUUID(), text, at: Date.now() })} />
-            </div>
-            <div className="flex min-w-0 flex-col gap-6 [grid-area:side] lg:min-h-0 lg:gap-3">
-              {/* Wide screens: the "Last said" box takes the room left over and fits its text to it, so the
-                  replies don't move and the reply box stays on screen. If the window is too short even so,
-                  this part scrolls on its own; the padding keeps focus rings from being cut off. */}
-              <div className="flex flex-col gap-6 lg:-m-1.5 lg:min-h-0 lg:flex-1 lg:gap-3 lg:overflow-y-auto lg:overscroll-contain lg:p-1.5">
-                <div className="flex flex-col lg:min-h-[4.5rem] lg:flex-1">
-                  <SpokenCaption speaking={state.speaking} lastSpoken={state.lastSpoken} waiting={voiceWaiting} />
-                </div>
-                <ReactionBar reactions={state.reactions} reserve={conversationStarted} onReact={(text) => speak(text, { isReaction: true })} />
-                <PhraseRow phrases={quickPhrases} onSpeak={(text) => speak(text, { quick: true })} />
-                <ReplyList ref={replyListRef} replies={state.replies} reserve={conversationStarted} speaking={state.speaking} status={state.status} onSpeak={speak} onStop={stop} />
-              </div>
+            {theySaidOpen && (
+              <TheySaidForm onSubmit={(text) => dispatch({ type: "partnerSaid", id: crypto.randomUUID(), text, at: Date.now() })} onClose={closeTheySaid} />
+            )}
+            <div hidden={theySaidOpen}>
               <Composer
                 value={state.typed}
                 onChange={(text) => dispatch({ type: "typed", text })}
                 onSpeak={speak}
                 onFocusReplies={focusReplies}
+                before={wide ? <TheySaidButton onOpen={openTheySaid} /> : undefined}
               />
-              <VoiceStatus mode={voiceMode} source={voiceSource} progress={voiceProgress} />
-              {showTimer && <ResponseGap gaps={gaps} />}
             </div>
-          </div>
-        </div>
-        <div className="mt-10 max-w-xl">
-          <SettingsPanel
-            theme={settings.theme}
-            digitKeys={settings.digitKeys}
-            cloudCaptions={settings.cloudCaptions}
-            learning={settings.learning}
-            joinLines={settings.joinLines}
-            voiceLabel={settingsVoice ? describeVoice(settingsVoice) : undefined}
-            voiceBasic={voiceMode === "basic"}
-            onVoice={settingsVoice ? () => leaveConversation("voice") : undefined}
-            onTheme={setTheme}
-            onDigitKeys={setDigitKeys}
-            onCloudCaptions={setCloudCaptions}
-            onLearning={toggleLearning}
-            onJoinLines={setJoinLines}
-          />
+            <div className="typing-hide">
+              <VoiceStatus mode={voiceMode} source={voiceSource} progress={voiceProgress} reserve={conversationStarted} />
+            </div>
+            {showTimer && <ResponseGap gaps={gaps} />}
+          </Tray>
         </div>
       </main>
-    </>
+      <SettingsDrawer
+        open={settingsOpen}
+        onClose={closeSettings}
+        theme={settings.theme}
+        digitKeys={settings.digitKeys}
+        cloudCaptions={settings.cloudCaptions}
+        learning={settings.learning}
+        joinLines={settings.joinLines}
+        voiceLabel={settingsVoice ? describeVoice(settingsVoice) : undefined}
+        voiceBasic={voiceMode === "basic"}
+        onVoice={
+          settingsVoice
+            ? () => {
+                afterSettings.current = () => leaveConversation("voice");
+                setSettingsOpen(false);
+              }
+            : undefined
+        }
+        onTheme={setTheme}
+        onDigitKeys={setDigitKeys}
+        onCloudCaptions={setCloudCaptions}
+        onLearning={toggleLearning}
+        onJoinLines={setJoinLines}
+      />
+    </div>
   );
 }

@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { ACCENTS, GENDERS, SPEEDS, normalizeChoice, sampleText, speedValue, stylesFor, voiceId, type VoiceChoice } from "@/lib/voice/choices";
 import type { VoiceEngine, VoiceMode } from "@/lib/voice/engine";
-import { hint, primaryButton, secondaryButton } from "./ui";
+import { hint, primaryButton, screenCard, secondaryButton } from "./ui";
 
 interface PickerProps {
   value: VoiceChoice;
@@ -74,7 +74,7 @@ export function VoiceScreen({ initial, name, voice, mode, progress, onSave, onCa
   const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => headingRef.current?.focus(), []);
   return (
-    <section aria-labelledby="voice-heading" className="flex max-w-2xl flex-col gap-6">
+    <section aria-labelledby="voice-heading" className={`${screenCard} flex max-w-2xl flex-col gap-6`}>
       <div className="flex flex-col gap-2">
         <h2 id="voice-heading" ref={headingRef} tabIndex={-1} className="text-caption font-bold text-balance">
           Your voice

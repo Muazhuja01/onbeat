@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 const MODEL_LINES = [
   '{"reply": "Large, please.", "notes": []}',
@@ -62,5 +62,31 @@ export async function startWithMaya(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Try a demo first" }).click();
   await page.getByRole("button", { name: /^Maya/ }).click();
-  await expect(page.getByLabel("Place")).toHaveValue("m-cafe");
+  // At every width: below 640 px the place and person sit in the "Where and who" sheet.
+  await expect(page.getByRole("heading", { name: "Replies" })).toBeAttached();
+}
+
+/** Types a line for the other person with "+ They said". */
+export async function theySaid(page: Page, text: string) {
+  await page.getByRole("button", { name: "They said", exact: true }).click();
+  await page.getByLabel("What they said").fill(text);
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+}
+
+/** Fails unless a tap at the middle of `target` would reach it: nothing (such as the thread) is painted over it. */
+export async function expectTappable(target: Locator) {
+  await expect(target).toBeInViewport({ ratio: 1 });
+  const hit = await target.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return top !== null && (top === el || el.contains(top));
+  });
+  expect(hit, "something is painted over it").toBe(true);
+}
+
+/** Fails if the thread's list reaches into the reply tray. */
+export async function expectThreadAboveTray(page: Page) {
+  const list = await page.getByRole("list", { name: "Conversation lines" }).boundingBox();
+  const tray = await page.locator(".tray").boundingBox();
+  expect(list && tray && list.y + list.height <= tray.y + 1, `thread ${JSON.stringify(list)} overlaps tray ${JSON.stringify(tray)}`).toBe(true);
 }

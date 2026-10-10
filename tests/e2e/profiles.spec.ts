@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { prepare } from "./helpers";
+import { prepare, theySaid } from "./helpers";
 
 const WCAG = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 
@@ -38,8 +38,7 @@ test("replies use the new profile's notes", async ({ page }) => {
   });
   await page.goto("/");
   await setUp(page, "Priya");
-  await page.getByLabel("What they said").fill("How do you talk to people?");
-  await page.getByRole("button", { name: "Add" }).click();
+  await theySaid(page, "How do you talk to people?");
   await expect(page.locator("#replies").getByText("Replies ready")).toBeVisible();
   expect(bodies.at(-1)).toContain("I'm Priya. I type to talk. I can hear fine.");
 });
@@ -49,7 +48,8 @@ test("a demo leaves no profile behind", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Try a demo first" }).click();
   await page.getByRole("button", { name: /^Maya/ }).click();
-  await expect(page.getByText("Nothing you do here is saved.")).toBeVisible();
+  // The demo badge in the top bar.
+  await expect(page.getByText("Demo", { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByLabel("What's your name?")).toBeVisible();
 });

@@ -9,6 +9,13 @@
   --cue: #f2a93b;
   --on-cue: #15233b;
   --partner: #2d5b86;
+  --raised: #ffffff;
+  --bubble: #15233b;
+  --on-bubble: #f3f6fa;
+  --edge: rgb(21 35 59 / 0.1);
+  --scrim: rgb(16 24 38 / 0.45);
+  --elev-lift: 0 1px 2px rgb(21 35 59 / 0.06), 0 4px 14px rgb(21 35 59 / 0.07);
+  --elev-tray: 0 10px 30px rgb(21 35 59 / 0.1);
   color-scheme: light;
 }
 
@@ -21,6 +28,13 @@
     --cue: #f5b656;
     --on-cue: #101826;
     --partner: #8db8e3;
+    --raised: #1e2b41;
+    --bubble: #e8edf4;
+    --on-bubble: #101826;
+    --edge: rgb(232 237 244 / 0.08);
+    --scrim: rgb(0 0 0 / 0.6);
+    --elev-lift: none;
+    --elev-tray: 0 0 0 1px rgb(232 237 244 / 0.07), 0 12px 30px rgb(0 0 0 / 0.35);
     color-scheme: dark;
   }
 }
@@ -33,6 +47,13 @@
   --cue: #f5b656;
   --on-cue: #101826;
   --partner: #8db8e3;
+  --raised: #1e2b41;
+  --bubble: #e8edf4;
+  --on-bubble: #101826;
+  --edge: rgb(232 237 244 / 0.08);
+  --scrim: rgb(0 0 0 / 0.6);
+  --elev-lift: none;
+  --elev-tray: 0 0 0 1px rgb(232 237 244 / 0.07), 0 12px 30px rgb(0 0 0 / 0.35);
   color-scheme: dark;
 }
 
@@ -44,6 +65,13 @@
   --cue: #ffd166;
   --on-cue: #000000;
   --partner: #ffffff;
+  --raised: #000000;
+  --bubble: #ffffff;
+  --on-bubble: #000000;
+  --edge: #ffffff;
+  --scrim: rgb(0 0 0 / 0.8);
+  --elev-lift: none;
+  --elev-tray: none;
   color-scheme: dark;
 }
 
@@ -57,6 +85,13 @@
     --cue: #ffd166;
     --on-cue: #000000;
     --partner: #ffffff;
+    --raised: #000000;
+    --bubble: #ffffff;
+    --on-bubble: #000000;
+    --edge: #ffffff;
+    --scrim: rgb(0 0 0 / 0.8);
+    --elev-lift: none;
+    --elev-tray: none;
     color-scheme: dark;
   }
 }
@@ -69,6 +104,12 @@
   --color-cue: var(--cue);
   --color-on-cue: var(--on-cue);
   --color-partner: var(--partner);
+  --color-raised: var(--raised);
+  --color-bubble: var(--bubble);
+  --color-on-bubble: var(--on-bubble);
+  --color-edge: var(--edge);
+  --shadow-lift: var(--elev-lift);
+  --shadow-tray: var(--elev-tray);
   --font-sans: var(--font-atkinson), system-ui, sans-serif;
   --radius-control: 14px;
   --text-caption: 2rem;
@@ -82,8 +123,6 @@
 }
 
 html {
-  /* The header's height on wide screens, so the conversation can fill the rest of the window. */
-  --header-h: 5.5rem;
   background: var(--ground);
   /* Room for the scrollbar is kept even when the page fits, so the layout doesn't shift sideways as it grows. */
   scrollbar-gutter: stable;
@@ -132,36 +171,6 @@ body {
   top: 1rem;
 }
 
-@layer components {
-  .conv-grid {
-    display: grid;
-    gap: 1.5rem;
-    grid-template-areas: "context" "log" "side";
-  }
-  @media (min-width: 64rem) {
-    .conv-grid {
-      /* min(): a root font enlarged by a user style sheet grows 36rem but not the 64rem breakpoint. */
-      grid-template-columns: minmax(0, 1fr) minmax(0, min(36rem, 50%));
-      grid-template-rows: auto minmax(0, 1fr);
-      /* Listening sits above the conversation it fills, so the replies column has the whole height. */
-      grid-template-areas: "context side" "log side";
-    }
-  }
-  /* Wide screens: the conversation fills the window and never scrolls the page.
-     The caption log and the "Last said" box take what's left and handle long text themselves. */
-  @media (min-width: 64rem) {
-    .conv-fit {
-      display: flex;
-      flex-direction: column;
-      height: calc(100dvh - var(--header-h));
-    }
-    .conv-fit > .conv-grid {
-      flex: 1;
-      min-height: 0;
-    }
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -170,5 +179,85 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+.sheet {
+  margin: 0;
+  padding: 0;
+  border: 2px solid var(--edge);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--elev-tray);
+  overflow-y: auto;
+}
+.sheet::backdrop {
+  background: var(--scrim);
+}
+.sheet-bottom {
+  inset: auto 0 0 0;
+  width: 100%;
+  max-width: 100%;
+  max-height: 85dvh;
+  border-radius: 1.5rem 1.5rem 0 0;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.sheet-bottom[open] {
+  animation: sheet-in-bottom 200ms ease-out;
+}
+@keyframes sheet-in-bottom {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+.sheet-right {
+  inset: 0 0 0 auto;
+  width: min(28rem, 100%);
+  max-width: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  border-radius: 1.375rem 0 0 1.375rem;
+}
+.sheet-right[open] {
+  animation: sheet-in-right 200ms ease-out;
+}
+@keyframes sheet-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* A new reply fades in; each new text is a new list item, so this runs once per reply. */
+.reply-in {
+  animation: reply-in 150ms ease-out;
+}
+@keyframes reply-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/*
+ * Phones and tablets: while you type, the keyboard takes much of the screen. Rows you don't need for
+ * typing step aside so their latest line and all three replies keep their room. The type box's
+ * label is only hidden from sight; screen readers still hear it.
+ */
+@media (width < 64rem) {
+  body:has(#composer:focus) :is(.tray-extras, .typing-hide) {
+    display: none;
+  }
+  body:has(#composer:focus) .typing-quiet {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }

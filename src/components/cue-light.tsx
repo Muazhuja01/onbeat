@@ -14,8 +14,8 @@ export function CueLight({ status }: { status: SuggestStatus }) {
     <span className="flex items-center gap-2">
       <span
         aria-hidden="true"
-        className={`inline-block size-7 rounded-full border-2 transition-[background-color,border-color] duration-150 ${
-          on ? "border-ink bg-cue" : "border-muted bg-transparent"
+        className={`inline-block size-6 rounded-full border-2 transition-[background-color,border-color,box-shadow] duration-150 ${
+          on ? "border-ink bg-cue shadow-[0_0_0_6px_color-mix(in_srgb,var(--cue)_25%,transparent)]" : "border-muted bg-transparent"
         }`}
       />
       <span className={`text-label ${on ? "font-bold text-ink" : "text-muted"}`}>{LABELS[status]}</span>

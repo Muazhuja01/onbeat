@@ -145,6 +145,7 @@ function answerWithReaction(text: string) {
 }
 
 async function partnerSays(text: string) {
+  await userEvent.click(screen.getByRole("button", { name: "They said" }));
   await userEvent.type(screen.getByLabelText("What they said"), text);
   await userEvent.click(screen.getByRole("button", { name: "Add" }));
 }
@@ -256,7 +257,7 @@ describe("ConversationScreen", () => {
     const composer = screen.getByLabelText("Type a reply");
     await userEvent.type(composer, "hello");
 
-    act(() => screen.getByLabelText("What they said").focus());
+    await userEvent.click(screen.getByRole("button", { name: "They said" }));
     await userEvent.keyboard("{Escape}");
     expect(composer).toHaveValue("hello");
 
@@ -304,6 +305,12 @@ describe("ConversationScreen", () => {
     // The page recovers with profiles kept in memory instead of staying blank forever.
     await screen.findByRole("heading", { name: "Set up OnBeat" });
     await screen.findByText("Profiles and notes won't be saved in this window.");
+    // Read out once, without the Dismiss button's name, which sits outside any live region.
+    await waitFor(() => expect(liveRegion()).toHaveTextContent("Profiles and notes won't be saved in this window."), { timeout: 2000 });
+    expect(screen.getByRole("button", { name: "Dismiss" }).closest('[role="status"], [aria-live]')).toBeNull();
+    // It can be dismissed once read.
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(within(screen.getByRole("main")).queryByText("Profiles and notes won't be saved in this window.")).toBeNull();
     expect(errorSpy).toHaveBeenCalled();
 
     errorSpy.mockRestore();
@@ -420,6 +427,7 @@ describe("ConversationScreen new conversation", () => {
     answer("Large, please.");
     await userEvent.click(await screen.findByRole("button", { name: /Large, please./ }));
     await userEvent.type(screen.getByLabelText("Type a reply"), "and a muffin");
+    await userEvent.click(screen.getByRole("button", { name: "They said" }));
     await userEvent.type(screen.getByLabelText("What they said"), "Anything");
 
     await userEvent.click(newConversation()!);
@@ -427,9 +435,9 @@ describe("ConversationScreen new conversation", () => {
 
     expect(screen.queryByText("What size?")).toBeNull();
     expect(screen.queryByRole("button", { name: /Large, please./ })).toBeNull();
-    expect(screen.queryByText("Last said")).toBeNull();
+    expect(screen.getByText("Ready when you are")).toBeInTheDocument();
     expect(screen.getByLabelText("Type a reply")).toHaveValue("");
-    expect(screen.getByLabelText("What they said")).toHaveValue("");
+    expect(screen.queryByLabelText("What they said")).toBeNull();
     expect(screen.getByLabelText("Place")).toHaveValue(place);
     expect(screen.getByLabelText("Talking with")).toHaveValue(person);
     expect(newConversation()).toBeNull();
@@ -521,22 +529,45 @@ describe("ConversationScreen voice", () => {
     await startWithMaya();
     await userEvent.type(screen.getByLabelText("Type a reply"), "Hello there{Enter}");
     act(() => h.emit("waiting", true));
-    const said = screen.getByRole("region", { name: "What you said" });
+    const said = screen.getByRole("region", { name: "Conversation" });
     expect(within(said).getByText("Getting your voice ready…")).toBeInTheDocument();
     act(() => h.emit("waiting", false));
     expect(within(said).queryByText("Getting your voice ready…")).toBeNull();
   });
 
-  it("says when the device voice said a line instead of the chosen one", async () => {
+  it("notes under the line when the device voice said it instead of the chosen one", async () => {
     await startWithMaya();
+    await userEvent.type(screen.getByLabelText("Type a reply"), "Hello there{Enter}");
     act(() => h.emit("fallback", "Hello there"));
-    expect(await screen.findByText("Your voice wasn't ready in time, so your device's voice said that.")).toBeInTheDocument();
+    const line = within(screen.getByRole("region", { name: "Conversation" })).getAllByRole("listitem").at(-1)!;
+    expect(line).toHaveTextContent("Said in your device's voice: yours wasn't ready in time.");
   });
 
-  it("tells the user when the backup voice said a line", async () => {
+  it("notes under the line when the backup voice said it", async () => {
     await startWithMaya();
+    await userEvent.type(screen.getByLabelText("Type a reply"), "Hello{Enter}");
     act(() => h.emit("backup", "Hello"));
-    expect(await screen.findByText("Your voice wasn't ready in time, so the backup voice said that.")).toBeVisible();
+    expect(await screen.findByText("Said in the backup voice: yours wasn't ready in time.")).toBeVisible();
+  });
+
+  it("doesn't speak a reply when a number is pressed while Settings is open", async () => {
+    const speak = vi.spyOn(h.voice, "speak");
+    await startWithMaya();
+    await partnerSays("What size?");
+    answer("Large, please.");
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.keyboard("1");
+    expect(speak).not.toHaveBeenCalled();
+    speak.mockRestore();
+  });
+
+  it("goes from the reply box up to the first reply, past the quick reactions", async () => {
+    await startWithMaya();
+    await partnerSays("What size?");
+    act(() => h.requests.at(-1)!.onUpdate({ replies: [reply("Large, please.")], reactions: [{ id: "r1", text: "Mm-hmm" }], done: true }));
+    await userEvent.click(screen.getByLabelText("Type a reply"));
+    await userEvent.keyboard("{ArrowUp}");
+    expect(screen.getByRole("button", { name: "Large, please." })).toHaveFocus();
   });
 
   it("speaks in Tom's voice when his demo opens", async () => {
@@ -592,7 +623,7 @@ describe("ConversationScreen voice", () => {
 
   it("offers the Settings voice row only on the conversation", async () => {
     await setUpPriya();
-    await userEvent.click(screen.getByText("Settings"));
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByRole("button", { name: "Change voice" })).toBeInTheDocument();
     await fromMenu("Priya", "New profile");
     expect(screen.getByRole("heading", { name: "Set up OnBeat" })).toBeInTheDocument();
@@ -697,7 +728,7 @@ describe("ConversationScreen learning", () => {
 
   it("learns nothing with the setting off", async () => {
     await setUpPriya();
-    await userEvent.click(screen.getByText("Settings"));
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
     const box = screen.getByRole("checkbox", { name: "Suggest notes from my conversations" });
     await userEvent.click(box);
     await partnerSays("Your physio moved to Thursdays.");
@@ -829,7 +860,7 @@ describe("ConversationScreen pauses in one line", () => {
 
   it("keeps each piece on its own line with the setting off", async () => {
     await startWithMaya();
-    await userEvent.click(screen.getByText("Settings"));
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(joinBox()).toBeChecked();
     await userEvent.click(joinBox());
     piece("So the physio", 1_000, 2_000);
