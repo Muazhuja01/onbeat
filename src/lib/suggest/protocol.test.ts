@@ -49,6 +49,10 @@ describe("parseLine", () => {
   it("defaults missing notes to an empty list", () => {
     expect(parseLine('{"reply": "Hi"}')).toEqual({ kind: "reply", text: "Hi", noteIds: [] });
   });
+  it("treats a reply of only spaces as invalid, so it never shows as a blank button", () => {
+    expect(parseLine('{"reply": "   ", "notes": []}')).toMatchObject({ kind: "invalid" });
+    expect(parseObject('{"reply": " \\n "}')).toEqual([expect.objectContaining({ kind: "invalid" })]);
+  });
   it("parses reactions", () => {
     expect(parseLine('{"reactions": ["ha", "really"]}')).toEqual({ kind: "reactions", ids: ["ha", "really"] });
   });

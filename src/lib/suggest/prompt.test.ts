@@ -37,7 +37,10 @@ describe("buildMessages", () => {
   it("asks for a direct answer, a detail from the notes, and an opposite or neutral answer", () => {
     const [, user] = buildMessages(body);
     expect(user.content).toContain("Reply 1 answers directly.");
-    expect(user.content).toContain("Reply 2 answers with one detail from the notes or the conversation.");
+    expect(user.content).toContain("Reply 2 adds one detail from a note, only if a note gives one that answers what they said.");
+    // Asking for a detail when no note has one is where invented details came from.
+    expect(user.content).toContain("If no note does, reply 2 is another plain answer that adds nothing new.");
+    expect(user.content).not.toContain("Reply 2 answers with one detail from the notes or the conversation.");
     expect(user.content).toContain("Reply 3 gives the opposite (declining, or no) or a short neutral reply");
     expect(user.content).not.toMatch(/alternative/i);
   });

@@ -14,7 +14,9 @@ export const SuggestRequestSchema = z.object({
 
 export type SuggestRequestBody = z.infer<typeof SuggestRequestSchema>;
 
-const ReplyLine = z.object({ reply: z.string().min(1).max(200), notes: z.array(z.string()).default([]) });
+// Trimmed before the length check, so a reply of only spaces is invalid rather than a blank button.
+const ReplyText = z.string().trim().min(1).max(200);
+const ReplyLine = z.object({ reply: ReplyText, notes: z.array(z.string()).default([]) });
 const ReactionsLine = z.object({ reactions: z.array(z.string()).max(4) });
 
 export type ParsedLine =
@@ -22,7 +24,6 @@ export type ParsedLine =
   | { kind: "reactions"; ids: string[] }
   | { kind: "invalid"; raw: string };
 
-const ReplyText = z.string().trim().min(1).max(200);
 const WrapperItem = z.union([
   ReplyText.transform((text) => ({ text, notes: [] as string[] })),
   z.object({ reply: ReplyText, notes: z.array(z.string()).default([]) }).transform((o) => ({ text: o.reply, notes: o.notes })),
