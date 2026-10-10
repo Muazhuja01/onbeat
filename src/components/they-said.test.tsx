@@ -80,8 +80,8 @@ describe("They said", () => {
     expect(screen.getByLabelText("Type a reply")).toHaveFocus();
   });
 
-  it.each([false, true])("leaves focus where it is on mouse down (pill %s), so nothing moves before the click lands", (pill) => {
-    render(<TheySaidButton onOpen={vi.fn()} pill={pill} />);
+  it.each([false, true])("leaves focus where it is on mouse down (compact %s), so nothing moves before the click lands", (compact) => {
+    render(<TheySaidButton onOpen={vi.fn()} compact={compact} />);
     // fireEvent returns false when the default (moving focus) was prevented.
     expect(fireEvent.mouseDown(screen.getByRole("button", { name: "They said" }))).toBe(false);
   });

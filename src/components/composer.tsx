@@ -24,7 +24,8 @@ export function Composer({ value, onChange, onSpeak, onFocusReplies, before }: P
       <label htmlFor="composer" className="typing-quiet text-label text-muted">
         Type a reply
       </label>
-      <div className="flex flex-wrap gap-3">
+      {/* One row on phones, so it keeps the height of the "What they said" box that replaces it. */}
+      <div className="flex flex-wrap gap-3 max-sm:flex-nowrap">
         {before}
         <input
           id="composer"
@@ -42,14 +43,15 @@ export function Composer({ value, onChange, onSpeak, onFocusReplies, before }: P
               onFocusReplies();
             }
           }}
-          className="min-h-14 min-w-32 flex-1 rounded-control border-2 border-muted bg-raised px-4 text-body text-ink placeholder:text-muted"
+          className="min-h-14 min-w-32 flex-1 max-sm:min-w-0 rounded-control border-2 border-muted bg-raised px-4 text-body text-ink placeholder:text-muted"
         />
         <button
           type="submit"
-          className="flex min-h-14 items-center gap-2 rounded-control border-2 border-ink bg-ink px-5 text-body font-bold text-ground transition-[transform] duration-150 active:translate-y-px"
+          className="flex min-h-14 shrink-0 items-center justify-center gap-2 rounded-control border-2 border-ink bg-ink px-5 text-body font-bold text-ground transition-[transform] duration-150 active:translate-y-px max-[24rem]:w-14 max-[24rem]:px-0"
         >
           <SpeakerHigh aria-hidden="true" size={22} weight="bold" />
-          Speak
+          {/* Narrow phones show the speaker only, so the type box keeps room; the name stays "Speak". */}
+          <span className="max-[24rem]:sr-only">Speak</span>
         </button>
       </div>
     </form>

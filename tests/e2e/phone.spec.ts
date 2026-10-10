@@ -24,6 +24,25 @@ test("on a phone the replies and the type box are on screen without scrolling", 
   expect(corners).toEqual(["24px", "0px"]);
 });
 
+test("on a phone the reactions are smaller and share the row with the cue light", async ({ page }) => {
+  await prepare(page);
+  await startWithMaya(page);
+  await theySaid(page, "What size would you like?");
+  await page.getByLabel("Type a reply").blur();
+  // The cue light: its dot and label (a short "Ready" on phones).
+  const cue = await page.locator("#replies > div > span").first().boundingBox();
+  for (const name of ["Mm-hmm", "Thank you"]) {
+    const chip = page.getByRole("button", { name });
+    await expectTappable(chip);
+    const box = (await chip.boundingBox())!;
+    // Smaller than the 48 px used where there is room, and still a comfortable target.
+    expect(box.height).toBeGreaterThanOrEqual(40);
+    expect(box.height).toBeLessThan(48);
+    // On the cue light's row, not wrapped below it.
+    expect(Math.abs(box.y + box.height / 2 - (cue!.y + cue!.height / 2))).toBeLessThan(4);
+  }
+});
+
 test("the reactions step aside while you type, and come back after", async ({ page }) => {
   await prepare(page);
   await startWithMaya(page);
@@ -46,7 +65,7 @@ test("with the keyboard open, their latest line and all three replies still show
   await prepare(page);
   await startWithMaya(page);
   // Enough lines that the thread scrolls, so shrinking it must keep the newest one in view.
-  for (const line of ["Good morning!", "How are you today?", "Anything to eat?", "Would you like that hot or iced, and do you want it in a mug?"]) {
+  for (const line of ["Good morning!", "How are you today?", "Anything to eat?", "Oat milk again?", "For here or to go?", "Would you like that hot or iced, and do you want it in a mug?"]) {
     await theySaid(page, line);
   }
   await expect(page.getByRole("button", { name: "Large, please." })).toBeVisible();
@@ -65,25 +84,59 @@ test("with the keyboard open, their latest line and all three replies still show
   expect(await page.locator("main").evaluate((el) => el.scrollTop)).toBe(0);
 });
 
-test("the They said pill opens the box on the first click while you are typing, and Newest never covers it", async ({ page }) => {
+test("on a phone their latest line shows in full above the tray", async ({ page }) => {
   await prepare(page);
   await startWithMaya(page);
-  for (const line of ["Good morning!", "How are you today?", "Anything to eat?", "Oat milk again?", "For here or to go?", "Is that everything?", "What size would you like?"]) {
-    await theySaid(page, line);
-  }
-  // Read back: Newest appears, next to the pill rather than on it.
-  const list = page.getByRole("list", { name: "Conversation lines" });
-  await list.evaluate((el) => {
-    el.scrollTop = 0;
-    el.dispatchEvent(new Event("scroll"));
-  });
-  await expect(page.getByRole("button", { name: "Newest" })).toBeVisible();
-  const pill = page.getByRole("button", { name: "They said", exact: true });
-  await expectTappable(pill);
+  await theySaid(page, "What size would you like?");
+  await page.getByLabel("Type a reply").blur();
+  await expect(page.getByRole("button", { name: "Large, please." })).toBeVisible();
+  const list = (await page.getByRole("list", { name: "Conversation lines" }).boundingBox())!;
+  const line = (await page.getByRole("listitem").filter({ hasText: "What size would you like?" }).boundingBox())!;
+  expect(line.y, "their line starts inside the thread").toBeGreaterThanOrEqual(list.y - 1);
+  expect(line.y + line.height, "their line ends inside the thread").toBeLessThanOrEqual(list.y + list.height + 1);
+  await expectThreadAboveTray(page);
+});
+
+test("on a phone + They said is a button in the type row, and opens the box on the first click while you are typing", async ({ page }) => {
+  await prepare(page);
+  await startWithMaya(page);
+  await theySaid(page, "What size would you like?");
+  const button = page.locator(".tray").getByRole("button", { name: "They said", exact: true });
+  await expectTappable(button);
+  const box = (await button.boundingBox())!;
+  const typeBox = (await page.getByLabel("Type a reply").boundingBox())!;
+  expect(Math.abs(box.y + box.height / 2 - (typeBox.y + typeBox.height / 2)), "on the type box's row").toBeLessThan(4);
   // Typing hides the reactions; leaving the box brings them back. Neither may make the click miss.
   await page.getByLabel("Type a reply").focus();
-  await pill.click();
+  await button.click();
   await expect(page.getByLabel("What they said")).toBeFocused();
+});
+
+test("on a phone New conversation is in the menu, and asks first", async ({ page }) => {
+  await prepare(page);
+  await startWithMaya(page);
+  await theySaid(page, "What size would you like?");
+  await expect(page.getByRole("button", { name: "New conversation" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Demo: Maya" }).click();
+  const sheet = page.getByRole("dialog", { name: "Demo: Maya" });
+  await sheet.getByRole("button", { name: "New conversation" }).click();
+  await expect(sheet.getByText("Clear this conversation? It isn't saved anywhere.")).toBeVisible();
+  await sheet.getByRole("button", { name: "Cancel" }).click();
+  await expect(sheet.getByRole("button", { name: "New conversation" })).toBeFocused();
+  await sheet.getByRole("button", { name: "New conversation" }).click();
+  await sheet.getByRole("button", { name: "Clear" }).click();
+  await expect(sheet).toBeHidden();
+  await expect(page.getByText("Ready when you are")).toBeVisible();
+  // Like any sheet, focus goes back to the button that opened it.
+  await expect(page.getByRole("button", { name: "Demo: Maya" })).toBeFocused();
+});
+
+test("on a phone the replies are 20 px", async ({ page }) => {
+  await prepare(page);
+  await startWithMaya(page);
+  await theySaid(page, "What size would you like?");
+  const size = await page.getByRole("button", { name: "Large, please." }).getByText("Large, please.").evaluate((el) => getComputedStyle(el).fontSize);
+  expect(size).toBe("20px");
 });
 
 for (const width of [390, 320]) {
