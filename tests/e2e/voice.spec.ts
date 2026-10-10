@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { prepare } from "./helpers";
+import { prepare, settle } from "./helpers";
 
 const WCAG = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 const rates = (page: Page) => page.evaluate(() => (window as unknown as { __rates: number[] }).__rates);
@@ -20,6 +20,7 @@ test("choose a voice in setup, hear a sample, change it later", async ({ page })
   await page.goto("/");
   await setUp(page, "Tom", async (p) => {
     await expect(p.getByRole("heading", { name: "How should your voice sound?" })).toBeVisible();
+    await settle(p);
     expect((await new AxeBuilder({ page: p }).withTags(WCAG).analyze()).violations).toEqual([]);
     await p.getByRole("radio", { name: "Male", exact: true }).check();
     await p.getByRole("radio", { name: "Faster" }).check();

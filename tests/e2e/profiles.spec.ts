@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { prepare, theySaid } from "./helpers";
+import { prepare, theySaid, settle } from "./helpers";
 
 const WCAG = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 
@@ -117,12 +117,15 @@ for (const theme of [undefined, "dark", "contrast"]) {
     await prepare(page, theme);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto("/");
+    await settle(page);
     expect((await new AxeBuilder({ page }).withTags(WCAG).analyze()).violations).toEqual([]);
     await setUp(page, "Priya");
     await menu(page, "Priya").click();
+    await settle(page);
     expect((await new AxeBuilder({ page }).withTags(WCAG).analyze()).violations).toEqual([]);
     await page.getByRole("button", { name: "Your notes" }).click();
     await page.getByRole("button", { name: "Add notes from a document" }).click();
+    await settle(page);
     expect((await new AxeBuilder({ page }).withTags(WCAG).analyze()).violations).toEqual([]);
   });
 }

@@ -90,3 +90,13 @@ export async function expectThreadAboveTray(page: Page) {
   const tray = await page.locator(".tray").boundingBox();
   expect(list && tray && list.y + list.height <= tray.y + 1, `thread ${JSON.stringify(list)} overlaps tray ${JSON.stringify(tray)}`).toBe(true);
 }
+
+/**
+ * Waits until one-off animations and transitions, such as a new reply fading in, have finished,
+ * so axe checks the colours people see rather than a frame halfway through a fade.
+ */
+export async function settle(page: Page) {
+  await page.waitForFunction(() =>
+    document.getAnimations().every((a) => a.playState !== "running" || a.effect?.getComputedTiming().iterations === Infinity),
+  );
+}

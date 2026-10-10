@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { expectTappable, expectThreadAboveTray, prepare, startWithMaya, theySaid } from "./helpers";
+import { expectTappable, expectThreadAboveTray, prepare, startWithMaya, theySaid, settle } from "./helpers";
 
 test("a partner line produces checked replies that can be spoken", async ({ page }) => {
   await prepare(page);
@@ -28,6 +28,7 @@ test("New conversation clears the screen after asking", async ({ page }) => {
 
   await page.getByRole("button", { name: "New conversation" }).click();
   await expect(page.getByText("Clear this conversation? It isn't saved anywhere.")).toBeVisible();
+  await settle(page);
   const asking = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
   expect(asking.violations).toEqual([]);
 
@@ -65,12 +66,14 @@ for (const theme of [undefined, "dark", "contrast"]) {
     await prepare(page, theme);
     await page.goto("/");
     await page.getByRole("button", { name: "Try a demo first" }).click();
+    await settle(page);
     const picker = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
     expect(picker.violations).toEqual([]);
 
     await page.getByRole("button", { name: /^Maya/ }).click();
     await theySaid(page, "What size would you like?");
     await expect(page.locator("#replies").getByText("Replies ready")).toBeVisible();
+    await settle(page);
     const conversation = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
     expect(conversation.violations).toEqual([]);
   });
@@ -100,6 +103,7 @@ test("the settings panel passes axe in every theme", async ({ page }) => {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   for (const name of ["Light", "Dark", "High contrast"]) {
     await page.getByRole("radio", { name }).check();
+    await settle(page);
     const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
     expect(result.violations, name).toEqual([]);
   }

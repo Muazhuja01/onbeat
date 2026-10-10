@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { prepare } from "./helpers";
+import { prepare, settle } from "./helpers";
 
 const WCAG = ["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"];
 
@@ -43,6 +43,7 @@ test("prepare an appointment, keep the cards, see the phrases with that person",
   });
   await setUp(page);
   await openAssistant(page);
+  await settle(page);
   expect((await new AxeBuilder({ page }).withTags(WCAG).analyze()).violations).toEqual([]);
   await page.getByRole("button", { name: "Prepare for an appointment" }).click();
   // In the page, not the screen-reader announcement of the same words.
@@ -52,11 +53,13 @@ test("prepare an appointment, keep the cards, see the phrases with that person",
   for (const name of ["Keep: Thursday 8 October", "Keep: Dr. Chen", "Keep: I get dizzy", "Keep: Please write it down"]) {
     await page.getByRole("button", { name: new RegExp(`^${name}`) }).click();
   }
+  await settle(page);
   expect((await new AxeBuilder({ page }).withTags(WCAG).analyze()).violations).toEqual([]);
   await page.getByRole("button", { name: "Close" }).click();
   await page.getByLabel("Talking with").selectOption({ label: "Dr. Chen" });
   const row = page.getByRole("group", { name: "Your phrases" });
   await expect(row.getByRole("button", { name: "I get dizzy in the mornings." })).toBeVisible();
+  await settle(page);
   expect((await new AxeBuilder({ page }).withTags(WCAG).analyze()).violations).toEqual([]);
 });
 
