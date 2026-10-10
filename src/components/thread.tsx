@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowDown, Info, SpeakerHigh, Stop } from "@phosphor-icons/react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Turn } from "@/lib/types";
 import { primaryButton, quietButton, secondaryButton } from "./ui";
 
@@ -23,11 +23,9 @@ interface Props {
   onStop?: () => void;
   /** Clears the screen for the next conversation; asked about first. */
   onNewConversation?: () => void;
-  /** Shown at the bottom on their side, such as "+ They said" on phones. */
-  footer?: ReactNode;
 }
 
-export function Thread({ turns, partnerName, partial = "", speaking = null, waiting = false, lineNotes = {}, onStop, onNewConversation, footer }: Props) {
+export function Thread({ turns, partnerName, partial = "", speaking = null, waiting = false, lineNotes = {}, onStop, onNewConversation }: Props) {
   const list = useRef<HTMLOListElement>(null);
   const [confirming, setConfirming] = useState(false);
   const newButton = useRef<HTMLButtonElement>(null);
@@ -112,7 +110,8 @@ export function Thread({ turns, partnerName, partial = "", speaking = null, wait
 
   return (
     <section aria-labelledby="conversation-heading" className="-m-1.5 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-1.5">
-      <div className="typing-hide flex shrink-0 flex-wrap items-center justify-between gap-3">
+      {/* On phones only the heading is kept, for screen readers: New conversation is in the menu there. */}
+      <div className="typing-hide flex shrink-0 flex-wrap items-center justify-between gap-3 max-sm:sr-only">
         <h2 id="conversation-heading" className="text-label font-bold text-muted">
           Conversation
         </h2>
@@ -157,7 +156,6 @@ export function Thread({ turns, partnerName, partial = "", speaking = null, wait
             Press <strong className="text-ink">Listen</strong> and their words will show up here in large text. You can also type them with{" "}
             <strong className="text-ink">+ They said</strong>.
           </p>
-          {footer}
         </div>
       ) : (
         <>
@@ -228,7 +226,6 @@ export function Thread({ turns, partnerName, partial = "", speaking = null, wait
               </button>
             )}
           </div>
-          {footer}
         </>
       )}
     </section>

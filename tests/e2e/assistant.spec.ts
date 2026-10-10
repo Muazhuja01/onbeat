@@ -45,7 +45,8 @@ test("prepare an appointment, keep the cards, see the phrases with that person",
   await openAssistant(page);
   expect((await new AxeBuilder({ page }).withTags(WCAG).analyze()).violations).toEqual([]);
   await page.getByRole("button", { name: "Prepare for an appointment" }).click();
-  await expect(page.getByText("Who is the appointment with, and when?")).toBeVisible();
+  // In the page, not the screen-reader announcement of the same words.
+  await expect(page.getByRole("main").getByText("Who is the appointment with, and when?")).toBeVisible();
   await page.getByLabel("Or type what you need").fill("Dr. Chen, my family doctor, Thursday at 10:00 about my blood pressure. I get dizzy in the mornings.");
   await page.keyboard.press("Enter");
   for (const name of ["Keep: Thursday 8 October", "Keep: Dr. Chen", "Keep: I get dizzy", "Keep: Please write it down"]) {

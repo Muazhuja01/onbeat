@@ -30,6 +30,8 @@ interface Props {
   compact?: boolean;
   /** Phones: Settings lives in this menu instead of behind a gear. */
   onSettings?: () => void;
+  /** Phones: New conversation lives in this menu, asked about first. Left out when there is nothing to clear. */
+  onNewConversation?: () => void;
 }
 
 const item = `${secondaryButton} w-full text-left`;
@@ -38,7 +40,7 @@ export function ProfileMenu(props: Props) {
   const { profiles, activeId, demoName } = props;
   const id = useId();
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"list" | "rename" | "delete">("list");
+  const [mode, setMode] = useState<"list" | "rename" | "delete" | "clear">("list");
   const [draftName, setDraftName] = useState("");
   const toggleRef = useRef<HTMLButtonElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -49,13 +51,14 @@ export function ProfileMenu(props: Props) {
   // Named in full here: a visually hidden span next to the name gets a stray space before its comma in Chromium.
   const toggleName = count > 0 ? `${label}, ${count} suggested ${count === 1 ? "note" : "notes"}` : undefined;
 
-  // Going back from rename or delete puts focus on the button that opened that step.
+  // Going back from a step puts focus on the button that opened it.
   const renameButton = useRef<HTMLButtonElement>(null);
   const deleteButton = useRef<HTMLButtonElement>(null);
-  const backFrom = useRef<"rename" | "delete" | null>(null);
+  const clearButton = useRef<HTMLButtonElement>(null);
+  const backFrom = useRef<"rename" | "delete" | "clear" | null>(null);
   useEffect(() => {
     if (mode !== "list" || backFrom.current === null) return;
-    (backFrom.current === "rename" ? renameButton : deleteButton).current?.focus();
+    ({ rename: renameButton, delete: deleteButton, clear: clearButton })[backFrom.current].current?.focus();
     backFrom.current = null;
   }, [mode]);
   const back = () => {
@@ -188,6 +191,18 @@ export function ProfileMenu(props: Props) {
               </button>
             </div>
           </form>
+        ) : mode === "clear" && props.onNewConversation ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-body font-bold">Clear this conversation? It isn&apos;t saved anywhere.</p>
+            <div className="flex flex-wrap gap-3">
+              <button type="button" onClick={() => act(props.onNewConversation!)} className={primaryButton}>
+                Clear
+              </button>
+              <button type="button" onClick={back} autoFocus className={secondaryButton}>
+                Cancel
+              </button>
+            </div>
+          </div>
         ) : mode === "delete" && active ? (
           <div className="flex flex-col gap-3">
             <p className="text-body">
@@ -204,6 +219,11 @@ export function ProfileMenu(props: Props) {
           </div>
         ) : (
           <>
+            {props.onNewConversation && (
+              <button ref={clearButton} type="button" onClick={() => setMode("clear")} className={item}>
+                New conversation
+              </button>
+            )}
             {demoName && (
               <>
                 <button type="button" onClick={() => act(props.onNew)} className={primaryButton}>

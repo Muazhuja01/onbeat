@@ -26,7 +26,7 @@ interface Props {
 export const ReplyList = forwardRef<HTMLElement, Props>(function ReplyList({ replies, reserve = false, speaking, status, onSpeak, onStop, aside, below }, ref) {
   return (
     <section ref={ref} id="replies" tabIndex={-1} aria-labelledby="replies-heading" className="flex flex-col gap-3 outline-none">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 max-sm:gap-x-3">
         <h2 id="replies-heading" className="sr-only">
           Replies
         </h2>
@@ -61,7 +61,7 @@ export const ReplyList = forwardRef<HTMLElement, Props>(function ReplyList({ rep
                     {isSpeaking ? <Stop weight="fill" size={16} /> : i + 1}
                   </span>
                   <span className="flex min-w-0 flex-col">
-                    <span className="text-reply font-semibold break-words">{reply.text}</span>
+                    <span className="text-reply font-semibold break-words max-sm:text-body">{reply.text}</span>
                     {reply.source === "phrase" && !isSpeaking && <span className="text-label text-muted">From your phrases</span>}
                     {isSpeaking && <span className="text-label font-bold">Speaking. Tap to stop.</span>}
                   </span>

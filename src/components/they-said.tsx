@@ -3,8 +3,8 @@
 import { Plus } from "@phosphor-icons/react";
 import { useState } from "react";
 
-/** Opens the box for typing what the other person said. `pill` is the small version on their side of the thread (phones). */
-export function TheySaidButton({ onOpen, pill = false }: { onOpen: () => void; pill?: boolean }) {
+/** Opens the box for typing what the other person said. `compact` is a square + button, so the type box keeps its width on phones. */
+export function TheySaidButton({ onOpen, compact = false }: { onOpen: () => void; compact?: boolean }) {
   return (
     <button
       type="button"
@@ -12,14 +12,12 @@ export function TheySaidButton({ onOpen, pill = false }: { onOpen: () => void; p
       // Focus stays in "Type a reply" until the click lands: on phones, leaving it brings the reactions back
       // and moves this button between mouse down and up.
       onMouseDown={(e) => e.preventDefault()}
-      className={
-        pill
-          ? "flex min-h-12 items-center gap-2 self-start rounded-full border-2 border-partner/40 bg-surface px-4 text-label font-bold text-partner"
-          : "flex min-h-14 shrink-0 items-center gap-2 rounded-control border-2 border-edge bg-raised px-4 text-label font-bold text-muted transition-[border-color] duration-150 hover:border-ink"
-      }
+      className={`flex min-h-14 shrink-0 items-center gap-2 rounded-control border-2 border-edge bg-raised text-label font-bold text-muted transition-[border-color] duration-150 hover:border-ink ${
+        compact ? "w-14 justify-center" : "px-4"
+      }`}
     >
-      <Plus aria-hidden="true" size={18} weight="bold" />
-      They said
+      <Plus aria-hidden="true" size={compact ? 22 : 18} weight="bold" />
+      <span className={compact ? "sr-only" : undefined}>They said</span>
     </button>
   );
 }

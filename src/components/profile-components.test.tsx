@@ -270,6 +270,28 @@ describe("ProfileMenu", () => {
     expect(onSettings).toHaveBeenCalled();
   });
 
+  it("offers New conversation when asked, as on phones, and asks before clearing", async () => {
+    const onNewConversation = vi.fn();
+    render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} {...handlers()} compact onSettings={vi.fn()} onNewConversation={onNewConversation} />);
+    const toggle = screen.getByRole("button", { name: "Maya" });
+    await userEvent.click(toggle);
+    await userEvent.click(screen.getByRole("button", { name: "New conversation" }));
+    expect(screen.getByText("Clear this conversation? It isn't saved anywhere.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onNewConversation).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "New conversation" })).toHaveFocus();
+    await userEvent.click(screen.getByRole("button", { name: "New conversation" }));
+    await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(onNewConversation).toHaveBeenCalled();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("leaves New conversation out unless asked", async () => {
+    render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} {...handlers()} compact onSettings={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Maya" }));
+    expect(screen.queryByRole("button", { name: "New conversation" })).toBeNull();
+  });
+
   it("opens as a sheet from the bottom on phones, and closes on Escape", async () => {
     render(<ProfileMenu profiles={profiles} activeId="a" demoName={null} {...handlers()} compact onSettings={vi.fn()} />);
     const toggle = screen.getByRole("button", { name: "Maya" });

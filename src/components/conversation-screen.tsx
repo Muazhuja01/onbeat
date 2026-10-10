@@ -667,6 +667,7 @@ function Screen() {
                 onAssistant={demo || !ASSISTANT_ENABLED ? undefined : openAssistant}
                 compact={!wide}
                 onSettings={wide ? undefined : () => setSettingsOpen(true)}
+                onNewConversation={!wide && inConversation && conversationStarted ? newConversation : undefined}
               />
             )}
             {(wide || !showMenu) && <SettingsButton onOpen={() => setSettingsOpen(true)} />}
@@ -804,8 +805,7 @@ function Screen() {
             waiting={voiceWaiting}
             lineNotes={state.lineNotes}
             onStop={stop}
-            onNewConversation={newConversation}
-            footer={!wide && !theySaidOpen ? <TheySaidButton pill onOpen={openTheySaid} /> : undefined}
+            onNewConversation={wide ? newConversation : undefined}
           />
           <Tray>
             <ReplyList
@@ -828,7 +828,7 @@ function Screen() {
                 onChange={(text) => dispatch({ type: "typed", text })}
                 onSpeak={speak}
                 onFocusReplies={focusReplies}
-                before={wide ? <TheySaidButton onOpen={openTheySaid} /> : undefined}
+                before={<TheySaidButton compact={!wide} onOpen={openTheySaid} />}
               />
             </div>
             <div className="typing-hide">
