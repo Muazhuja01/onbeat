@@ -31,19 +31,6 @@ export function splitLine(text: string, max: number): string[] {
   return parts;
 }
 
-/** The parts' clips as one. */
-function joinClips(clips: { samples: Float32Array; sampleRate: number }[]): { samples: Float32Array; sampleRate: number } {
-  const { sampleRate } = clips[0];
-  if (clips.some((c) => c.sampleRate !== sampleRate)) throw new Error("parts at different sample rates");
-  const samples = new Float32Array(clips.reduce((n, c) => n + c.samples.length, 0));
-  let at = 0;
-  for (const c of clips) {
-    samples.set(c.samples, at);
-    at += c.samples.length;
-  }
-  return { samples, sampleRate };
-}
-
 export interface RouterDeps {
   kokoro: WorkerLike | null;
   /** Resolves with a WAV clip; rejects with SpeakError(status) for an HTTP error, anything else for a network failure or abort. */
@@ -89,6 +76,8 @@ export class VoiceRouter implements WorkerLike {
   /** Lines sent to Chatterbox and not answered yet, with when each gives up. */
   private inFlight = new Map<number, InFlight>();
   private waking: Promise<void> | null = null;
+  /** Lines Kokoro is making only the rest of, after Chatterbox sent their first parts: which parts the clip covers. */
+  private rests = new Map<number, { from: number; to: number; of: number }>();
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly deps: RouterDeps) {
@@ -251,20 +240,27 @@ export class VoiceRouter implements WorkerLike {
     const wait = (job.urgent ? (this.deps.lineWaitMs ?? 6000) : (this.deps.preparedWaitMs ?? 25_000)) * parts.length;
     const f: InFlight = { job, parts: parts.length, ctrl, deadline: Date.now() + wait, timer: setTimeout(() => ctrl.abort(), wait) };
     this.inFlight.set(job.id, f);
+    // How many parts have been sent.
+    let sent = 0;
     try {
       // One part after another: asking for the next at once could start a second, cold, server.
-      const clips = [];
-      for (const text of parts) clips.push(decodeWav(await this.deps.speak({ text, voice: job.voice, speed: job.speed }, ctrl.signal)));
-      const { samples, sampleRate } = joinClips(clips);
-      this.failures = 0;
-      this.lastLineAt = Date.now();
-      this.post({ type: "audio", id: job.id, samples, sampleRate });
+      for (const text of parts) {
+        const { samples, sampleRate } = decodeWav(await this.deps.speak({ text, voice: job.voice, speed: job.speed }, ctrl.signal));
+        this.failures = 0;
+        this.lastLineAt = Date.now();
+        // Each part goes as soon as it is made, so a long line starts playing while the rest is made.
+        const part = parts.length > 1 ? { part: { from: sent, to: sent + 1, of: parts.length } } : {};
+        this.post({ type: "audio", id: job.id, samples, sampleRate, ...part });
+        sent++;
+      }
     } catch (err) {
       const aboutTheRequest = err instanceof SpeakError && err.status >= 400 && err.status < 500;
       const down = !aboutTheRequest && ++this.failures >= 2;
       // f.job, not job: the line may have become urgent while it was in flight. It goes to Kokoro
-      // before the prepared lines that were waiting behind it.
-      this.viaKokoro(f.job);
+      // before the prepared lines that were waiting behind it. Parts already sent may be playing:
+      // Kokoro makes only the rest.
+      if (sent === 0) this.viaKokoro(f.job);
+      else this.viaKokoro({ ...f.job, text: parts.slice(sent).join(" ") }, { from: sent, to: parts.length, of: parts.length });
       if (down) this.setDown();
     } finally {
       clearTimeout(f.timer);
@@ -274,12 +270,13 @@ export class VoiceRouter implements WorkerLike {
     }
   }
 
-  /** Kokoro makes one line at a time; the line being said goes first. */
-  private viaKokoro(job: Generate): void {
+  /** Kokoro makes one line at a time; the line being said goes first. `rest`: the job is the rest of a line, covering these parts. */
+  private viaKokoro(job: Generate, rest?: { from: number; to: number; of: number }): void {
     if (!this.deps.kokoro || this.kokoroFailed) {
       this.post({ type: "error", id: job.id, message: "No backup voice" });
       return;
     }
+    if (rest) this.rests.set(job.id, rest);
     if (job.urgent) this.kokoroQueue.unshift(job);
     else this.kokoroQueue.push(job);
     this.nextKokoro();
@@ -311,7 +308,9 @@ export class VoiceRouter implements WorkerLike {
         // Only the line Kokoro was given: nothing is answered twice.
         if (msg.id !== this.kokoroBusy?.id) return;
         this.kokoroBusy = null;
-        this.post({ ...msg, backup: true });
+        const part = this.rests.get(msg.id);
+        this.rests.delete(msg.id);
+        this.post({ ...msg, backup: true, ...(part ? { part } : {}) });
         this.nextKokoro();
         return;
       case "error":
@@ -320,10 +319,14 @@ export class VoiceRouter implements WorkerLike {
           const lost = [...(this.kokoroBusy ? [this.kokoroBusy] : []), ...this.kokoroQueue];
           this.kokoroBusy = null;
           this.kokoroQueue = [];
-          for (const job of lost) this.post({ type: "error", id: job.id, message: msg.message });
+          for (const job of lost) {
+            this.rests.delete(job.id);
+            this.post({ type: "error", id: job.id, message: msg.message });
+          }
           this.noVoiceLeft();
         } else if (msg.id === this.kokoroBusy?.id) {
           this.kokoroBusy = null;
+          this.rests.delete(msg.id);
           this.post(msg);
           this.nextKokoro();
         }

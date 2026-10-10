@@ -63,3 +63,32 @@ test("when the voice server fails a line, the device voice says it and the scree
   await expect.poll(() => spoken(page)).toContain("Hello there");
   await expect(page.getByText("Said in your device's voice: yours wasn't ready in time.")).toBeVisible();
 });
+
+test("a long line starts playing once its first part is made, while the rest is still being made", async ({ page }) => {
+  await prepare(page);
+  const texts: string[] = [];
+  let release: () => void = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  await page.route("**/api/speak**", async (route) => {
+    if (route.request().url().includes("warm=1")) return route.fulfill({ status: 204 });
+    texts.push(route.request().postDataJSON().text);
+    // The second part isn't made until the test says so.
+    if (texts.length === 2) await held;
+    return route.fulfill({ status: 200, contentType: "audio/wav", body: silence() });
+  });
+  await page.goto("/");
+  await setUpTom(page);
+  await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("button", { name: "Finish" }).click();
+  const sentence = `${"Word ".repeat(23)}words.`;
+  await page.getByLabel("Type a reply").fill([sentence, sentence, sentence].join(" "));
+  await page.keyboard.press("Enter");
+  await expect.poll(() => texts.length).toBe(2);
+  // Playing already: the bubble says Speaking, not that it is waiting for your voice.
+  await expect(page.getByText("Speaking", { exact: true })).toBeVisible();
+  await expect(page.getByText("Getting your voice ready…")).toHaveCount(0);
+  release();
+  await expect(page.getByText("Speaking", { exact: true })).toHaveCount(0);
+  expect(texts).toHaveLength(2);
+  expect(await spoken(page)).toEqual([]);
+});
