@@ -184,20 +184,31 @@ describe("VoiceRouter", () => {
     expect(types(t.got)).not.toContain("source:down");
   });
 
-  it("a line over 300 characters is made by Chatterbox in parts split at sentences, played as one clip", async () => {
-    const t = setUp();
+  it("a line over 300 characters is made by Chatterbox in parts split at sentences, each sent as soon as it is made", async () => {
+    const held = heldSpeak();
+    const t = setUp({ speak: held.speak });
     await awake(t);
     t.gen(1, LONG, true);
-    await vi.waitFor(() => expect(t.got.at(-1)).toMatchObject({ type: "audio", id: 1, sampleRate: 24000 }));
-    const parts = t.speak.mock.calls.map(([req]) => req.text);
-    expect(parts.length).toBeGreaterThan(1);
-    expect(parts.every((p) => p.length <= 300)).toBe(true);
-    expect(parts.join(" ")).toBe(LONG);
-    // Each part's clip is 4 samples: one clip with all of them, in order.
-    const audio = t.got.at(-1) as Extract<VoiceWorkerMessage, { type: "audio" }>;
-    expect(audio.samples).toHaveLength(4 * parts.length);
-    expect(audio).not.toHaveProperty("backup");
+    const of = splitLine(LONG, 300).length;
+    expect(of).toBeGreaterThan(1);
+    for (let i = 0; i < of; i++) {
+      await vi.waitFor(() => expect(held.calls).toHaveLength(i + 1));
+      held.calls[i].resolve(wav());
+      // Sent before the next part is asked for, so it can play while the rest is made.
+      await vi.waitFor(() => expect(t.got.at(-1)).toMatchObject({ type: "audio", id: 1, sampleRate: 24000, part: { from: i, to: i + 1, of } }));
+    }
+    expect(held.texts().every((p) => p.length <= 300)).toBe(true);
+    expect(held.texts().join(" ")).toBe(LONG);
+    expect(t.got.filter((m) => m.type === "audio").every((m) => !("backup" in m))).toBe(true);
     expect(t.kokoro.gens()).toHaveLength(0);
+  });
+
+  it("a short line is still sent whole", async () => {
+    const t = setUp();
+    await awake(t);
+    t.gen(1, "Large, please.", true);
+    await vi.waitFor(() => expect(t.got.at(-1)).toMatchObject({ type: "audio", id: 1 }));
+    expect(t.got.at(-1)).not.toHaveProperty("part");
   });
 
   it("makes the parts one after another, so a second cold server isn't started", async () => {
@@ -225,19 +236,49 @@ describe("VoiceRouter", () => {
     expect(t.kokoro.gens().map((g) => g.text)).toEqual([LONG]);
   });
 
-  it("when a part of a long line fails, the whole line goes to Kokoro once", async () => {
+  it("when a long line's first part fails, the whole line goes to Kokoro once", async () => {
     const held = heldSpeak();
     const t = setUp({ speak: held.speak });
     t.kokoro.auto = true;
     await awake(t);
     t.gen(1, LONG, true);
     await vi.waitFor(() => expect(held.calls).toHaveLength(1));
-    held.calls[0].resolve(wav());
-    await vi.waitFor(() => expect(held.calls).toHaveLength(2));
-    held.calls[1].reject(new SpeakError(503));
+    held.calls[0].reject(new SpeakError(503));
     await vi.waitFor(() => expect(answered(t.got)).toEqual([1]));
     expect(t.kokoro.gens().map((g) => g.text)).toEqual([LONG]);
     expect(t.got.find((m) => m.type === "audio")).toMatchObject({ backup: true });
+    expect(t.got.find((m) => m.type === "audio")).not.toHaveProperty("part");
+  });
+
+  it("when a later part fails, only the rest goes to Kokoro, sent as the closing piece", async () => {
+    const held = heldSpeak();
+    const t = setUp({ speak: held.speak });
+    t.kokoro.auto = true;
+    await awake(t);
+    t.gen(1, LONG, true);
+    const parts = splitLine(LONG, 300);
+    await vi.waitFor(() => expect(held.calls).toHaveLength(1));
+    held.calls[0].resolve(wav());
+    await vi.waitFor(() => expect(held.calls).toHaveLength(2));
+    held.calls[1].reject(new SpeakError(503));
+    await vi.waitFor(() => expect(answered(t.got)).toEqual([1, 1]));
+    expect(t.kokoro.gens().map((g) => g.text)).toEqual([parts.slice(1).join(" ")]);
+    const audio = t.got.filter((m) => m.type === "audio");
+    expect(audio[0]).toMatchObject({ part: { from: 0, to: 1, of: parts.length } });
+    expect(audio[0]).not.toHaveProperty("backup");
+    expect(audio[1]).toMatchObject({ backup: true, part: { from: 1, to: parts.length, of: parts.length } });
+  });
+
+  it("when a later part fails and there is no backup, the line is answered with an error after its first piece", async () => {
+    const held = heldSpeak();
+    const t = setUp({ speak: held.speak, kokoro: null });
+    await awake(t);
+    t.gen(1, LONG, true);
+    await vi.waitFor(() => expect(held.calls).toHaveLength(1));
+    held.calls[0].resolve(wav());
+    await vi.waitFor(() => expect(held.calls).toHaveLength(2));
+    held.calls[1].reject(new SpeakError(503));
+    await vi.waitFor(() => expect(t.got.filter((m) => m.type === "audio" || m.type === "error").map((m) => m.type)).toEqual(["audio", "error"]));
   });
 
   it("an empty clip from the server is a failed line, not silence", async () => {

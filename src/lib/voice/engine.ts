@@ -19,7 +19,12 @@ export interface BasicSpeech {
 /** One line spoken in a different voice and speed, leaving the current voice alone. */
 export type VoiceOverride = { voice: string; speed: number };
 type Clip = { samples: Float32Array; sampleRate: number; backup?: boolean };
-type Entry = { id: number; promise: Promise<Clip>; value?: Clip };
+/**
+ * A line's clips, in order. A long line's arrive a piece at a time, so it can start before the rest
+ * is made: `parts` grows as they come, `covered` counts the line's parts they cover, and `value` is
+ * set once the line is complete. `changed` is told when a piece arrives or the line fails.
+ */
+type Entry = { id: number; promise: Promise<Clip[]>; value?: Clip[]; parts: Clip[]; covered: number; failed: boolean; changed: Set<() => void> };
 type Job = { id: number; key: string; text: string; voice: string; speed: number; urgent: boolean };
 /**
  * start/end are replies (what the user said); sampleStart/sampleEnd are voice samples.
@@ -60,22 +65,6 @@ export interface VoiceEngineDeps {
   parallel?: number;
 }
 
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(null), ms);
-    p.then(
-      (v) => {
-        clearTimeout(timer);
-        resolve(v);
-      },
-      () => {
-        clearTimeout(timer);
-        resolve(null);
-      },
-    );
-  });
-}
-
 export class VoiceEngine {
   mode: VoiceMode = "loading";
   source: VoiceSource = "waking";
@@ -93,7 +82,7 @@ export class VoiceEngine {
     backup: new Set(),
   };
   private clips = new Map<string, Entry>();
-  private pending = new Map<number, { resolve: (c: Clip) => void; reject: (e: Error) => void }>();
+  private pending = new Map<number, { entry: Entry; resolve: (c: Clip[]) => void; reject: (e: Error) => void }>();
   /** Clips not yet sent to the worker. It has limited room, so what is said next goes first. */
   private queue: Job[] = [];
   /** The clips the worker is making now, by id. */
@@ -177,20 +166,37 @@ export class VoiceEngine {
     this.emit(now.sample ? "sampleStart" : "start", t);
     try {
       const natural = this.mode === "natural";
-      let clip: Clip | null = null;
+      let entry: Entry | null = null;
       if (natural) {
-        const entry = this.clip(t, as, true);
+        entry = this.clip(t, as, true);
         // The sample picker shows its own "Preparing sample".
-        if (!entry.value && !now.sample) this.setWaiting(true);
-        clip = entry.value ?? (await withTimeout(entry.promise, waitMs));
+        if (entry.parts.length === 0 && !now.sample) this.setWaiting(true);
+        if (!(await this.nextPart(entry, 0, waitMs))) entry = null;
       }
       if (token !== this.token) return;
       this.setWaiting(false);
-      if (clip) {
-        if (clip.backup && !now.sample && this.source !== "down") this.emit("backup", t);
-        await this.deps.audio.play(clip.samples, clip.sampleRate);
-      }
-      else {
+      if (entry) {
+        let toldBackup = false;
+        for (let i = 0; ; i++) {
+          const clip = entry.parts[i];
+          if (clip.backup && !toldBackup && !now.sample && this.source !== "down") {
+            toldBackup = true;
+            this.emit("backup", t);
+          }
+          await this.deps.audio.play(clip.samples, clip.sampleRate);
+          if (token !== this.token) return;
+          if (entry.value && i + 1 >= entry.value.length) break;
+          // The next piece of a long line is usually made long before this one ends.
+          const more = await this.nextPart(entry, i + 1, this.deps.naturalWaitMs ?? REPLY_WAIT_MS);
+          if (token !== this.token) return;
+          if (!more) {
+            // The rest couldn't be made: the device voice says it, and the screen says so.
+            if (!now.sample) this.emit("fallback", t);
+            await this.deps.basic.speak(splitLine(t, MAX_LINE).slice(entry.covered).join(" "), as?.speed ?? this.deps.speed());
+            break;
+          }
+        }
+      } else {
         // Not silent: the screen says the device voice said it instead.
         if (natural && !now.sample) this.emit("fallback", t);
         await this.deps.basic.speak(t, as?.speed ?? this.deps.speed());
@@ -201,6 +207,34 @@ export class VoiceEngine {
         this.emit(now.sample ? "sampleEnd" : "end", t);
       }
     }
+  }
+
+  /** Resolves true once the line has piece `i`, false if it fails, ends without it or `ms` pass first. */
+  private nextPart(entry: Entry, i: number, ms: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const finish = (ok: boolean) => {
+        clearTimeout(timer);
+        entry.changed.delete(check);
+        resolve(ok);
+      };
+      const check = () => {
+        if (entry.parts.length > i) finish(true);
+        else if (entry.failed || entry.value) finish(false);
+      };
+      const timer = setTimeout(() => finish(false), ms);
+      entry.changed.add(check);
+      check();
+    });
+  }
+
+  /** The line can't be made: its promise rejects and anything waiting for a piece stops waiting. */
+  private fail(id: number, err: Error): void {
+    const p = this.pending.get(id);
+    if (!p) return;
+    this.pending.delete(id);
+    p.entry.failed = true;
+    p.reject(err);
+    for (const cb of [...p.entry.changed]) cb();
   }
 
   private emit<K extends keyof Events>(event: K, value: Events[K]): void {
@@ -245,9 +279,10 @@ export class VoiceEngine {
       return existing;
     }
     const id = this.nextId++;
-    const entry = { id } as Entry;
-    entry.promise = new Promise<Clip>((resolve, reject) =>
+    const entry = { id, parts: [], covered: 0, failed: false, changed: new Set<() => void>() } as Partial<Entry> as Entry;
+    entry.promise = new Promise<Clip[]>((resolve, reject) =>
       this.pending.set(id, {
+        entry,
         // Set at once, so a line said right after its clip arrives doesn't wait a tick.
         resolve: (value) => resolve((entry.value = value)),
         reject,
@@ -280,8 +315,7 @@ export class VoiceEngine {
   /** Takes a clip the worker hasn't started off the queue. */
   private drop(job: Job): void {
     this.queue = this.queue.filter((j) => j !== job);
-    this.pending.get(job.id)?.reject(new Error("dropped"));
-    this.pending.delete(job.id);
+    this.fail(job.id, new Error("dropped"));
   }
 
   /** A clip finished or failed: the worker has room for the next one. */
@@ -299,25 +333,32 @@ export class VoiceEngine {
         this.emit("progress", msg.value);
         return;
       case "audio": {
+        const last = !msg.part || msg.part.to >= msg.part.of;
         const p = this.pending.get(msg.id);
-        this.pending.delete(msg.id);
-        p?.resolve({ samples: msg.samples, sampleRate: msg.sampleRate, ...(msg.backup ? { backup: true } : {}) });
-        this.settled(msg.id);
+        if (p) {
+          const { entry } = p;
+          entry.parts.push({ samples: msg.samples, sampleRate: msg.sampleRate, ...(msg.backup ? { backup: true } : {}) });
+          entry.covered = msg.part?.to ?? Number.POSITIVE_INFINITY;
+          if (last) {
+            this.pending.delete(msg.id);
+            p.resolve([...entry.parts]);
+          }
+          for (const cb of [...entry.changed]) cb();
+        }
+        // A long line keeps its place with the worker until its last piece.
+        if (last) this.settled(msg.id);
         return;
       }
       case "error": {
         if (msg.id === undefined) {
           this.setMode("basic");
-          for (const p of this.pending.values()) p.reject(new Error(msg.message));
-          this.pending.clear();
+          for (const id of [...this.pending.keys()]) this.fail(id, new Error(msg.message));
           this.clips.clear();
           this.queue = [];
           this.busy.clear();
           return;
         }
-        const p = this.pending.get(msg.id);
-        this.pending.delete(msg.id);
-        p?.reject(new Error(msg.message));
+        this.fail(msg.id, new Error(msg.message));
         this.settled(msg.id);
         return;
       }
@@ -326,7 +367,7 @@ export class VoiceEngine {
         this.emit("source", msg.source);
         if (msg.source === "awake") {
           // Never replay a backup clip once the chosen voice is available.
-          for (const [key, entry] of this.clips) if (entry.value?.backup) this.clips.delete(key);
+          for (const [key, entry] of this.clips) if (entry.value?.some((c) => c.backup)) this.clips.delete(key);
           this.prepareReplies(this.lastReplies);
         }
         return;

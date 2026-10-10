@@ -151,6 +151,114 @@ describe("VoiceEngine", () => {
     }
   });
 
+  describe("a line made in parts", () => {
+    // Three sentences of 120 characters: two parts of at most 300.
+    const sentence = `${"Word ".repeat(23)}words.`;
+    const long = [sentence, sentence, sentence].join(" ");
+
+    function started() {
+      const w = new FakeWorker();
+      const a = fakeAudio();
+      const b = fakeBasic();
+      const v = new VoiceEngine({ ...deps(w, a.audio, b.basic), naturalWaitMs: 5000 });
+      v.load();
+      w.emit({ type: "ready" });
+      return { w, a, b, v };
+    }
+
+    it("starts as soon as its first part arrives, and plays the parts in order", async () => {
+      const { w, a, b, v } = started();
+      const waiting: boolean[] = [];
+      v.on("waiting", (on) => waiting.push(on));
+      const done = v.speak(long);
+      const id = w.lastGenerate().id;
+      w.emit({ type: "audio", id, samples: new Float32Array(5), sampleRate: 24000, part: { from: 0, to: 1, of: 2 } });
+      await vi.waitFor(() => expect(a.played).toEqual([5]));
+      expect(waiting).toEqual([true, false]);
+      // The next part arrives while the first is playing, and follows it.
+      w.emit({ type: "audio", id, samples: new Float32Array(7), sampleRate: 24000, part: { from: 1, to: 2, of: 2 } });
+      a.finish();
+      await vi.waitFor(() => expect(a.played).toEqual([5, 7]));
+      a.finish();
+      await done;
+      expect(b.spoken).toEqual([]);
+    });
+
+    it("waits for a part that isn't ready when the one before ends", async () => {
+      const { w, a, v } = started();
+      const done = v.speak(long);
+      const id = w.lastGenerate().id;
+      w.emit({ type: "audio", id, samples: new Float32Array(5), sampleRate: 24000, part: { from: 0, to: 1, of: 2 } });
+      await vi.waitFor(() => expect(a.played).toEqual([5]));
+      a.finish();
+      await new Promise((r) => setTimeout(r, 10));
+      expect(a.played).toEqual([5]);
+      w.emit({ type: "audio", id, samples: new Float32Array(7), sampleRate: 24000, part: { from: 1, to: 2, of: 2 } });
+      await vi.waitFor(() => expect(a.played).toEqual([5, 7]));
+      a.finish();
+      await done;
+    });
+
+    it("says the rest in the device voice when the rest can't be made, and says so", async () => {
+      const { w, a, b, v } = started();
+      const fellBack: string[] = [];
+      v.on("fallback", (t) => fellBack.push(t));
+      const done = v.speak(long);
+      const id = w.lastGenerate().id;
+      w.emit({ type: "audio", id, samples: new Float32Array(5), sampleRate: 24000, part: { from: 0, to: 1, of: 2 } });
+      await vi.waitFor(() => expect(a.played).toEqual([5]));
+      w.emit({ type: "error", id, message: "No backup voice" });
+      a.finish();
+      await done;
+      // Only what wasn't said yet, not the whole line again.
+      expect(b.spoken).toEqual([sentence]);
+      expect(fellBack).toEqual([long]);
+    });
+
+    it("tells when the rest came from the backup voice", async () => {
+      const { w, a, v } = started();
+      const backup: string[] = [];
+      v.on("backup", (t) => backup.push(t));
+      const done = v.speak(long);
+      const id = w.lastGenerate().id;
+      w.emit({ type: "audio", id, samples: new Float32Array(5), sampleRate: 24000, part: { from: 0, to: 1, of: 2 } });
+      await vi.waitFor(() => expect(a.played).toEqual([5]));
+      w.emit({ type: "audio", id, samples: new Float32Array(9), sampleRate: 24000, backup: true, part: { from: 1, to: 2, of: 2 } });
+      a.finish();
+      await vi.waitFor(() => expect(a.played).toEqual([5, 9]));
+      a.finish();
+      await done;
+      expect(backup).toEqual([long]);
+    });
+
+    it("plays all its parts from the cache when said again", async () => {
+      const { w, a, v } = started();
+      v.prepare(long);
+      const id = w.lastGenerate().id;
+      w.emit({ type: "audio", id, samples: new Float32Array(5), sampleRate: 24000, part: { from: 0, to: 1, of: 2 } });
+      w.emit({ type: "audio", id, samples: new Float32Array(7), sampleRate: 24000, part: { from: 1, to: 2, of: 2 } });
+      const done = v.speak(long);
+      await vi.waitFor(() => expect(a.played).toEqual([5]));
+      a.finish();
+      await vi.waitFor(() => expect(a.played).toEqual([5, 7]));
+      a.finish();
+      await done;
+      expect(w.sent.filter((m) => m.type === "generate")).toHaveLength(1);
+    });
+
+    it("stops between parts when you press Stop", async () => {
+      const { w, a, v } = started();
+      const done = v.speak(long);
+      const id = w.lastGenerate().id;
+      w.emit({ type: "audio", id, samples: new Float32Array(5), sampleRate: 24000, part: { from: 0, to: 1, of: 2 } });
+      w.emit({ type: "audio", id, samples: new Float32Array(7), sampleRate: 24000, part: { from: 1, to: 2, of: 2 } });
+      await vi.waitFor(() => expect(a.played).toEqual([5]));
+      v.stop();
+      await done;
+      expect(a.played).toEqual([5]);
+    });
+  });
+
   it("waits for the chosen voice instead of using the device voice, and says it is waiting", async () => {
     const w = new FakeWorker();
     const a = fakeAudio();
